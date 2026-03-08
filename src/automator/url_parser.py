@@ -28,7 +28,7 @@ def is_local_path(source: str) -> bool:
 
 def _validate_audio_length(value: str | None) -> bool:
     """audio_length のバリデーション."""
-    return value is None or value in ("short", "long")
+    return value is None or value in ("short", "default")
 
 
 def parse_url_file(

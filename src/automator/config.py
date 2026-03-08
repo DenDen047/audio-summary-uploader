@@ -21,7 +21,7 @@ class NotebookLMConfig:
         if self.backend not in valid_backends:
             msg = f"Invalid backend: {self.backend!r}. Must be one of {valid_backends}"
             raise ValueError(msg)
-        valid_lengths = {"short", "long", "default"}
+        valid_lengths = {"short", "default"}
         if self.audio_length not in valid_lengths:
             msg = (
                 f"Invalid audio_length: {self.audio_length!r}."

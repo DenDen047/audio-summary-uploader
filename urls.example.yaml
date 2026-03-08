@@ -6,7 +6,7 @@
   prompt: paper_summary
 
 - url: https://newsletter.example.com/issue-42
-  audio_length: long
+  audio_length: default
 
 # ローカル PDF ファイルも指定可能
 - url: ~/Documents/papers/interesting-paper.pdf

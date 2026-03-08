@@ -2,7 +2,7 @@
 notebooklm:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
-  audio_length: "short"     # グローバルデフォルト: "short" | "long" | "default"
+  audio_length: "short"     # グローバルデフォルト: "short" | "default"
   generation_timeout_seconds: 600
   generation_poll_interval_seconds: 10
 
