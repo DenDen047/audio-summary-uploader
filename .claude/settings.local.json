@@ -20,7 +20,8 @@
       "Bash(curl:*)",
       "Bash(uv pip install:*)",
       "Bash(uv sync:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebSearch"
     ]
   }
 }

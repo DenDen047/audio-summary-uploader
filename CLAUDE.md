@@ -2,6 +2,9 @@
 
 ## Project Overview
 
+NotebookLM → YouTube 自動化パイプライン。URL リストから NotebookLM で音声要約を生成し、YouTube にアップロードする CLI ツール。
+詳細仕様: `specs/SPEC.md`
+
 ## Commands
 
 ```bash
@@ -9,25 +12,11 @@
 uv add <package>            # Install a new dependency
 uv sync                     # Install all dependencies from lockfile
 
+# Python commands
+uv run python <file>      # Run a Python file
+
 # Lint
 ruff check .
-```
-
-## Environment Strategy
-
-3つの環境を使い分ける。Docker とホスト venv は同等構成を目指すが、二重管理コストは許容する。
-
-| 環境 | 用途 | ネイティブ拡張 |
-|------|------|---------------|
-| **ホスト uv venv** | データ生成（Step 1-4）、小規模学習・推論、BlenderProc | 段階的に追加 |
-| **Docker** (`denden047/synchuman`) | 推論・学習の動作確認（フル構成） | flash-attn, spconv 等を含む |
-| **レンタル GPU サーバー** | 本格学習（H200 等）| Docker イメージと同等構成 |
-
-
-```bash
-# Docker
-docker compose up -d --build
-docker exec -it [container_name] bash
 ```
 
 ## Code Style
@@ -39,20 +28,15 @@ docker exec -it [container_name] bash
 - **Python**: 3.11 (`.python-version`), type hints throughout.
 - **Spec-Code Consistency**: Specs (`specs/`) and code must always match. When implementing from a spec, follow it exactly. When modifying code that has a corresponding spec, update the spec in the same change. When modifying a spec, update the code in the same change. If a conflict is found between spec and code, stop and ask the user which is correct before proceeding.
 
-### Data Directory Convention
+### Directory Structure
 
 ```
-data/
-├── 01_raw/          # Input images and raw 3D meshes ({subject_id}.glb)
-├── 02_intermediate/ # Normalized GLB files
-├── 03_primary/      # Rendered multiview images & masks (8 views + face crop)
-├── 04_feature/      # Voxel occupancy grids (voxels.npz / voxels.ply)
-├── 05_model_input/  # metadata.json, train_list.txt, val_list.txt
-├── 07_model_output/ # Pipeline inference outputs
-└── 08_reporting/    # Timing/performance logs (JSON)
+src/automator/       # メインパッケージ
+specs/               # 仕様書
+tmp/                 # 一時ファイル（audio, thumbnails, videos）
+credentials/         # OAuth トークン等（.gitignore 対象）
+config/              # settings.yaml
 ```
-
-Training data pipeline: `01_raw → 02_intermediate → 03_primary → 04_feature → 05_model_input`
 
 ## Claude Code Skills
 
