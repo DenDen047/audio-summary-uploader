@@ -1,0 +1,76 @@
+# NotebookLM 設定
+notebooklm:
+  backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
+  audio_language: "ja"
+  audio_length: "default"   # グローバルデフォルト: "short" | "long" | "default"
+  generation_timeout_seconds: 600
+  generation_poll_interval_seconds: 10
+
+  prompt_presets:
+    default: >
+      この内容を日本語で要約してポッドキャスト形式で説明してください。
+      専門用語は必要に応じて英語のまま使ってください。
+    deep_dive: >
+      - 解説は日本語でお願いします。
+      - 言葉遣いは敬語
+      - リスナーは社員2人のIT企業の経営者兼エンジニアです。主にAIや機械学習の業務を請け負っています。
+      - リスナーは30代男性で、趣味はアニメや漫画、映画です。
+      - リスナーは、生物模倣とコンピュータビジョンで博士号を取得していますが、数学は少し苦手なので、基本的には理工学部の学生程度の知識しかありません。
+      - 関連した複雑な数学的な概念もわかりやすく解説してください。
+      - 対象の研究分野の全体感やトレンドにも触れてください。
+      - また使える知識として印象に残るように、想像力を刺激するような工夫してください。
+      - ポッドキャスト風に論文を解説してください。
+      - 具体的なアルゴリズムについては、具体的な説明とともに、直感的にそのキーアイディアがわかる形で解説してください。
+      - また基礎的な手法や有名な技術が使われている場合は、その手法の本質的性質がどのように論文中の手法で機能しているかを解説してください。
+      - リスナーは研究者なので、似た手法との類似点や相違点についても解説してください。
+      - リスナーは下記の基本概念については理解しているので説明は必要ないです。
+        - Neural Radiance Fields (NeRF)
+        - 3D Gaussian Splatting (3DGS)
+        - Diffusion Model (拡散モデル) for image
+        - SMPL model
+        - Low-Rank Adaptation (LoRA)
+        - Ablation study
+        - ベクトル検索
+        - ill-posed problem (不良設定問題)
+        - signed distance function (SDF)
+        - Mixture-of-Experts (MoE)
+
+# YouTube 設定
+youtube:
+  privacy_status: "public"
+  category_id: "27"              # Education
+  playlist_id: null
+  title_prefix: "🎧"
+  title_max_length: 95
+  default_tags:
+    - "NotebookLM"
+    - "Audio Summary"
+    - "AI"
+    - "音声要約"
+  daily_upload_limit: 5
+
+# サムネイル設定
+thumbnail:
+  width: 1280
+  height: 720
+  overlay_opacity: 0.5
+  font_name: "NotoSansJP-Bold"
+  title_font_size_max: 60
+  title_font_size_min: 32
+  subtitle_font_size: 24
+  text_color: "#FFFFFF"
+  fallback_gradient:
+    start: "#1a1a2e"
+    end: "#16213e"
+
+# 認証情報パス
+credentials:
+  youtube_client_secret: "./credentials/youtube_client_secret.json"
+  youtube_token: "./credentials/youtube_token.json"
+
+# 一般設定
+general:
+  tmp_dir: "./tmp"
+  state_file: "./state.json"
+  max_retries: 3
+  retry_backoff_base: 2
