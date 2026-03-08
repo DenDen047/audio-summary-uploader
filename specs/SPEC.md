@@ -20,7 +20,7 @@
 |---|---|
 | NotebookLM アカウント | Google Workspace（会社契約）のアカウント |
 | YouTube アカウント | 個人の Google アカウント（YouTube チャンネル） |
-| 実行環境 | macOS または Linux（Python 3.10+） |
+| 実行環境 | macOS または Linux（Python 3.11+） |
 | NotebookLM 操作方法 | Phase 1: `notebooklm-py`（非公式 CLI）、Phase 2: Playwright |
 
 ---
@@ -34,7 +34,7 @@ urls.yaml                 (入力: URL + per-URL 設定)
     │
     ▼
 ┌─────────────────────────────────────────────────┐
-│  notebooklm-youtube-automator (Python CLI)      │
+│  audio-summary-uploader (Python CLI)             │
 │                                                 │
 │  1. URL パーサー                                 │
 │     └─ urls.yaml を読み込み、UrlEntry リストを生成 │
@@ -68,10 +68,9 @@ urls.yaml                 (入力: URL + per-URL 設定)
 ### 2.2 ディレクトリ構成
 
 ```
-notebooklm-youtube-automator/
+audio-summary-uploader/
 ├── pyproject.toml
 ├── README.md
-├── .env.example                  # 環境変数テンプレート
 ├── config/
 │   └── settings.yaml             # アプリ設定
 ├── credentials/
@@ -93,8 +92,6 @@ notebooklm-youtube-automator/
 │       ├── video.py              # FFmpeg による動画変換
 │       ├── youtube.py            # YouTube API 操作
 │       └── report.py             # 結果レポート生成
-├── templates/
-│   └── thumbnail_base.png        # サムネイルベーステンプレート
 ├── fonts/
 │   └── NotoSansJP-Bold.ttf       # 日本語フォント（サムネイル用）
 ├── tests/
@@ -137,7 +134,48 @@ $ automator auth notebooklm
 $ automator status
 ```
 
-### 3.2 URL パーサー (`url_parser.py`)
+### 3.2 設定読み込み (`config.py`)
+
+**実装方針:**
+- `settings.yaml` を `PyYAML` で読み込み、`dataclass` にマッピング
+- 設定値のバリデーションは `dataclass` の `__post_init__` で実施
+- 環境変数による上書きは行わない（`settings.yaml` を Single Source of Truth とする）
+
+```python
+@dataclass
+class NotebookLMConfig:
+    backend: str = "notebooklm-py"
+    audio_language: str = "ja"
+    audio_length: str = "default"
+    generation_timeout_seconds: int = 600
+    generation_poll_interval_seconds: int = 10
+    prompt_presets: dict[str, str] = field(default_factory=dict)
+
+@dataclass
+class YouTubeConfig:
+    privacy_status: str = "public"
+    category_id: str = "27"
+    playlist_id: str | None = None
+    title_prefix: str = "🎧"
+    title_max_length: int = 95
+    default_tags: list[str] = field(default_factory=list)
+    daily_upload_limit: int = 5
+
+@dataclass
+class CredentialsConfig:
+    youtube_client_secret: str = "./credentials/youtube_client_secret.json"
+    youtube_token: str = "./credentials/youtube_token.json"
+
+@dataclass
+class Settings:
+    notebooklm: NotebookLMConfig
+    youtube: YouTubeConfig
+    credentials: CredentialsConfig
+    thumbnail: ThumbnailConfig
+    general: GeneralConfig
+```
+
+### 3.3 URL パーサー (`url_parser.py`)
 
 **入力形式:** YAML ファイル（URL リスト + per-URL 設定）
 
@@ -173,7 +211,7 @@ class UrlEntry:
 
 **出力:** `list[UrlEntry]` — 有効な URL エントリのリスト
 
-### 3.3 メタデータ取得 (`metadata.py`)
+### 3.4 メタデータ取得 (`metadata.py`)
 
 各 URL から OGP (Open Graph Protocol) メタデータを取得する。
 
@@ -196,7 +234,7 @@ class PageMetadata:
 - タイムアウト: 10秒
 - User-Agent を適切に設定
 
-### 3.4 NotebookLM 操作 (`notebooklm.py` + バックエンド)
+### 3.5 NotebookLM 操作 (`notebooklm.py` + バックエンド)
 
 **抽象インターフェース（Strategy パターン）:**
 
@@ -270,7 +308,7 @@ class NotebookLMBackend(ABC):
 - 生成完了までポーリング（10秒間隔、最大タイムアウト10分）
 - 生成ステータスが「完了」になったらダウンロード
 
-### 3.5 サムネイル生成 (`thumbnail.py`)
+### 3.6 サムネイル生成 (`thumbnail.py`)
 
 YouTube のサムネイル画像（1280×720px）を生成する。
 
@@ -309,7 +347,7 @@ YouTube のサムネイル画像（1280×720px）を生成する。
 
 **実装:** `Pillow` (PIL)
 
-### 3.6 動画変換 (`video.py`)
+### 3.7 動画変換 (`video.py`)
 
 YouTube は音声のみのアップロードに対応していないため、静止画+音声で動画ファイルを作成する。
 
@@ -329,7 +367,7 @@ ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
 - 音声ビットレート: 192kbps
 - FFmpeg がインストールされていない場合はエラーメッセージを表示
 
-### 3.7 YouTube アップロード (`youtube.py`)
+### 3.8 YouTube アップロード (`youtube.py`)
 
 **認証フロー（初回セットアップ）:**
 1. Google Cloud Console で OAuth 2.0 クライアント ID を作成
@@ -357,7 +395,7 @@ class YouTubeUploadParams:
 
 **YouTube タイトルの形式:**
 ```
-🎧 {記事タイトル（最大90文字に切り詰め）}
+{settings.youtube.title_prefix} {記事タイトル（settings.youtube.title_max_length 文字に切り詰め）}
 ```
 
 **YouTube 説明文テンプレート:**
@@ -372,7 +410,7 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
   プロンプト: {prompt_preset_name}（"default" / "deep_dive"）
 
 ---
-この動画は notebooklm-youtube-automator で自動生成されました。
+この動画は audio-summary-uploader で自動生成されました。
 ```
 
 - `audio_length` / `prompt_preset_name` には実際に使用された値（per-URL 指定 or settings.yaml デフォルト）を記載する
@@ -391,7 +429,19 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 - デフォルトクォータ 10,000/日 → 1日あたり最大5本
 - クォータ残量チェックを実装（超過時は翌日に持ち越し）
 
-### 3.8 パイプラインオーケストレーション (`pipeline.py`)
+### 3.9 パイプラインオーケストレーション (`pipeline.py`)
+
+**async の扱い:**
+- NotebookLM バックエンドの操作（ネットワーク I/O）: `async` ネイティブ
+- メタデータ取得（httpx）: `async` ネイティブ
+- サムネイル生成（Pillow、CPU バウンド）: `asyncio.to_thread` でラップ
+- 動画変換（FFmpeg サブプロセス）: `asyncio.create_subprocess_exec` で非同期実行
+- YouTube アップロード（google-api-python-client、同期ライブラリ）: `asyncio.to_thread` でラップ
+
+**slug 生成ルール:**
+- URL の SHA-256 ハッシュの先頭 12 文字を使用
+- 例: `https://arxiv.org/abs/2401.12345` → `a1b2c3d4e5f6`
+- 一意性を担保しつつ、ファイル名として安全な文字列を生成
 
 **処理フロー（1 URL あたり）:**
 
@@ -455,17 +505,20 @@ async def process_single_url(entry: UrlEntry) -> ProcessResult:
 ```
 
 **エラーハンドリング:**
-- 各ステップで例外をキャッチし、ログに記録
-- 1つの URL が失敗しても他の URL の処理は継続
-- リトライ: 最大3回（指数バックオフ）
+
+CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分ける:
+
+- **URL 間**: 1つの URL が失敗しても他の URL の処理は継続（catch & continue）
+- **URL 内の各ステップ**: Fail Fast。予期しないエラーは即座にその URL の処理を中断し、次の URL へ進む
+- **リトライ対象**: ネットワークエラーなど一時的な障害のみ（最大3回、指数バックオフ）。ロジックエラーやバリデーションエラーはリトライしない
 - 最終的な結果レポートに成功/失敗を記録
 
 **並列処理:**
 - NotebookLM の Audio Overview 生成は時間がかかるため、基本的には直列処理
 - ただし、メタデータ取得やサムネイル生成は並列化可能
-- YouTube のクォータ制限を考慮し、1日6本を超えないよう制御
+- YouTube のクォータ制限を考慮し、1日5本を超えないよう制御（`settings.yaml` の `daily_upload_limit` に従う）
 
-### 3.9 状態管理
+### 3.10 状態管理
 
 処理の再開やスキップのために、状態ファイルを管理する。
 
@@ -478,12 +531,16 @@ async def process_single_url(entry: UrlEntry) -> ProcessResult:
       "url": "https://example.com/article-1",
       "notebook_id": "abc123",
       "youtube_url": "https://youtu.be/xyz789",
+      "audio_length": "default",
+      "prompt": "default",
       "status": "success",
       "processed_at": "2026-03-08T12:05:00Z"
     },
     {
       "url": "https://example.com/article-2",
       "notebook_id": "def456",
+      "audio_length": "short",
+      "prompt": "deep_dive",
       "status": "failed",
       "error": "Audio generation timeout",
       "processed_at": "2026-03-08T12:10:00Z"
@@ -496,7 +553,7 @@ async def process_single_url(entry: UrlEntry) -> ProcessResult:
 - 処理済み URL はスキップ（`--force` で上書き可能）
 - 失敗した URL は `--retry-failed` で再処理可能
 
-### 3.10 結果レポート (`report.py`)
+### 3.11 結果レポート (`report.py`)
 
 処理完了後にターミナルに結果を出力する。
 
@@ -574,6 +631,11 @@ thumbnail:
     start: "#1a1a2e"
     end: "#16213e"
 
+# 認証情報パス
+credentials:
+  youtube_client_secret: "./credentials/youtube_client_secret.json"
+  youtube_token: "./credentials/youtube_token.json"
+
 # 一般設定
 general:
   tmp_dir: "./tmp"
@@ -582,16 +644,9 @@ general:
   retry_backoff_base: 2          # 指数バックオフの底（秒）
 ```
 
-### 4.2 `.env.example`
+### 4.2 認証情報パス
 
-```bash
-# NotebookLM (notebooklm-py) 認証
-# notebooklm-py の認証方式に従って設定（詳細は README 参照）
-
-# YouTube API
-YOUTUBE_CLIENT_SECRET_PATH=./credentials/youtube_client_secret.json
-YOUTUBE_TOKEN_PATH=./credentials/youtube_token.json
-```
+認証情報のパスは `settings.yaml` の `credentials` セクションで一元管理する。`.env` ファイルは使用しない。
 
 ---
 
@@ -599,7 +654,7 @@ YOUTUBE_TOKEN_PATH=./credentials/youtube_token.json
 
 | カテゴリ | 技術 | バージョン | 用途 |
 |---|---|---|---|
-| 言語 | Python | 3.10+ | メイン言語 |
+| 言語 | Python | 3.11+ | メイン言語 |
 | CLI フレームワーク | Click | 8.x | コマンドライン |
 | NotebookLM 操作 (Phase 1) | notebooklm-py | latest | 非公式 CLI/SDK |
 | NotebookLM 操作 (Phase 2) | Playwright | latest | ブラウザ自動化 |
@@ -639,14 +694,10 @@ sudo apt install ffmpeg
 
 ```bash
 # リポジトリクローン後
-cd notebooklm-youtube-automator
+cd audio-summary-uploader
 
-# 仮想環境の作成と依存関係インストール
-uv venv
-uv pip install -e .
-
-# 環境変数の設定
-cp .env.example .env
+# 依存関係のインストール（.venv は uv が自動作成）
+uv sync
 ```
 
 ### 6.3 NotebookLM 認証（notebooklm-py）
@@ -725,7 +776,7 @@ automator auth youtube
 
 ### 8.2 YouTube 関連
 
-- デフォルトのアップロードクォータは 1日10,000ユニット（約6動画/日）
+- デフォルトのアップロードクォータは 1日10,000ユニット（安全マージン込みで最大5動画/日）
 - クォータ増加申請には Google の審査が必要（数日〜数週間）
 - カスタムサムネイルの設定にはチャンネルの電話番号認証が必要
 - 著作権のある素材をそのまま使う場合は注意が必要
