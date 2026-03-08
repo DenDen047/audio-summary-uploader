@@ -4,7 +4,7 @@
 
 ### 1.1 目的
 
-ユーザーが URL リストをテキストファイルに記載するだけで、以下が自動実行される CLI ツールを構築する。
+ユーザーが URL リストを YAML ファイルに記載するだけで、以下が自動実行される CLI ツールを構築する。各 URL に音声の長さやプロンプトプリセットを個別指定することも可能。
 
 1. NotebookLM でノートブックを作成し、URL をソースとして追加
 2. 日本語の Audio Overview（ポッドキャスト形式の音声要約）を生成
@@ -12,7 +12,7 @@
 
 ### 1.2 ユーザーストーリー
 
-> 英語の論文やニュース記事の URL をテキストファイルに貼り付けて CLI コマンドを実行すると、数分後に YouTube の自分のチャンネルに日本語の音声要約がアップロードされている。移動中やスキマ時間に YouTube アプリで聴ける。
+> 英語の論文やニュース記事の URL を YAML ファイルに記載して CLI コマンドを実行すると、数分後に YouTube の自分のチャンネルに日本語の音声要約がアップロードされている。URL ごとに音声の長さや解説スタイルを変えることもできる。移動中やスキマ時間に YouTube アプリで聴ける。
 
 ### 1.3 前提条件
 
@@ -30,14 +30,14 @@
 ### 2.1 全体フロー
 
 ```
-urls.txt                  (入力: 1行1URL)
+urls.yaml                 (入力: URL + per-URL 設定)
     │
     ▼
 ┌─────────────────────────────────────────────────┐
 │  notebooklm-youtube-automator (Python CLI)      │
 │                                                 │
 │  1. URL パーサー                                 │
-│     └─ urls.txt を読み込み、URL リストを生成       │
+│     └─ urls.yaml を読み込み、UrlEntry リストを生成 │
 │                                                 │
 │  2. メタデータ取得                                │
 │     └─ 各 URL から OGP 情報を取得                 │
@@ -119,10 +119,10 @@ Click ベースの CLI インターフェース。
 
 ```
 # 基本実行
-$ automator run urls.txt
+$ automator run urls.yaml
 
 # ドライラン（NotebookLM/YouTube操作を実行しない）
-$ automator run urls.txt --dry-run
+$ automator run urls.yaml --dry-run
 
 # 特定のURLだけ処理
 $ automator run-single "https://example.com/article"
@@ -139,26 +139,39 @@ $ automator status
 
 ### 3.2 URL パーサー (`url_parser.py`)
 
-**入力形式:** テキストファイル（1行に1URL）
+**入力形式:** YAML ファイル（URL リスト + per-URL 設定）
 
+```yaml
+# urls.yaml — URL だけ書けばデフォルト設定で動作
+- url: https://arxiv.org/abs/2401.12345
+
+- url: https://example.com/article
+  audio_length: short
+  prompt: deep_dive
+
+- url: https://newsletter.example.com/issue-42
+  audio_length: long
 ```
-# urls.txt の例
-# コメント行（#始まり）はスキップ
-# 空行もスキップ
 
-https://arxiv.org/abs/2401.12345
-https://www.example.com/news/article-1
-https://newsletter.example.com/issue-42
+**データモデル:**
+
+```python
+@dataclass
+class UrlEntry:
+    url: str
+    audio_length: str | None = None   # "short" or "long", None = settings.yaml のデフォルトを使用
+    prompt: str | None = None         # プリセット名 ("default", "deep_dive"), None = "default" プリセットを使用
 ```
 
 **処理内容:**
-- ファイルを読み込み、行ごとにパース
-- `#` で始まる行と空行をスキップ
+- YAML ファイルを読み込み、各エントリをパース
 - URL のバリデーション（`urllib.parse` で基本チェック）
+- `audio_length` の値バリデーション（`"short"` / `"long"` / `None` のみ許可）
+- `prompt` の値バリデーション（`settings.yaml` の `prompt_presets` に定義されたキーのみ許可）
 - 重複 URL の除去
 - 処理済み URL のスキップ（状態ファイルとの照合）
 
-**出力:** `list[str]` — 有効な URL のリスト
+**出力:** `list[UrlEntry]` — 有効な URL エントリのリスト
 
 ### 3.3 メタデータ取得 (`metadata.py`)
 
@@ -203,9 +216,20 @@ class NotebookLMBackend(ABC):
 
     @abstractmethod
     async def generate_audio(
-        self, notebook_id: str, language: str = "ja", instructions: str = ""
+        self,
+        notebook_id: str,
+        language: str = "ja",
+        instructions: str = "",
+        audio_length: str | None = None,
     ) -> str:
-        """Audio Overview を生成し、audio_id を返す"""
+        """Audio Overview を生成し、audio_id を返す
+
+        Args:
+            notebook_id: ノートブック ID
+            language: 音声の言語
+            instructions: プリセットから解決されたプロンプト文字列
+            audio_length: "short" or "long", None の場合は settings.yaml のデフォルトを使用
+        """
         ...
 
     @abstractmethod
@@ -224,10 +248,23 @@ class NotebookLMBackend(ABC):
 - NotebookLM の Web UI を操作してノートブック作成・音声生成
 
 **Audio Overview 生成時の指示テキスト:**
+
+`settings.yaml` の `prompt_presets` から、`UrlEntry.prompt`（デフォルト: `"default"`）に対応するプリセットを解決して `instructions` に渡す。
+
 ```
+# prompt_presets.default の場合:
 この内容を日本語で要約してポッドキャスト形式で説明してください。
 専門用語は必要に応じて英語のまま使ってください。
+
+# prompt_presets.deep_dive の場合:
+この内容を日本語で深く掘り下げて解説してください。
+背景知識や関連する概念も含めて、詳細に議論してください。
+専門用語は必要に応じて英語のまま使ってください。
 ```
+
+**音声の長さ:**
+
+`UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `notebooklm.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` の場合は NotebookLM のデフォルト動作に委ねる。
 
 **音声生成の待機:**
 - 生成完了までポーリング（10秒間隔、最大タイムアウト10分）
@@ -309,12 +346,13 @@ ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
 class YouTubeUploadParams:
     file_path: Path               # mp4 ファイルパス
     title: str                    # "[Audio Summary] {記事タイトル}"
-    description: str              # 元記事の説明 + URL
+    description: str              # 元記事の説明 + URL + 生成条件
     tags: list[str]               # ["NotebookLM", "Audio Summary", "AI", ...]
     category_id: str = "27"       # Education カテゴリ
     privacy_status: str = "public"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
+    playlist_id: str | None = None  # 追加先プレイリスト ID
 ```
 
 **YouTube タイトルの形式:**
@@ -329,20 +367,28 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 📄 元記事: {URL}
 📰 ソース: {サイト名}
 
+🔧 生成条件
+  音声の長さ: {audio_length}（"short" / "long" / "default"）
+  プロンプト: {prompt_preset_name}（"default" / "deep_dive"）
+
 ---
 この動画は notebooklm-youtube-automator で自動生成されました。
 ```
 
+- `audio_length` / `prompt_preset_name` には実際に使用された値（per-URL 指定 or settings.yaml デフォルト）を記載する
+
 **アップロード手順:**
 1. `videos.insert` で動画をアップロード（resumable upload）
 2. `thumbnails.set` でカスタムサムネイルを設定
-3. アップロード後の YouTube URL を返却
+3. `playlist_id` が指定されている場合、`playlistItems.insert` で動画をプレイリストに追加
+4. アップロード後の YouTube URL を返却
 
 **クォータ管理:**
 - `videos.insert` = 1,600 ユニット
 - `thumbnails.set` = 50 ユニット
-- 1URLあたり合計 ≈ 1,650 ユニット
-- デフォルトクォータ 10,000/日 → 1日あたり最大6本
+- `playlistItems.insert` = 50 ユニット
+- 1URLあたり合計 ≈ 1,700 ユニット
+- デフォルトクォータ 10,000/日 → 1日あたり最大5本
 - クォータ残量チェックを実装（超過時は翌日に持ち越し）
 
 ### 3.8 パイプラインオーケストレーション (`pipeline.py`)
@@ -350,9 +396,9 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 **処理フロー（1 URL あたり）:**
 
 ```python
-async def process_single_url(url: str) -> ProcessResult:
+async def process_single_url(entry: UrlEntry) -> ProcessResult:
     # 1. メタデータ取得
-    metadata = await fetch_metadata(url)
+    metadata = await fetch_metadata(entry.url)
 
     # 2. NotebookLM でノートブック作成
     notebook_id = await notebooklm.create_notebook(
@@ -360,42 +406,52 @@ async def process_single_url(url: str) -> ProcessResult:
     )
 
     # 3. ソース追加
-    await notebooklm.add_source(notebook_id, url)
+    await notebooklm.add_source(notebook_id, entry.url)
 
-    # 4. Audio Overview 生成（日本語）
+    # 4. プロンプトプリセットを解決
+    prompt_text = resolve_prompt_preset(entry.prompt)  # None → "default" プリセット
+
+    # 5. audio_length を解決（per-URL 指定 > settings.yaml デフォルト）
+    audio_length = entry.audio_length or settings.notebooklm.audio_length
+
+    # 6. Audio Overview 生成（日本語）
     await notebooklm.generate_audio(
         notebook_id,
         language="ja",
-        instructions="この内容を日本語で要約してポッドキャスト形式で説明してください。"
+        instructions=prompt_text,
+        audio_length=audio_length,
     )
 
-    # 5. 音声ダウンロード
+    # 7. 音声ダウンロード
     audio_path = await notebooklm.download_audio(
         notebook_id,
         output_path=tmp_dir / f"{slug}.mp3"
     )
 
-    # 6. サムネイル生成
+    # 8. サムネイル生成
     thumbnail_path = await generate_thumbnail(
         metadata=metadata,
         output_path=tmp_dir / f"{slug}_thumb.png"
     )
 
-    # 7. 動画変換
+    # 9. 動画変換
     video_path = await convert_to_video(
         audio_path=audio_path,
         thumbnail_path=thumbnail_path,
         output_path=tmp_dir / f"{slug}.mp4"
     )
 
-    # 8. YouTube アップロード
+    # 10. YouTube アップロード
     youtube_url = await upload_to_youtube(
         video_path=video_path,
         metadata=metadata,
         thumbnail_path=thumbnail_path,
+        playlist_id=settings.youtube.playlist_id,
+        audio_length=audio_length,
+        prompt_preset_name=entry.prompt or "default",
     )
 
-    return ProcessResult(url=url, youtube_url=youtube_url, status="success")
+    return ProcessResult(url=entry.url, youtube_url=youtube_url, status="success")
 ```
 
 **エラーハンドリング:**
@@ -477,16 +533,24 @@ async def process_single_url(url: str) -> ProcessResult:
 notebooklm:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
-  audio_instructions: >
-    この内容を日本語で要約してポッドキャスト形式で説明してください。
-    専門用語は必要に応じて英語のまま使ってください。
+  audio_length: "default"   # グローバルデフォルト: "short" | "long" | "default"
   generation_timeout_seconds: 600    # Audio Overview 生成のタイムアウト
   generation_poll_interval_seconds: 10
+
+  prompt_presets:
+    default: >
+      この内容を日本語で要約してポッドキャスト形式で説明してください。
+      専門用語は必要に応じて英語のまま使ってください。
+    deep_dive: >
+      この内容を日本語で深く掘り下げて解説してください。
+      背景知識や関連する概念も含めて、詳細に議論してください。
+      専門用語は必要に応じて英語のまま使ってください。
 
 # YouTube 設定
 youtube:
   privacy_status: "public"
   category_id: "27"              # Education
+  playlist_id: null              # アップロード先プレイリスト ID（null = プレイリストに追加しない）
   title_prefix: "🎧"
   title_max_length: 95
   default_tags:
@@ -494,7 +558,7 @@ youtube:
     - "Audio Summary"
     - "AI"
     - "音声要約"
-  daily_upload_limit: 6          # クォータ制限に基づく安全マージン
+  daily_upload_limit: 5          # クォータ制限に基づく安全マージン（プレイリスト追加含む）
 
 # サムネイル設定
 thumbnail:
@@ -617,7 +681,7 @@ automator auth youtube
 ### Phase 1: MVP（notebooklm-py ベース）
 
 **スコープ:**
-- テキストファイルから URL を読み込み
+- YAML ファイルから URL + per-URL 設定を読み込み
 - notebooklm-py でノートブック作成 → Audio Overview 生成 → ダウンロード
 - OGP 画像 + タイトルでサムネイル生成
 - FFmpeg で MP4 変換
