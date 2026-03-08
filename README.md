@@ -1,6 +1,6 @@
 # NotebookLM → YouTube 自動化パイプライン
 
-URL リストから NotebookLM で音声要約（Audio Overview）を生成し、YouTube にアップロードする CLI ツール。
+URL リストから NotebookLM で音声要約（Audio Overview）を生成し、YouTube にアップロードする CLI + Web UI ツール。
 
 ## 必要なもの
 
@@ -121,7 +121,27 @@ uv run automator auth youtube
 
 ## 使い方
 
-### URL リストの作成
+### Web ダッシュボード（推奨）
+
+ブラウザベースの GUI で操作できます。URL を入力してボタンを押すだけで、音声生成から YouTube アップロードまで自動実行されます。
+
+```bash
+# Web ダッシュボードを起動（ブラウザが自動で開きます）
+uv run automator web
+
+# ポートを指定する場合
+uv run automator web --port 3000
+```
+
+- ダークテーマの MeTube 風 UI
+- URL 入力 → 自動で 3 フェーズ実行（submit → collect → upload）
+- 5 秒ごとに自動更新で進捗を確認
+- 失敗したジョブのリトライ、完了済みジョブの一括削除
+- サーバー再起動時に未完了ジョブを自動復旧
+
+### CLI で実行
+
+#### URL リストの作成
 
 `urls.yaml` に処理したい URL を記載します（`urls.yaml.example` を参考にしてください）。URL だけ書けばデフォルト設定で動作します。
 
@@ -151,11 +171,11 @@ uv run automator auth youtube
 | `audio_length` | No | `"short"` / `"long"` | `settings.yaml` の `notebooklm.audio_length` |
 | `prompt` | No | `settings.yaml` の `prompt_presets` で定義されたキー（`"default"`, `"paper_summary"` 等） | `"default"` |
 
-### 実行
+#### 実行
 
 パイプラインは3つのフェーズに分離されており、個別にも一括でも実行できます。
 
-#### 一括実行（従来どおり）
+##### 一括実行
 
 ```bash
 # 基本実行（submit → collect → upload を順に実行）
@@ -171,7 +191,7 @@ uv run automator run urls.yaml --force
 uv run automator run urls.yaml --retry-failed
 ```
 
-#### 3フェーズ分離実行
+##### 3フェーズ分離実行
 
 5件以上処理する場合は、フェーズを分けて実行すると高速です。音声生成を全URLで並列に開始し、完了後にまとめて回収するため、5件でも約10分で処理できます（一括実行の場合は最大50分）。
 
@@ -190,7 +210,7 @@ uv run automator collect --timeout 900  # タイムアウト指定（秒）
 uv run automator upload
 ```
 
-#### その他のコマンド
+##### その他のコマンド
 
 ```bash
 # 特定の URL だけ処理（一括実行）
@@ -235,6 +255,7 @@ uv run automator status
 
 | ステータス | 意味 |
 |---|---|
+| `queued` | キューに追加済み、処理待ち（Web GUI 使用時） |
 | `generating` | submit 完了、音声生成中 |
 | `video_ready` | collect 完了、MP4 ファイル準備済み |
 | `uploaded` | upload 完了（最終成功状態） |
@@ -315,7 +336,11 @@ uv run python <file>
 │   ├── thumbnail.py              # サムネイル生成 (Pillow)
 │   ├── video.py                  # FFmpeg 動画変換
 │   ├── youtube.py                # YouTube API 操作
-│   └── report.py                 # 結果レポート
+│   ├── report.py                 # 結果レポート
+│   └── web/                      # Web ダッシュボード
+│       ├── app.py                # FastAPI アプリ + バックグラウンドワーカー
+│       ├── routes.py             # ルーティング + API ハンドラ
+│       └── templates/            # Jinja2 テンプレート (htmx + Pico CSS)
 ├── specs/                        # 仕様書
 ├── fonts/                        # サムネイル用日本語フォント
 ├── tests/
@@ -324,6 +349,6 @@ uv run python <file>
 
 ### Git Workflow
 
-git-flow に従います。`develop` ブランチから feature ブランチを作成し、完了後に `develop` へマージします。
+`main` ブランチから feature ブランチを作成し、完了後に `main` へマージします。
 
 詳細仕様は `specs/SPEC.md` を参照してください。
