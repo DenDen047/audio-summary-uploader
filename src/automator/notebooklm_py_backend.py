@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from loguru import logger
-from notebooklm import AudioLength, NotebookLMClient
+from notebooklm import AudioLength, GenerationStatus, NotebookLMClient
 
 from automator.notebooklm import NotebookLMBackend
 
@@ -57,7 +57,7 @@ class NotebookLMPyBackend(NotebookLMBackend):
                 source.status,
             )
 
-    async def generate_audio(
+    async def start_audio_generation(
         self,
         notebook_id: str,
         language: str = "ja",
@@ -65,7 +65,7 @@ class NotebookLMPyBackend(NotebookLMBackend):
         audio_length: str | None = None,
     ) -> str:
         logger.info(
-            "Generating audio for notebook {} (lang={}, length={})",
+            "Starting audio generation for notebook {} (lang={}, length={})",
             notebook_id,
             language,
             audio_length,
@@ -80,15 +80,53 @@ class NotebookLMPyBackend(NotebookLMBackend):
                 instructions=instructions or None,
                 audio_length=audio_length_enum,
             )
+        logger.info(
+            "Audio generation started: task_id={}", gen_status.task_id
+        )
+        return gen_status.task_id
 
-            # ポーリングで生成完了を待機
+    async def check_audio_status(
+        self, notebook_id: str, task_id: str
+    ) -> GenerationStatus:
+        logger.info(
+            "Checking audio status for notebook {} task {}",
+            notebook_id,
+            task_id,
+        )
+        async with await self._get_client() as client:
+            status = await client.artifacts.poll_status(notebook_id, task_id)
+        logger.info("Audio status: {}", status.status)
+        return status
+
+    async def wait_for_audio(
+        self, notebook_id: str, task_id: str
+    ) -> GenerationStatus:
+        logger.info(
+            "Waiting for audio completion: notebook={} task={}",
+            notebook_id,
+            task_id,
+        )
+        async with await self._get_client() as client:
             result = await client.artifacts.wait_for_completion(
                 notebook_id,
-                task_id=gen_status.task_id,
+                task_id=task_id,
                 timeout=float(self._timeout),
                 poll_interval=float(self._poll_interval),
             )
+        logger.info("Audio wait result: status={}", result.status)
+        return result
 
+    async def generate_audio(
+        self,
+        notebook_id: str,
+        language: str = "ja",
+        instructions: str = "",
+        audio_length: str | None = None,
+    ) -> str:
+        task_id = await self.start_audio_generation(
+            notebook_id, language, instructions, audio_length
+        )
+        result = await self.wait_for_audio(notebook_id, task_id)
         logger.info("Audio generation complete: {}", result.task_id)
         return result.task_id
 

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<header>
+  <h1>Audio Summary</h1>
+  <div id="header-badge"
+       hx-get="/partials/header-badge"
+       hx-trigger="every 5s, refreshAll from:body">
+    {% include "partials/header_badge.html" %}
+  </div>
+</header>
+
+<div class="url-input-area">
+  <form hx-post="/api/add"
+        hx-target="#processing-section"
+        hx-swap="innerHTML"
+        hx-on::after-request="if(event.detail.successful) this.reset()">
+    <div class="url-input-row">
+      <input type="text" name="urls" placeholder="Enter URL" autofocus
+             required autocomplete="off">
+      <button type="submit">Add</button>
+    </div>
+    <div class="options-row">
+      <label>
+        Prompt:
+        <select name="prompt">
+          {% for p in presets %}
+          <option value="{{ p }}" {% if p == "default" %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Audio Length:
+        <select name="audio_length">
+          <option value="default" selected>default</option>
+          <option value="short">short</option>
+          <option value="long">long</option>
+        </select>
+      </label>
+    </div>
+  </form>
+</div>
+
+<section>
+  <h2>Processing</h2>
+  <div id="processing-section"
+       hx-get="/partials/processing"
+       hx-trigger="every 5s, refreshAll from:body">
+    {% include "partials/processing.html" %}
+  </div>
+</section>
+
+<section>
+  <h2>Completed</h2>
+  <div id="completed-section"
+       hx-get="/partials/completed"
+       hx-trigger="every 5s, refreshAll from:body">
+    {% include "partials/completed.html" %}
+  </div>
+</section>
+{% endblock %}

@@ -12,6 +12,7 @@ class ProcessResult:
     youtube_url: str | None = None
     status: str = "success"
     error: str | None = None
+    phase: str | None = None
 
 
 def print_report(results: list[ProcessResult]) -> None:

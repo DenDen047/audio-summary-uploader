@@ -71,6 +71,6 @@ credentials:
 # 一般設定
 general:
   tmp_dir: "./tmp"
-  state_file: "./state.json"
+  state_file: "./data/state.json"
   max_retries: 3
   retry_backoff_base: 2

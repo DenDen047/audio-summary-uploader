@@ -22,7 +22,8 @@
       "Bash(uv sync:*)",
       "Bash(grep:*)",
       "WebSearch",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ruff check:*)"
     ]
   }
 }

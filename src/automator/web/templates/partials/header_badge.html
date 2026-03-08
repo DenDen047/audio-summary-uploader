@@ -1,0 +1,7 @@
+{% if processing_count > 0 or queued_count > 0 %}
+<span class="badge">
+  {% if processing_count > 0 %}{{ processing_count }} processing{% endif %}
+  {% if processing_count > 0 and queued_count > 0 %}, {% endif %}
+  {% if queued_count > 0 %}{{ queued_count }} queued{% endif %}
+</span>
+{% endif %}

@@ -4,6 +4,7 @@
         "automator",
         "colormap",
         "deadsnakes",
+        "htmx",
         "notebooklm"
     ],
     "SyncTools.gitignore": false

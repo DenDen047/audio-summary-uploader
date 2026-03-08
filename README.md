@@ -153,8 +153,12 @@ uv run automator auth youtube
 
 ### 実行
 
+パイプラインは3つのフェーズに分離されており、個別にも一括でも実行できます。
+
+#### 一括実行（従来どおり）
+
 ```bash
-# 基本実行
+# 基本実行（submit → collect → upload を順に実行）
 uv run automator run urls.yaml
 
 # ドライラン（メタデータ取得のみ、NotebookLM/YouTube 操作なし）
@@ -165,26 +169,55 @@ uv run automator run urls.yaml --force
 
 # 前回失敗した URL だけ再処理
 uv run automator run urls.yaml --retry-failed
+```
 
-# 特定の URL だけ処理
+#### 3フェーズ分離実行
+
+5件以上処理する場合は、フェーズを分けて実行すると高速です。音声生成を全URLで並列に開始し、完了後にまとめて回収するため、5件でも約10分で処理できます（一括実行の場合は最大50分）。
+
+```bash
+# Phase 1: ノートブック作成＋音声生成を並列に開始
+uv run automator submit urls.yaml
+uv run automator submit urls.yaml --dry-run   # API呼び出しなし
+uv run automator submit urls.yaml --force      # 生成中/処理済みも再処理
+
+# Phase 2: 生成完了した音声をDL→サムネイル→動画変換
+uv run automator collect              # 完了チェックのみ（未完了はスキップ）
+uv run automator collect --poll       # 全ジョブの完了までポーリング待機
+uv run automator collect --timeout 900  # タイムアウト指定（秒）
+
+# Phase 3: 動画を YouTube にアップロード
+uv run automator upload
+```
+
+#### その他のコマンド
+
+```bash
+# 特定の URL だけ処理（一括実行）
 uv run automator run-single "https://example.com/article"
 
-# 処理状況の確認
+# 処理状況の確認（各ステータスのカウント表示）
 uv run automator status
 ```
 
 ### 処理の流れ
 
-各 URL に対して以下のステップが順に実行されます:
+パイプラインは以下の3フェーズで構成されます:
 
+**Phase 1: submit** — 各URLに対して並列で実行
 1. OGP メタデータ取得（タイトル、説明、画像 URL）
 2. NotebookLM でノートブック作成・URL をソース追加
-3. Audio Overview（日本語音声要約）を生成・ダウンロード
-4. OGP 画像 + タイトルでサムネイル画像を生成
-5. FFmpeg で静止画 + MP3 → MP4 動画に変換
-6. YouTube Data API v3 で動画をアップロード（プレイリストに自動追加）
+3. Audio Overview の生成を開始（完了を待たない）
+
+**Phase 2: collect** — 生成完了したジョブに対して並列で実行
+4. 音声ファイル (.mp3) をダウンロード
+5. OGP 画像 + タイトルでサムネイル画像を生成
+6. FFmpeg で静止画 + MP3 → MP4 動画に変換
 7. NotebookLM のノートブックを削除
-8. 結果レポートを出力
+
+**Phase 3: upload** — 順次実行（quota制限あり）
+8. YouTube Data API v3 で動画をアップロード（プレイリストに自動追加）
+9. 結果レポートを出力
 
 ### YouTube アップロード内容
 
@@ -198,9 +231,18 @@ uv run automator status
 
 ### 状態管理
 
-処理結果は `state.json` に自動保存されます。処理済み URL はデフォルトでスキップされます。
+処理状態は `state.json` に自動保存されます。各ジョブは以下のステータスで管理されます:
 
-- `--force`: 処理済みも含めて全 URL を再処理
+| ステータス | 意味 |
+|---|---|
+| `generating` | submit 完了、音声生成中 |
+| `video_ready` | collect 完了、MP4 ファイル準備済み |
+| `uploaded` | upload 完了（最終成功状態） |
+| `failed` | いずれかのフェーズでエラー |
+
+生成中・処理済みの URL はデフォルトでスキップされます。
+
+- `--force`: 生成中・処理済みも含めて全 URL を再処理
 - `--retry-failed`: 前回失敗した URL のみ再処理
 
 ### クォータ制限

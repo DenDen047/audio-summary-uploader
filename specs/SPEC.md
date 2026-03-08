@@ -113,14 +113,27 @@ audio-summary-uploader/
 
 ### 3.1 CLI (`cli.py`)
 
-Click ベースの CLI インターフェース。
+Click ベースの CLI インターフェース。3フェーズ分離アーキテクチャに対応。
 
 ```
-# 基本実行
+# 3フェーズ一括実行（従来の run コマンド）
 $ automator run urls.yaml
-
-# ドライラン（NotebookLM/YouTube操作を実行しない）
 $ automator run urls.yaml --dry-run
+$ automator run urls.yaml --force
+$ automator run urls.yaml --retry-failed
+
+# Phase 1: ノートブック作成＋音声生成開始（並列）
+$ automator submit urls.yaml
+$ automator submit urls.yaml --dry-run
+$ automator submit urls.yaml --force
+
+# Phase 2: 生成完了した音声をDL→サムネイル→動画変換
+$ automator collect              # 完了チェックのみ
+$ automator collect --poll       # 完了までポーリング待機
+$ automator collect --timeout 900
+
+# Phase 3: video_ready のジョブを YouTube にアップロード
+$ automator upload
 
 # 特定のURLだけ処理
 $ automator run-single "https://example.com/article"
@@ -131,7 +144,7 @@ $ automator auth youtube
 # NotebookLM 認証セットアップ
 $ automator auth notebooklm
 
-# 処理状況の確認
+# 処理状況の確認（各ステータスのカウント表示）
 $ automator status
 ```
 
@@ -270,21 +283,33 @@ class NotebookLMBackend(ABC):
         ...
 
     @abstractmethod
-    async def generate_audio(
-        self,
-        notebook_id: str,
-        language: str = "ja",
-        instructions: str = "",
-        audio_length: str | None = None,
+    async def start_audio_generation(
+        self, notebook_id: str, language: str = "ja",
+        instructions: str = "", audio_length: str | None = None,
     ) -> str:
-        """Audio Overview を生成し、audio_id を返す
+        """音声生成を開始し task_id を返す（完了を待たない）"""
+        ...
 
-        Args:
-            notebook_id: ノートブック ID
-            language: 音声の言語
-            instructions: プリセットから解決されたプロンプト文字列
-            audio_length: "short" or "long", None の場合は settings.yaml のデフォルトを使用
-        """
+    @abstractmethod
+    async def check_audio_status(
+        self, notebook_id: str, task_id: str,
+    ) -> GenerationStatus:
+        """生成ステータスを1回チェックする"""
+        ...
+
+    @abstractmethod
+    async def wait_for_audio(
+        self, notebook_id: str, task_id: str,
+    ) -> GenerationStatus:
+        """音声生成の完了をポーリングで待機する"""
+        ...
+
+    @abstractmethod
+    async def generate_audio(
+        self, notebook_id: str, language: str = "ja",
+        instructions: str = "", audio_length: str | None = None,
+    ) -> str:
+        """Audio Overview を生成し、audio_id を返す（start + wait の組み合わせ）"""
         ...
 
     @abstractmethod
@@ -455,6 +480,21 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 
 ### 3.9 パイプラインオーケストレーション (`pipeline.py`)
 
+**3フェーズアーキテクチャ:**
+
+パイプラインは3つの独立したフェーズに分離されている:
+
+1. **submit**: ノートブック作成＋音声生成開始（並列実行、完了を待たない）
+2. **collect**: 生成完了チェック＋音声DL＋サムネイル＋動画変換（並列実行）
+3. **upload**: YouTube アップロード（順次実行、quota制限あり）
+
+```
+submit_urls()     → status: "generating"
+collect_audio()   → status: "video_ready"
+upload_videos()   → status: "uploaded"
+run_pipeline()    → 3フェーズを順に実行（従来互換）
+```
+
 **async の扱い:**
 - NotebookLM バックエンドの操作（ネットワーク I/O）: `async` ネイティブ
 - メタデータ取得（httpx）: `async` ネイティブ
@@ -467,118 +507,85 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 - 例: `https://arxiv.org/abs/2401.12345` → `a1b2c3d4e5f6`
 - 一意性を担保しつつ、ファイル名として安全な文字列を生成
 
-**処理フロー（1 URL あたり）:**
+**Phase 1: submit_urls(entries, settings, force, dry_run)**
+1. state.json をロード、生成中/処理済みのURLをスキップ（`--force`で上書き）
+2. 各URLに対して `asyncio.gather` で並列実行:
+   - メタデータ取得 → ノートブック作成 → ソース追加 → `start_audio_generation()`
+   - state に `status="generating"` + `notebook_id` + `task_id` + `metadata` を保存
+3. 各URLのエラーは個別にキャッチして `failed` として記録
 
-```python
-async def process_single_url(entry: UrlEntry) -> ProcessResult:
-    # 1. メタデータ取得
-    metadata = await fetch_metadata(entry.url)
+**Phase 2: collect_audio(settings, poll, timeout)**
+1. state.json から `status="generating"` のジョブを取得
+2. 各ジョブに対して並列で `check_audio_status()` を呼び出し
+3. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`
+4. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機 / なし → ステータス報告のみ
 
-    # 2. NotebookLM でノートブック作成
-    notebook_id = await notebooklm.create_notebook(
-        title=f"Summary: {metadata.title}"
-    )
-
-    # 3. ソース追加（URL またはローカルファイル）
-    if is_local_path(entry.url):
-        await notebooklm.add_file_source(notebook_id, Path(entry.url))
-    else:
-        await notebooklm.add_source(notebook_id, entry.url)
-
-    # 4. プロンプトプリセットを解決
-    prompt_text = resolve_prompt_preset(entry.prompt)  # None → "default" プリセット
-
-    # 5. audio_length を解決（per-URL 指定 > settings.yaml デフォルト）
-    audio_length = entry.audio_length or settings.notebooklm.audio_length
-
-    # 6. Audio Overview 生成（日本語）
-    await notebooklm.generate_audio(
-        notebook_id,
-        language="ja",
-        instructions=prompt_text,
-        audio_length=audio_length,
-    )
-
-    # 7. 音声ダウンロード
-    audio_path = await notebooklm.download_audio(
-        notebook_id,
-        output_path=tmp_dir / f"{slug}.mp3"
-    )
-
-    # 8. サムネイル生成
-    thumbnail_path = await generate_thumbnail(
-        metadata=metadata,
-        output_path=tmp_dir / f"{slug}_thumb.png"
-    )
-
-    # 9. 動画変換
-    video_path = await convert_to_video(
-        audio_path=audio_path,
-        thumbnail_path=thumbnail_path,
-        output_path=tmp_dir / f"{slug}.mp4"
-    )
-
-    # 10. YouTube アップロード
-    youtube_url = await upload_to_youtube(
-        video_path=video_path,
-        metadata=metadata,
-        thumbnail_path=thumbnail_path,
-        playlist_id=settings.youtube.playlist_id,
-        audio_length=audio_length,
-        prompt_preset_name=entry.prompt or "default",
-    )
-
-    return ProcessResult(url=entry.url, youtube_url=youtube_url, status="success")
-```
+**Phase 3: upload_videos(settings)**
+1. state.json から `status="video_ready"` のジョブを取得
+2. YouTube認証（1回）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
+3. `status="uploaded"` + `youtube_url` を記録
 
 **エラーハンドリング:**
 
 CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分ける:
 
 - **URL 間**: 1つの URL が失敗しても他の URL の処理は継続（catch & continue）
-- **URL 内の各ステップ**: Fail Fast。予期しないエラーは即座にその URL の処理を中断し、次の URL へ進む
-- **リトライ対象**: ネットワークエラーなど一時的な障害のみ（最大3回、指数バックオフ）。ロジックエラーやバリデーションエラーはリトライしない
+- **URL 内の各ステップ**: Fail Fast。予期しないエラーは即座にその URL の処理を中断し、`failed` として記録
 - 最終的な結果レポートに成功/失敗を記録
 
 **並列処理:**
-- NotebookLM の Audio Overview 生成は時間がかかるため、基本的には直列処理
-- ただし、メタデータ取得やサムネイル生成は並列化可能
-- YouTube のクォータ制限を考慮し、1日5本を超えないよう制御（`settings.yaml` の `daily_upload_limit` に従う）
+- submit フェーズ: 全URLの音声生成を `asyncio.gather` で並列に開始
+- collect フェーズ: 全ジョブのステータスチェック＋後処理を並列実行
+- upload フェーズ: YouTube のクォータ制限を考慮し順次実行（`daily_upload_limit` に従う）
 
 ### 3.10 状態管理
 
-処理の再開やスキップのために、状態ファイルを管理する。
+処理の再開やスキップのために、状態ファイルを管理する。3フェーズ分離に対応した jobs スキーマを使用。
 
 **状態ファイル（`state.json`）:**
 ```json
 {
   "last_run": "2026-03-08T12:00:00Z",
-  "processed": [
+  "jobs": [
     {
       "url": "https://example.com/article-1",
-      "notebook_id": "abc123",
-      "youtube_url": "https://youtu.be/xyz789",
+      "slug": "a1b2c3d4e5f6",
       "audio_length": "default",
       "prompt": "default",
-      "status": "success",
-      "processed_at": "2026-03-08T12:05:00Z"
-    },
-    {
-      "url": "https://example.com/article-2",
-      "notebook_id": "def456",
-      "audio_length": "short",
-      "prompt": "deep_dive",
-      "status": "failed",
-      "error": "Audio generation timeout",
-      "processed_at": "2026-03-08T12:10:00Z"
+      "status": "uploaded",
+      "notebook_id": "abc123",
+      "task_id": "task_xyz",
+      "metadata": {
+        "title": "Article Title",
+        "description": "...",
+        "og_image_url": "https://...",
+        "site_name": "Example",
+        "language": "en"
+      },
+      "audio_path": "./tmp/audio/a1b2c3d4e5f6.mp3",
+      "thumbnail_path": "./tmp/thumbnails/a1b2c3d4e5f6_thumb.png",
+      "video_path": "./tmp/videos/a1b2c3d4e5f6.mp4",
+      "youtube_url": "https://youtu.be/xyz789",
+      "error": null,
+      "submitted_at": "2026-03-08T12:00:00Z",
+      "collected_at": "2026-03-08T12:05:00Z",
+      "uploaded_at": "2026-03-08T12:06:00Z"
     }
   ]
 }
 ```
 
+**ステータスライフサイクル:**
+- `generating` — submit完了、音声生成中
+- `video_ready` — collect完了、MP4ファイル準備済み
+- `uploaded` — upload完了（最終成功状態）
+- `failed` — いずれかのフェーズでエラー
+
 **ポイント:**
-- 処理済み URL はスキップ（`--force` で上書き可能）
+- 生成中・処理済み URL はスキップ（`--force` で上書き可能）
 - 失敗した URL は `--retry-failed` で再処理可能
+- 旧 `state.json`（`processed` キー）は初回ロード時に自動マイグレーション
+- 状態ファイルはアトミック書き込み（一時ファイル→rename）
 
 ### 3.11 結果レポート (`report.py`)
 
@@ -665,7 +672,7 @@ credentials:
 # 一般設定
 general:
   tmp_dir: "./tmp"
-  state_file: "./state.json"
+  state_file: "./data/state.json"
   max_retries: 3
   retry_backoff_base: 2          # 指数バックオフの底（秒）
 ```

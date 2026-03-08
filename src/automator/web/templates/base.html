@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Summary</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <style>
+    :root {
+      --pico-font-size: 16px;
+    }
+    body {
+      padding: 1rem 2rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+    .badge {
+      background: var(--pico-primary);
+      color: var(--pico-primary-inverse);
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .url-input-area {
+      margin-bottom: 1.5rem;
+    }
+    .url-input-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .url-input-row input {
+      flex: 1 1 0%;
+      min-width: 0;
+      width: auto;
+      margin-bottom: 0;
+    }
+    .url-input-row button {
+      flex: 0 0 auto;
+      width: auto;
+      white-space: nowrap;
+      margin-bottom: 0;
+    }
+    .options-row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+    .options-row label {
+      font-size: 0.85rem;
+      margin-bottom: 0;
+    }
+    .options-row select {
+      margin-bottom: 0;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.85rem;
+      width: auto;
+    }
+    section {
+      margin-bottom: 2rem;
+    }
+    section h2 {
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+    }
+    .job-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .job-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--pico-muted-border-color);
+    }
+    .job-item:last-child {
+      border-bottom: none;
+    }
+    .job-icon {
+      font-size: 1.2rem;
+      flex-shrink: 0;
+      line-height: 1.5;
+    }
+    .job-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .job-title {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .job-title a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .job-title a:hover {
+      text-decoration: underline;
+    }
+    .job-status-text {
+      font-size: 0.8rem;
+      color: var(--pico-muted-color);
+    }
+    .job-error {
+      font-size: 0.8rem;
+      color: var(--pico-del-color);
+      margin-top: 0.2rem;
+    }
+    .job-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+    .job-actions button,
+    .job-actions a {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.2rem;
+      color: var(--pico-muted-color);
+      text-decoration: none;
+    }
+    .job-actions button:hover,
+    .job-actions a:hover {
+      color: var(--pico-color);
+    }
+    .bulk-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .bulk-actions button {
+      font-size: 0.8rem;
+      padding: 0.3rem 0.7rem;
+      margin-bottom: 0;
+    }
+    .empty-state {
+      color: var(--pico-muted-color);
+      font-size: 0.9rem;
+      padding: 0.5rem 0;
+    }
+    .htmx-indicator {
+      opacity: 0;
+      transition: opacity 200ms ease-in;
+    }
+    .htmx-request .htmx-indicator {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  {% block content %}{% endblock %}
+</body>
+</html>

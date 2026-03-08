@@ -1,0 +1,55 @@
+{% set has_uploaded = completed_jobs | selectattr("status", "equalto", "uploaded") | list | length > 0 %}
+{% set has_failed = completed_jobs | selectattr("status", "equalto", "failed") | list | length > 0 %}
+
+{% if has_uploaded or has_failed %}
+<div class="bulk-actions">
+  {% if has_uploaded %}
+  <button hx-post="/api/clear-completed"
+          hx-target="#completed-section"
+          hx-swap="innerHTML"
+          class="secondary outline">Clear completed</button>
+  {% endif %}
+  {% if has_failed %}
+  <button hx-post="/api/retry-all-failed"
+          hx-target="#completed-section"
+          hx-swap="innerHTML"
+          class="contrast outline">Retry failed</button>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if completed_jobs %}
+<ul class="job-list">
+  {% for job in completed_jobs | reverse %}
+  {% set display = status_display(job.status) %}
+  <li class="job-item">
+    <span class="job-icon">{{ display.icon }}</span>
+    <div class="job-info">
+      <div class="job-title">
+        <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job_title(job) }}</a>
+      </div>
+      {% if job.status == "failed" and job.error %}
+      <div class="job-error">ERROR: {{ job.error }}</div>
+      {% endif %}
+    </div>
+    <div class="job-actions">
+      {% if job.status == "uploaded" and job.youtube_url %}
+      <a href="{{ job.youtube_url }}" target="_blank" rel="noopener" title="Open on YouTube">🔗</a>
+      {% endif %}
+      {% if job.status == "failed" %}
+      <button hx-post="/api/retry/{{ job.slug }}"
+              hx-target="#completed-section"
+              hx-swap="innerHTML"
+              title="Retry">🔄</button>
+      {% endif %}
+      <button hx-delete="/api/jobs/{{ job.slug }}"
+              hx-target="closest li"
+              hx-swap="outerHTML"
+              title="Delete">🗑</button>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty-state">No completed jobs.</div>
+{% endif %}

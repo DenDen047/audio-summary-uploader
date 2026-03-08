@@ -1,0 +1,18 @@
+{% if processing_jobs %}
+<ul class="job-list">
+  {% for job in processing_jobs %}
+  {% set display = status_display(job.status) %}
+  <li class="job-item">
+    <span class="job-icon">{{ display.icon }}</span>
+    <div class="job-info">
+      <div class="job-title">
+        <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job_title(job) }}</a>
+      </div>
+      <div class="job-status-text">{{ display.text }}</div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="empty-state">No jobs in progress.</div>
+{% endif %}

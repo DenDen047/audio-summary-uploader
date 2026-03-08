@@ -7,7 +7,13 @@ import click
 from loguru import logger
 
 from automator.config import load_settings
-from automator.pipeline import run_pipeline
+from automator.pipeline import (
+    collect_audio,
+    get_status_counts,
+    run_pipeline,
+    submit_urls,
+    upload_videos,
+)
 from automator.report import print_report
 from automator.url_parser import parse_url_file
 from automator.youtube import authenticate
@@ -37,7 +43,7 @@ def run(
     retry_failed: bool,
     config_path: Path | None,
 ) -> None:
-    """URL リストを処理してYouTubeにアップロードする."""
+    """URL リストを処理してYouTubeにアップロードする（3フェーズ一括実行）."""
     settings = load_settings(config_path)
 
     valid_presets = set(settings.notebooklm.prompt_presets.keys())
@@ -56,6 +62,87 @@ def run(
             retry_failed=retry_failed,
         )
     )
+
+    print_report(results)
+
+
+@main.command()
+@click.argument("url_file", type=click.Path(exists=True, path_type=Path))
+@click.option("--dry-run", is_flag=True, help="NotebookLM操作を実行しない")
+@click.option("--force", is_flag=True, help="生成中/処理済み URL も再処理する")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="設定ファイルパス (デフォルト: config/settings.yaml)",
+)
+def submit(
+    url_file: Path,
+    dry_run: bool,
+    force: bool,
+    config_path: Path | None,
+) -> None:
+    """Phase 1: ノートブック作成＋音声生成を開始する."""
+    settings = load_settings(config_path)
+
+    valid_presets = set(settings.notebooklm.prompt_presets.keys())
+    entries = parse_url_file(url_file, valid_prompt_presets=valid_presets)
+
+    if not entries:
+        logger.warning("No valid URL entries found in {}", url_file)
+        return
+
+    results = asyncio.run(
+        submit_urls(entries, settings, force=force, dry_run=dry_run)
+    )
+
+    print_report(results)
+
+
+@main.command()
+@click.option("--poll", is_flag=True, help="生成完了までポーリングで待機する")
+@click.option(
+    "--timeout",
+    type=int,
+    default=None,
+    help="ポーリングタイムアウト（秒）",
+)
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="設定ファイルパス (デフォルト: config/settings.yaml)",
+)
+def collect(
+    poll: bool,
+    timeout: int | None,
+    config_path: Path | None,
+) -> None:
+    """Phase 2: 生成完了した音声をDL→サムネイル→動画変換する."""
+    settings = load_settings(config_path)
+
+    results = asyncio.run(
+        collect_audio(settings, poll=poll, timeout=timeout)
+    )
+
+    print_report(results)
+
+
+@main.command()
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="設定ファイルパス (デフォルト: config/settings.yaml)",
+)
+def upload(config_path: Path | None) -> None:
+    """Phase 3: video_ready のジョブを YouTube にアップロードする."""
+    settings = load_settings(config_path)
+
+    results = asyncio.run(upload_videos(settings))
 
     print_report(results)
 
@@ -130,6 +217,33 @@ def notebooklm() -> None:
 
 
 @main.command()
+@click.option("--port", default=8080, help="ポート番号 (デフォルト: 8080)")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="設定ファイルパス (デフォルト: config/settings.yaml)",
+)
+def web(port: int, config_path: Path | None) -> None:
+    """Web ダッシュボードを起動する."""
+    import webbrowser
+
+    import uvicorn
+
+    settings = load_settings(config_path)
+
+    from automator.web.app import create_app
+
+    app = create_app(settings)
+
+    url = f"http://127.0.0.1:{port}"
+    logger.info("Starting web dashboard at {}", url)
+    webbrowser.open(url)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
+@main.command()
 @click.option(
     "--config",
     "config_path",
@@ -138,8 +252,6 @@ def notebooklm() -> None:
 )
 def status(config_path: Path | None) -> None:
     """処理状況を確認する."""
-    import json
-
     settings = load_settings(config_path)
     state_path = Path(settings.general.state_file)
 
@@ -147,12 +259,12 @@ def status(config_path: Path | None) -> None:
         logger.info("No state file found. No processing history.")
         return
 
-    state = json.loads(state_path.read_text(encoding="utf-8"))
-    processed = state.get("processed", [])
-    success = sum(1 for e in processed if e.get("status") == "success")
-    failed = sum(1 for e in processed if e.get("status") == "failed")
+    counts = get_status_counts(settings)
+    total = sum(counts.values())
 
-    logger.info("Last run: {}", state.get("last_run", "N/A"))
-    logger.info("Total processed: {}", len(processed))
-    logger.info("  Success: {}", success)
-    logger.info("  Failed: {}", failed)
+    logger.info("Last run: check state.json for details")
+    logger.info("Total jobs: {}", total)
+    for status_name in ("generating", "video_ready", "uploaded", "failed"):
+        count = counts.get(status_name, 0)
+        if count > 0:
+            logger.info("  {}: {}", status_name.replace("_", " ").title(), count)

@@ -2,6 +2,10 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from notebooklm import GenerationStatus
 
 
 class NotebookLMBackend(ABC):
@@ -18,6 +22,31 @@ class NotebookLMBackend(ABC):
     @abstractmethod
     async def add_file_source(self, notebook_id: str, file_path: Path) -> None:
         """ノートブックにローカルファイルをソースとして追加する."""
+        ...
+
+    @abstractmethod
+    async def start_audio_generation(
+        self,
+        notebook_id: str,
+        language: str = "ja",
+        instructions: str = "",
+        audio_length: str | None = None,
+    ) -> str:
+        """音声生成を開始し task_id を返す（完了を待たない）."""
+        ...
+
+    @abstractmethod
+    async def check_audio_status(
+        self, notebook_id: str, task_id: str
+    ) -> "GenerationStatus":
+        """生成ステータスを1回チェックする."""
+        ...
+
+    @abstractmethod
+    async def wait_for_audio(
+        self, notebook_id: str, task_id: str
+    ) -> "GenerationStatus":
+        """音声生成の完了をポーリングで待機する."""
         ...
 
     @abstractmethod

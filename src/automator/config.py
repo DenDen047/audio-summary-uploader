@@ -65,7 +65,7 @@ class CredentialsConfig:
 @dataclass
 class GeneralConfig:
     tmp_dir: str = "./tmp"
-    state_file: str = "./state.json"
+    state_file: str = "./data/state.json"
     max_retries: int = 3
     retry_backoff_base: int = 2
 
