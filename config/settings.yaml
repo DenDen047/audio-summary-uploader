@@ -2,7 +2,7 @@
 notebooklm:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
-  audio_length: "default"   # グローバルデフォルト: "short" | "long" | "default"
+  audio_length: "short"     # グローバルデフォルト: "short" | "default"
   generation_timeout_seconds: 600
   generation_poll_interval_seconds: 10
 
@@ -37,7 +37,7 @@ notebooklm:
 
 # YouTube 設定
 youtube:
-  privacy_status: "public"
+  privacy_status: "unlisted"
   category_id: "27"              # Education
   playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"
   title_prefix: "🎧"

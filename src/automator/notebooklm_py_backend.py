@@ -9,7 +9,6 @@ from automator.notebooklm import NotebookLMBackend
 
 _AUDIO_LENGTH_MAP: dict[str, AudioLength] = {
     "short": AudioLength.SHORT,
-    "long": AudioLength.LONG,
     "default": AudioLength.DEFAULT,
 }
 

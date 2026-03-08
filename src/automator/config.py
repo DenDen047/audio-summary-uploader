@@ -11,7 +11,7 @@ from loguru import logger
 class NotebookLMConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
-    audio_length: str = "default"
+    audio_length: str = "short"
     generation_timeout_seconds: int = 600
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
@@ -21,7 +21,7 @@ class NotebookLMConfig:
         if self.backend not in valid_backends:
             msg = f"Invalid backend: {self.backend!r}. Must be one of {valid_backends}"
             raise ValueError(msg)
-        valid_lengths = {"short", "long", "default"}
+        valid_lengths = {"short", "default"}
         if self.audio_length not in valid_lengths:
             msg = (
                 f"Invalid audio_length: {self.audio_length!r}."
@@ -32,7 +32,7 @@ class NotebookLMConfig:
 
 @dataclass
 class YouTubeConfig:
-    privacy_status: str = "public"
+    privacy_status: str = "unlisted"
     category_id: str = "27"
     playlist_id: str | None = None
     title_prefix: str = "🎧"

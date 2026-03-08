@@ -23,7 +23,8 @@
       "Bash(grep:*)",
       "WebSearch",
       "Bash(git checkout:*)",
-      "Bash(ruff check:*)"
+      "Bash(ruff check:*)",
+      "WebFetch(domain:developers.google.com)"
     ]
   }
 }

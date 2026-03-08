@@ -154,7 +154,7 @@ uv run automator web --port 3000
   prompt: paper_summary
 
 - url: https://newsletter.example.com/issue-42
-  audio_length: long
+  audio_length: default
 
 # ローカル PDF ファイルも指定可能
 - url: ~/Documents/papers/interesting-paper.pdf
@@ -168,7 +168,7 @@ uv run automator web --port 3000
 | フィールド | 必須 | 値 | デフォルト |
 |---|---|---|---|
 | `url` | Yes | URL 文字列、ローカル PDF パス、または PDF を含むフォルダパス | — |
-| `audio_length` | No | `"short"` / `"long"` | `settings.yaml` の `notebooklm.audio_length` |
+| `audio_length` | No | `"short"` / `"default"` | `settings.yaml` の `notebooklm.audio_length` |
 | `prompt` | No | `settings.yaml` の `prompt_presets` で定義されたキー（`"default"`, `"paper_summary"` 等） | `"default"` |
 
 #### 実行
@@ -278,7 +278,7 @@ YouTube Data API のデフォルトクォータは 10,000 ユニット/日です
 notebooklm:
   backend: "notebooklm-py"       # "notebooklm-py" or "playwright"
   audio_language: "ja"
-  audio_length: "default"        # "short" | "long" | "default"
+  audio_length: "short"           # "short" | "default"
   generation_timeout_seconds: 600
   prompt_presets:
     default: >
