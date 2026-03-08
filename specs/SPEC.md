@@ -166,7 +166,7 @@ $ automator web [--port 8080] [--config PATH]
 class NotebookLMConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
-    audio_length: str = "default"
+    audio_length: str = "short"
     generation_timeout_seconds: int = 600
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
@@ -631,7 +631,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 notebooklm:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
-  audio_length: "default"   # グローバルデフォルト: "short" | "long" | "default"
+  audio_length: "short"     # グローバルデフォルト: "short" | "long" | "default"
   generation_timeout_seconds: 600    # Audio Overview 生成のタイムアウト
   generation_poll_interval_seconds: 10
 

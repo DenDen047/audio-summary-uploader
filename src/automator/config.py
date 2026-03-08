@@ -11,7 +11,7 @@ from loguru import logger
 class NotebookLMConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
-    audio_length: str = "default"
+    audio_length: str = "short"
     generation_timeout_seconds: int = 600
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
