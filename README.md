@@ -1,181 +1,165 @@
-# PyTorch-based Project Template
+# NotebookLM → YouTube 自動化パイプライン
 
-## Setup
+URL リストから NotebookLM で音声要約（Audio Overview）を生成し、YouTube にアップロードする CLI ツール。
 
-### Docker
-```bash
-$ docker compose up -d --build
-$ docker compose down && docker compose up -d --build && docker exec -it [container_name] bash
-```
+## 必要なもの
 
-### uv
-```bash
-$ uv python pin 3.11
-$ uv venv --python 3.11
-$ source .venv/bin/activate
-$ uv init
+| 項目 | 備考 |
+|---|---|
+| Python 3.11 | `.python-version` で指定済み |
+| [uv](https://docs.astral.sh/uv/) | パッケージ管理・実行 |
+| [FFmpeg](https://ffmpeg.org/) 6.x+ | 動画変換に使用 |
+| Google Workspace アカウント | NotebookLM 用 |
+| YouTube チャンネル（個人 Google アカウント） | アップロード先 |
 
-## uv add ...
-$ uv add ruff
-
-## run python program
-$ uv run python main.py
-
-$ uv lock
-## uv sync    # installs everything into .venv
-$ uv export --format=requirements.txt > requirements.txt
-$ deactivate
-```
-
-or
+## セットアップ
 
 ```bash
-## copy pyproject.toml and uv.lock
-$ uv sync
+# 1. uv のインストール（未インストールの場合）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. FFmpeg のインストール
+# macOS
+brew install ffmpeg
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# 3. 依存関係のインストール（.venv は uv が自動作成）
+uv sync
+
+# 4. 日本語フォントの配置
+# Noto Sans JP を https://fonts.google.com/noto/specimen/Noto+Sans+JP からDL
+# fonts/ ディレクトリに NotoSansJP-Bold.ttf を配置
+
+# 5. 環境変数の設定
+cp .env.example .env
 ```
 
-ref:
-- [Pythonパッケージ管理 [uv] 完全入門](https://speakerdeck.com/mickey_kubo/pythonpatukeziguan-li-uv-wan-quan-ru-men)
-- [uvでパッケージ管理をしよう！〜初心者でも分かる！〜仮想環境を簡単に構築](https://youtu.be/VgH1GKSCXJQ?si=B-o0UPSoZjrfkHTY)
+### 認証セットアップ
 
-## GPU Cloud Setup
-
-### Lambda Cloud
-
-ref: https://lambda.ai/blog/set-up-a-tensorflow-gpu-docker-container-using-lambda-stack-dockerfile
+**NotebookLM:**
 
 ```bash
-ssh ubuntu@IP_ADDRESS -i ~/.ssh/lambda_cloud
+uv run automator auth notebooklm
 ```
+
+**YouTube API:**
+
+1. [Google Cloud Console](https://console.cloud.google.com) でプロジェクトを作成
+2. YouTube Data API v3 を有効化
+3. OAuth 2.0 クライアント ID を作成（デスクトップアプリ）
+4. JSON をダウンロードして配置:
+   ```bash
+   cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
+   ```
+5. 認証フローを実行:
+   ```bash
+   uv run automator auth youtube
+   ```
+
+## 使い方
+
+### URL リストの作成
+
+`urls.yaml` に処理したい URL を記載する。URL だけ書けばデフォルト設定で動作する。
+
+```yaml
+# urls.yaml
+- url: https://arxiv.org/abs/2401.12345
+
+- url: https://example.com/article
+  audio_length: short
+  prompt: deep_dive
+
+- url: https://newsletter.example.com/issue-42
+  audio_length: long
+```
+
+| フィールド | 必須 | 値 | デフォルト |
+|---|---|---|---|
+| `url` | Yes | URL 文字列 | — |
+| `audio_length` | No | `"short"` / `"long"` | `settings.yaml` の `notebooklm.audio_length` |
+| `prompt` | No | `"default"` / `"deep_dive"` | `"default"` |
+
+### 実行
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DenDen047/dotfiles/refs/heads/master/setup_scripts/lambda_cloud1.sh | bash
-# if failed in the last step
-sudo apt-get update && sudo apt-get install -y lambda-stack-cuda && sudo reboot
+# 基本実行
+uv run automator run urls.yaml
 
-# after reboot, run the following command
-curl -fsSL https://raw.githubusercontent.com/DenDen047/dotfiles/refs/heads/master/setup_scripts/lambda_cloud2.sh | bash
+# ドライラン（NotebookLM/YouTube 操作を実行しない）
+uv run automator run urls.yaml --dry-run
+
+# 特定の URL だけ処理
+uv run automator run-single "https://example.com/article"
+
+# 処理状況の確認
+uv run automator status
 ```
 
-You can easily upload files to the cloud using the [FTP/SFTP/SSH Sync Tool](https://marketplace.visualstudio.com/items?itemName=oorzc.ssh-tools) extension.
+### YouTube アップロード
 
-### Modal
+アップロードされた動画には以下が自動設定される:
 
-ref: https://modal.com/docs/guide
+- **タイトル:** `🎧 {記事タイトル}`
+- **概要欄:** 元記事 URL、ソースサイト名、生成条件（音声の長さ・プロンプトプリセット）
+- **プレイリスト:** `settings.yaml` の `youtube.playlist_id` で指定（任意）
+
+## 設定
+
+`config/settings.yaml` で各種設定を変更できる。
+
+```yaml
+notebooklm:
+  backend: "notebooklm-py"
+  audio_language: "ja"
+  audio_length: "default"       # "short" | "long" | "default"
+
+  prompt_presets:
+    default: >
+      この内容を日本語で要約してポッドキャスト形式で説明してください。
+      専門用語は必要に応じて英語のまま使ってください。
+    deep_dive: >
+      この内容を日本語で深く掘り下げて解説してください。
+      背景知識や関連する概念も含めて、詳細に議論してください。
+      専門用語は必要に応じて英語のまま使ってください。
+
+youtube:
+  privacy_status: "public"
+  playlist_id: null             # プレイリスト ID（null = 追加しない）
+  daily_upload_limit: 5
+```
+
+## 開発
 
 ```bash
-modal setup
-modal run src/modal_sample.py
+# Python ファイルの実行
+uv run python <file>
+
+# リント
+uv run ruff check .
+
+# テスト
+uv run pytest
 ```
 
-## Usage
+### ディレクトリ構成
 
-## Project Configuration
-
-```bash
-.
-├── README.md            # プロジェクト概要と使い方を記述
-├── conf/                # 実験設定ファイル (例: parameters.yml, secrets.yml)
-├── data/                # データや中間成果物の一時保存場所
-├── notebooks/           # JupyterLabでの実験ノート
-├── pyproject.toml       # Pythonプロジェクトの主要設定ファイル (PEP 518準拠)
-├── setup.cfg            # pyproject.toml未対応の設定を補完
-├── specs/               # 仕様書やドキュメント
-└── src/                 # Pythonパッケージコード (共通処理の関数やクラスなど)
 ```
-
-## Data directory
-
-Please see the details [here](https://docs.kedro.org/en/stable/faq/faq.html#what-is-data-engineering-convention).
-
-```bash
-data/
-├── 01_raw/              # Original, immutable data from source systems
-├── 02_intermediate/     # Partially processed (cleaned/transformed) data
-├── 03_primary/          # Canonical datasets for feature engineering
-├── 04_feature/          # Engineered features ready for modeling
-├── 05_model_input/      # Data prepared specifically for model training
-├── 06_models/           # Trained models (e.g., .pkl, .h5 files)
-├── 07_model_output/     # Model outputs like predictions or embeddings
-└── 08_reporting/        # Reports, visualizations, dashboards, final outputs
+├── pyproject.toml
+├── config/
+│   └── settings.yaml             # アプリ設定
+├── credentials/                  # OAuth トークン等（.gitignore 対象）
+├── src/automator/                # メインパッケージ
+├── specs/                        # 仕様書
+├── fonts/                        # サムネイル用フォント
+├── templates/                    # サムネイルテンプレート
+├── tests/
+└── tmp/                          # 一時ファイル（.gitignore 対象）
 ```
-
-## Development
 
 ### Git Workflow
 
-This project follows `git-flow`.
+git-flow に従う。`develop` ブランチから作業ブランチを作成し、完了後に `develop` へマージ。
 
-1.  **Starting Work:** Begin new development or experiments by creating a branch off of the `develop` branch.
-2.  **Merging to `develop`:** Once work intended for `develop` is complete, merge it into the `develop` branch (creating a Pull Request on GitHub is recommended if applicable) and delete the original branch.
-3.  **Keeping History (Archiving):** If you wish to keep the code and history of a branch *without* merging it into `develop` (e.g., failed experiments, pure explorations), rename the branch to `archive/<original-branch-name>`.
-    * Example: To archive a branch named `exp/try-hyperparams-v1`, rename it to `archive/exp/try-hyperparams-v1`.
-4.  **Archived Branches:** Branches prefixed with `archive/` are kept for reference only and must *not* be merged into active branches like `develop` or `main`.
-
-### Commit Message
-
-Following commitlint rule:
-- https://github.com/conventional-changelog/commitlint
-- https://www.conventionalcommits.org/en/v1.0.0/
-
-### Jupyter Notebook on Cursor Editor
-
-<iframe width="560" height="315" src="https://www.youtube.com/embed/eOSfeBIBzr0?si=MFjxL47thNJGC1SN" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-
-### Visualization
-
-- colormap: `turbo`
-
-### Naming Conventions for Rotation / Transformation Matrices
-ref: https://en.wikipedia.org/wiki/Active_and_passive_transformation
-
-To avoid confusion, we distinguish between **active** and **passive** interpretations:
-
-- **Active rotation / transformation**
-  - Variables: `R_active`, `R_apply`, `R_obj`, `T_active`
-  - Meaning: Actively rotating points or vectors (e.g., applying to a point cloud).
-
-- **Passive rotation / transformation**
-  - Variables: `R_world_to_cam`, `R_frame`, `R_pose`, `T_world_to_cam`
-  - Meaning: Changing the coordinate frame (e.g., camera extrinsics).
-
-- **Other common conventions**
-  - `R_ext`, `T_ext`: Extrinsic parameters (world → camera transformation).
-  - `R_int`, `K`: Intrinsic parameters (camera matrix).
-  - `R_wc`, `R_cw`: Shorthand for `R_world_to_cam`, `R_cam_to_world`.
-
-### Conversion between Active and Passive
-
-- **Rotation matrices**
-  - `R_passive = R_active.T`
-  - `R_active = R_passive.T`
-
-- **Transformation matrices (SE(3))**
-  - `T_passive = T_active^-1`
-  - `T_active = T_passive^-1`
-
-This ensures consistent handling of both interpretations.
-
-## Useful Tools
-
-- [SAM2 Colab Notebook](https://colab.research.google.com/drive/1q-_LLIBZ-WW64VRzJ9fSVYDBOvADvWkW?usp=sharing)
-- [MoGe Colab Notebook](https://colab.research.google.com/drive/1reb8Hn_0N7N3i1LgXbMhm7LkaDcA4CKj?usp=sharing&authuser=1#scrollTo=tTDZf8kR7_nV)
-- [utils3d](https://github.com/EasternJournalist/utils3d)
-
-## Reference
-
-- [【Pythonの仮想環境を比較】〜オススメを紹介 〜](https://youtu.be/r4SkIhQThe0?si=kziY5m9s05gCk9Hx)
-- [モダンなPyTorchのテンプレ](https://zenn.dev/dena/articles/6f04641801b387)
-- [timm – PyTorch Image Models](https://huggingface.co/timm)
-- [Best Practices for Python Coding](https://cyberagentailab.github.io/BestPracticesForPythonCoding/)
-
-### Sample Projects
-
-- https://github.com/Delgan/loguru
-- https://github.com/kotaro-kinoshita/yomitoku
-
-### Claude Code
-
-- [Claude Code どこまでも](https://speakerdeck.com/nwiizo/claude-everywhere)
-- [Claude Code の settings.json は設定した方がいい](https://syu-m-5151.hatenablog.com/entry/2025/06/05/134147)
-- [Claude Code の CLAUDE.mdは設定した方がいい](https://syu-m-5151.hatenablog.com/entry/2025/06/06/190847)
+詳細仕様は `specs/SPEC.md` を参照。
