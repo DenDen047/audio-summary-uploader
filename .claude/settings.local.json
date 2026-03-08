@@ -24,7 +24,9 @@
       "WebSearch",
       "Bash(git checkout:*)",
       "Bash(ruff check:*)",
-      "WebFetch(domain:developers.google.com)"
+      "WebFetch(domain:developers.google.com)",
+      "mcp__deepwiki__read_wiki_structure",
+      "mcp__deepwiki__read_wiki_contents"
     ]
   }
 }
