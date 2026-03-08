@@ -167,7 +167,7 @@ class NotebookLMConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
     audio_length: str = "short"
-    generation_timeout_seconds: int = 600
+    generation_timeout_seconds: int = 1200
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
 
@@ -354,7 +354,7 @@ class NotebookLMBackend(ABC):
 
 **音声の長さ:**
 
-`UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `notebooklm.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` の場合は NotebookLM のデフォルト動作に委ねる。
+`UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `notebooklm.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` は NotebookLM の「デフォルト」（長め）に対応する。
 
 **音声生成の待機:**
 - 生成完了までポーリング（10秒間隔、最大タイムアウト10分）
@@ -634,7 +634,7 @@ notebooklm:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
   audio_length: "short"     # グローバルデフォルト: "short" | "default"
-  generation_timeout_seconds: 600    # Audio Overview 生成のタイムアウト
+  generation_timeout_seconds: 1200   # Audio Overview 生成のタイムアウト (default長の音声は10分以上かかる場合がある)
   generation_poll_interval_seconds: 10
 
   prompt_presets:

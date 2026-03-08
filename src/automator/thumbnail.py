@@ -1,6 +1,8 @@
 """サムネイル生成 (Pillow)."""
 
 import asyncio
+import colorsys
+import random
 from io import BytesIO
 from pathlib import Path
 
@@ -55,6 +57,31 @@ def _create_gradient_background(
         b = int(start[2] + (end[2] - start[2]) * ratio)
         draw.line([(0, y), (width, y)], fill=(r, g, b))
     return img
+
+
+def _generate_random_gradient_colors() -> tuple[str, str]:
+    """ランダムなグラデーション色のペアを生成する.
+
+    HSL色空間を使い、彩度・明度を制御して視認性の良い色を生成する。
+    テキストの可読性を保つため、中程度の明度に抑える。
+    """
+    # ランダムな色相を選択
+    hue = random.random()
+    # 2色目は色相を少しずらして調和のとれたグラデーションにする
+    hue_shift = random.uniform(0.05, 0.15)
+    hue2 = (hue + hue_shift) % 1.0
+
+    # 彩度は高め、明度は中程度（テキスト可読性のため暗すぎず明るすぎず）
+    saturation = random.uniform(0.5, 0.8)
+    lightness_start = random.uniform(0.25, 0.40)
+    lightness_end = random.uniform(0.15, 0.30)
+
+    r1, g1, b1 = colorsys.hls_to_rgb(hue, lightness_start, saturation)
+    r2, g2, b2 = colorsys.hls_to_rgb(hue2, lightness_end, saturation)
+
+    start = f"#{int(r1*255):02x}{int(g1*255):02x}{int(b1*255):02x}"
+    end = f"#{int(r2*255):02x}{int(g2*255):02x}{int(b2*255):02x}"
+    return start, end
 
 
 def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
@@ -136,11 +163,9 @@ def generate_thumbnail_sync(
             bg = None
 
     if bg is None:
-        bg = _create_gradient_background(
-            width, height,
-            config.fallback_gradient["start"],
-            config.fallback_gradient["end"],
-        )
+        start_color, end_color = _generate_random_gradient_colors()
+        logger.info("Using random gradient: {} -> {}", start_color, end_color)
+        bg = _create_gradient_background(width, height, start_color, end_color)
 
     # 暗めオーバーレイ
     alpha = int(255 * config.overlay_opacity)

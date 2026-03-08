@@ -217,7 +217,11 @@ def notebooklm() -> None:
 
 
 @main.command()
+@click.option(
+    "--host", default="127.0.0.1", help="ホストアドレス (デフォルト: 127.0.0.1)"
+)
 @click.option("--port", default=8080, help="ポート番号 (デフォルト: 8080)")
+@click.option("--no-browser", is_flag=True, help="ブラウザを自動で開かない")
 @click.option(
     "--config",
     "config_path",
@@ -225,10 +229,8 @@ def notebooklm() -> None:
     default=None,
     help="設定ファイルパス (デフォルト: config/settings.yaml)",
 )
-def web(port: int, config_path: Path | None) -> None:
+def web(host: str, port: int, no_browser: bool, config_path: Path | None) -> None:
     """Web ダッシュボードを起動する."""
-    import webbrowser
-
     import uvicorn
 
     settings = load_settings(config_path)
@@ -237,10 +239,13 @@ def web(port: int, config_path: Path | None) -> None:
 
     app = create_app(settings)
 
-    url = f"http://127.0.0.1:{port}"
+    url = f"http://{host}:{port}"
     logger.info("Starting web dashboard at {}", url)
-    webbrowser.open(url)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    if not no_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 @main.command()
