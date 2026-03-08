@@ -3,7 +3,16 @@
 
 - url: https://example.com/article
   audio_length: short
-  prompt: deep_dive
+  prompt: paper_summary
 
 - url: https://newsletter.example.com/issue-42
   audio_length: long
+
+# ローカル PDF ファイルも指定可能
+- url: ~/Documents/papers/interesting-paper.pdf
+  prompt: paper_summary
+
+# フォルダを指定すると、中の全 PDF を処理
+- url: ~/Documents/papers/
+  prompt: paper_summary
+  audio_length: short

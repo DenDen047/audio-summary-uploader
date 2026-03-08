@@ -47,7 +47,8 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     ├─ ノートブック作成                           │
 │     ├─ URL をソースとして追加                     │
 │     ├─ Audio Overview 生成（日本語指定）          │
-│     └─ 音声ファイル (.mp3) ダウンロード           │
+│     ├─ 音声ファイル (.mp3) ダウンロード           │
+│     └─ アップロード完了後にノートブック削除       │
 │                                                 │
 │  4. サムネイル生成                                │
 │     └─ OGP画像 + タイトルテキスト合成             │
@@ -185,10 +186,18 @@ class Settings:
 
 - url: https://example.com/article
   audio_length: short
-  prompt: deep_dive
+  prompt: paper_summary
 
 - url: https://newsletter.example.com/issue-42
   audio_length: long
+
+# ローカル PDF ファイル
+- url: ~/Documents/papers/interesting-paper.pdf
+  prompt: paper_summary
+
+# フォルダ指定（中の全 PDF を処理）
+- url: ~/Documents/papers/
+  prompt: paper_summary
 ```
 
 **データモデル:**
@@ -196,14 +205,16 @@ class Settings:
 ```python
 @dataclass
 class UrlEntry:
-    url: str
+    url: str                          # URL またはローカルファイルパス
     audio_length: str | None = None   # "short" or "long", None = settings.yaml のデフォルトを使用
-    prompt: str | None = None         # プリセット名 ("default", "deep_dive"), None = "default" プリセットを使用
+    prompt: str | None = None         # プリセット名 ("default", "paper_summary"), None = "default" プリセットを使用
 ```
 
 **処理内容:**
 - YAML ファイルを読み込み、各エントリをパース
 - URL のバリデーション（`urllib.parse` で基本チェック）
+- ローカルパスのバリデーション（ファイル存在確認、PDF 拡張子チェック）
+- フォルダが指定された場合、中の `*.pdf` ファイルを個別エントリに展開
 - `audio_length` の値バリデーション（`"short"` / `"long"` / `None` のみ許可）
 - `prompt` の値バリデーション（`settings.yaml` の `prompt_presets` に定義されたキーのみ許可）
 - 重複 URL の除去
@@ -232,7 +243,8 @@ class PageMetadata:
 - `httpx` でページを取得し、`BeautifulSoup` で OGP タグをパース
 - OGP が取得できない場合は `<title>` タグにフォールバック
 - タイムアウト: 10秒
-- User-Agent を適切に設定
+- User-Agent: 一般的なブラウザの User-Agent を使用（403 回避のため）
+- ローカルファイルの場合: ファイル名からタイトルを生成（OGP取得なし）
 
 ### 3.5 NotebookLM 操作 (`notebooklm.py` + バックエンド)
 
@@ -250,6 +262,11 @@ class NotebookLMBackend(ABC):
     @abstractmethod
     async def add_source(self, notebook_id: str, url: str) -> None:
         """ノートブックに URL ソースを追加する"""
+        ...
+
+    @abstractmethod
+    async def add_file_source(self, notebook_id: str, file_path: Path) -> None:
+        """ノートブックにローカルファイルをソースとして追加する"""
         ...
 
     @abstractmethod
@@ -274,6 +291,11 @@ class NotebookLMBackend(ABC):
     async def download_audio(self, notebook_id: str, output_path: Path) -> Path:
         """生成された音声をダウンロードする"""
         ...
+
+    @abstractmethod
+    async def delete_notebook(self, notebook_id: str) -> None:
+        """ノートブックを削除する"""
+        ...
 ```
 
 **Phase 1 実装 (`notebooklm_py_backend.py`):**
@@ -294,10 +316,9 @@ class NotebookLMBackend(ABC):
 この内容を日本語で要約してポッドキャスト形式で説明してください。
 専門用語は必要に応じて英語のまま使ってください。
 
-# prompt_presets.deep_dive の場合:
-この内容を日本語で深く掘り下げて解説してください。
-背景知識や関連する概念も含めて、詳細に議論してください。
-専門用語は必要に応じて英語のまま使ってください。
+# prompt_presets.paper_summary の場合:
+論文の詳細な解説をポッドキャスト形式で行ってください。
+リスナーの専門分野や知識レベルに合わせた解説を行います。
 ```
 
 **音声の長さ:**
@@ -391,6 +412,7 @@ class YouTubeUploadParams:
     default_language: str = "ja"
     thumbnail_path: Path | None = None
     playlist_id: str | None = None  # 追加先プレイリスト ID
+    made_for_kids: bool = False       # "No, it's not made for kids"
 ```
 
 **YouTube タイトルの形式:**
@@ -407,7 +429,7 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 
 🔧 生成条件
   音声の長さ: {audio_length}（"short" / "long" / "default"）
-  プロンプト: {prompt_preset_name}（"default" / "deep_dive"）
+  プロンプト: {prompt_preset_name}（"default" / "paper_summary"）
 
 ---
 この動画は audio-summary-uploader で自動生成されました。
@@ -419,7 +441,9 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 1. `videos.insert` で動画をアップロード（resumable upload）
 2. `thumbnails.set` でカスタムサムネイルを設定
 3. `playlist_id` が指定されている場合、`playlistItems.insert` で動画をプレイリストに追加
-4. アップロード後の YouTube URL を返却
+4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
+5. アップロード後の YouTube URL を返却
+6. パイプライン側でアップロード完了後に NotebookLM のノートブックを削除
 
 **クォータ管理:**
 - `videos.insert` = 1,600 ユニット
@@ -455,8 +479,11 @@ async def process_single_url(entry: UrlEntry) -> ProcessResult:
         title=f"Summary: {metadata.title}"
     )
 
-    # 3. ソース追加
-    await notebooklm.add_source(notebook_id, entry.url)
+    # 3. ソース追加（URL またはローカルファイル）
+    if is_local_path(entry.url):
+        await notebooklm.add_file_source(notebook_id, Path(entry.url))
+    else:
+        await notebooklm.add_source(notebook_id, entry.url)
 
     # 4. プロンプトプリセットを解決
     prompt_text = resolve_prompt_preset(entry.prompt)  # None → "default" プリセット
@@ -598,16 +625,15 @@ notebooklm:
     default: >
       この内容を日本語で要約してポッドキャスト形式で説明してください。
       専門用語は必要に応じて英語のまま使ってください。
-    deep_dive: >
-      この内容を日本語で深く掘り下げて解説してください。
-      背景知識や関連する概念も含めて、詳細に議論してください。
-      専門用語は必要に応じて英語のまま使ってください。
+    paper_summary: >
+      論文の詳細な解説をポッドキャスト形式で行います。
+      リスナーの専門分野や知識レベルに合わせた解説を行います。
 
 # YouTube 設定
 youtube:
   privacy_status: "public"
   category_id: "27"              # Education
-  playlist_id: null              # アップロード先プレイリスト ID（null = プレイリストに追加しない）
+  playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"  # My AI-Podcast プレイリスト
   title_prefix: "🎧"
   title_max_length: 95
   default_tags:
@@ -623,8 +649,8 @@ thumbnail:
   height: 720
   overlay_opacity: 0.5           # 暗めフィルターの不透明度
   font_name: "NotoSansJP-Bold"
-  title_font_size_max: 60
-  title_font_size_min: 32
+  title_font_size_max: 80
+  title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
   fallback_gradient:             # OGP画像がない場合のグラデーション

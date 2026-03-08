@@ -234,3 +234,14 @@ output/*
 
 sync_config.jsonc
 AI_INSTRUCTIONS.md
+
+# Project-specific
+credentials/*.json
+!credentials/.gitkeep
+tmp/audio/
+tmp/thumbnails/
+tmp/videos/
+state.json
+fonts/*.ttf
+fonts/.DS_Store
+urls.yaml

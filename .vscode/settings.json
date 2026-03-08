@@ -1,8 +1,10 @@
 {
     "default.python": "${workspaceFolder}/.venv/bin/python",
     "cSpell.words": [
+        "automator",
         "colormap",
-        "deadsnakes"
+        "deadsnakes",
+        "notebooklm"
     ],
     "SyncTools.gitignore": false
 }

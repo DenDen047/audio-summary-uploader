@@ -10,7 +10,7 @@ notebooklm:
     default: >
       この内容を日本語で要約してポッドキャスト形式で説明してください。
       専門用語は必要に応じて英語のまま使ってください。
-    deep_dive: >
+    paper_summary: >
       - 解説は日本語でお願いします。
       - 言葉遣いは敬語
       - リスナーは社員2人のIT企業の経営者兼エンジニアです。主にAIや機械学習の業務を請け負っています。
@@ -39,7 +39,7 @@ notebooklm:
 youtube:
   privacy_status: "public"
   category_id: "27"              # Education
-  playlist_id: null
+  playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"
   title_prefix: "🎧"
   title_max_length: 95
   default_tags:
@@ -55,8 +55,8 @@ thumbnail:
   height: 720
   overlay_opacity: 0.5
   font_name: "NotoSansJP-Bold"
-  title_font_size_max: 60
-  title_font_size_min: 32
+  title_font_size_max: 80
+  title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
   fallback_gradient:
