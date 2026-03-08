@@ -1,0 +1,6 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+- Please use `load_calibration_json` function in `src/data_loader.py` to load the camera parameters.

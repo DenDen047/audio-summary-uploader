@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(fd:*)",
+      "Bash(uv run:*)",
+      "Bash(uv add:*)",
+      "Bash(uv pip show:*)",
+      "mcp__deepwiki__ask_question",
+      "mcp__arxiv-mcp-server__search_papers",
+      "mcp__arxiv-mcp-server__download_paper",
+      "mcp__arxiv-mcp-server__read_paper",
+      "Bash(uv run python:*)",
+      "Bash(wc:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(uv pip list:*)",
+      "mcp__hugging-face__hub_repo_details",
+      "Bash(ls:*)",
+      "Bash(eza:*)",
+      "Bash(curl:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uv sync:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+	"lambda_cloud": {
+		"type": "sftp",
+		"host": "IP_ADDRESS",
+		"port": 22,
+		"username": "ubuntu",
+		"privateKeyPath": "/Users/ikuta/.ssh/lambda_cloud",
+		"proxy": false,
+		"upload_on_save": true,
+		"watch": false,
+		"submit_git_before_upload": false,
+		"submit_git_msg": "",
+		"build": "",
+		"compress": false,
+		"remote_unpacked": false,
+		"delete_remote_compress": false,
+		"delete_local_compress": false,
+		"deleteRemote": false,
+		"upload_to_root": false,
+		"distPath": [],
+		"remotePath": "/lambda/nfs/PROJECT_FOLDER/",
+		"excludePath": [
+			".vscode",
+			".gitignore",
+			"*.pyc",
+			"*.log",
+			"*.pth",
+			"*.pt",
+			"__pycache__",
+			"*.pyo",
+			"*.pyd",
+			".DS_Store",
+            ".venv"
+		],
+		"downloadPath": "",
+		"downloadExcludePath": [],
+		"default": true
+	}
+	// Reference configuration
+	// Environment name, supports custom names
+	// "test": { // Test environment
+	//     "type": "", // (Required) Connection type, options: ftp, sftp, ssh
+	//     "host": "0.0.0.0", // (Required) Server address
+	//     "port": 22, // (Optional) Port number, default is 21 for ftp, 22 for sftp and ssh
+	//     "username": "username", // (Required) Login username
+	//     "password": "password", // Login password (choose one between password and private key path)
+	//     // "privateKeyPath": "/your_path/id_rsa", //  (sftp, ssh configuration) Private key path (choose one between password and private key path), note: it is not recommended to place the key in the code directory
+	//     // "secretKeyPath": "/your_path/secret_key.txt", //  Encrypted private key path, used to encrypt username and password, note: it is not recommended to place the key in the code directory
+	//     "proxy": false, // Whether to use a proxy, default is false
+	//     "upload_on_save": false, // Real-time submission after saving, recommended for single-person development. When upload_on_save is set to true, watch, submit_git_before_upload, compress, deleteRemote are invalid, default is false
+	//     "watch": false, // Monitor file changes in the upload directory, default is false. If upload_on_save is true, this item is invalid. If distPath directory is configured, only file changes in the distPath directory are monitored
+	//     "submit_git_before_upload": false, // For team development, submit local git before uploading code to prevent overwriting remote code, default is false
+	//     "submit_git_msg": "", // Configuration for git commit message, default is empty. If submit_git_before_upload is true and this is not filled, a prompt box will appear for manual input
+	//     // "build": "yarn build:test", // (Optional) Build command to execute, open this for front-end projects
+	//     "compress": false, //  Whether to compress and upload, and remotely decompress (account needs to support ssh login, the system will automatically detect if it is supported, if not, it will not compress and upload), default is false
+	//     "remote_unpacked": true, // Whether to remotely decompress after compressed upload, default is true for ssh, false for others
+	//     "delete_remote_compress": true, // Whether to delete the remote compressed file after compressed upload, default is true for ssh, false for others
+	//     "delete_local_compress": true, // Whether to delete the local compressed file after compressed upload, default is true
+	//     "upload_to_root": false, // If distPath configuration directory has only one, upload to the root directory of remotePath, generally used for deploying front-end code, default is false
+	//     "deleteRemote": false, // Whether to delete the remote distPath configuration directory before uploading, generally used for cleaning up front-end deployment code, default is false
+	//     "distPath": [], // (Optional) Local directory to upload, supports string or array, default is to upload the root directory
+	//     "remotePath": "/www/wwwroot/test", // (sftp, ssh configuration) Upload server address. Cannot specify symbolic links.
+	//     "excludePath": [], // (Optional) Files and directories to exclude from upload in the current environment, will be merged with the plugin configuration excludePath, when the plugin configuration uses gitignore, it will be merged with the .gitignore configuration file
+	//     "downloadPath": "", //  (Optional) Download path, default is the current project root directory, used for manually downloading files or folders, can specify the download address
+	//     "downloadExcludePath": [],//  (Optional) Files and directories to exclude from download
+	//     "default": false // Whether it is the default environment, when true, you can use the right-click menu to quickly upload files or folders, compare remote files, default is false
+	// }
+}
