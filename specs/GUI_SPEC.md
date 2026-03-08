@@ -54,7 +54,7 @@ htmx・Pico CSS は CDN から読み込み。
 │                                                                 │
 │  │ ✅  論文タイトルC                              🔗  🗑     │ │  ← アップロード済み
 │  │ ❌  記事タイトルD                              🔄  🗑     │ │  ← 失敗
-│  │     ERROR: NotebookLM timeout after 600s                   │ │
+│  │     ERROR: NotebookLM timeout after 1200s                   │ │
 │  │                                                             │ │
 └─────────────────────────────────────────────────────────────────┘
 ```
