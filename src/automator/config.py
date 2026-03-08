@@ -32,7 +32,7 @@ class NotebookLMConfig:
 
 @dataclass
 class YouTubeConfig:
-    privacy_status: str = "public"
+    privacy_status: str = "unlisted"
     category_id: str = "27"
     playlist_id: str | None = None
     title_prefix: str = "🎧"

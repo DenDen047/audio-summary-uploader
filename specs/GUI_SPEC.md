@@ -213,7 +213,7 @@ state.json のステータスと UI 表示の対応:
 Form Data:
   urls: str              # 改行区切りの URL リスト（1行1URL）
   prompt: str            # プリセット名 (default: "default")
-  audio_length: str      # "default" | "short" | "long"
+  audio_length: str      # "short" | "default"
 ```
 
 - URL を `UrlEntry` に変換してキューに追加

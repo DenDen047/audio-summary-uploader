@@ -37,7 +37,7 @@ notebooklm:
 
 # YouTube 設定
 youtube:
-  privacy_status: "public"
+  privacy_status: "unlisted"
   category_id: "27"              # Education
   playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"
   title_prefix: "🎧"

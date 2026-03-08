@@ -173,7 +173,7 @@ class NotebookLMConfig:
 
 @dataclass
 class YouTubeConfig:
-    privacy_status: str = "public"
+    privacy_status: str = "unlisted"
     category_id: str = "27"
     playlist_id: str | None = None
     title_prefix: str = "🎧"
@@ -439,11 +439,12 @@ class YouTubeUploadParams:
     description: str              # 元記事の説明 + URL + 生成条件
     tags: list[str]               # ["NotebookLM", "Audio Summary", "AI", ...]
     category_id: str = "27"       # Education カテゴリ
-    privacy_status: str = "public"
+    privacy_status: str = "unlisted"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
     playlist_id: str | None = None  # 追加先プレイリスト ID
     made_for_kids: bool = False       # "No, it's not made for kids"
+    contains_synthetic_media: bool = True  # AI生成コンテンツラベル
 ```
 
 **YouTube タイトルの形式:**
@@ -473,8 +474,9 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 2. `thumbnails.set` でカスタムサムネイルを設定
 3. `playlist_id` が指定されている場合、`playlistItems.insert` で動画をプレイリストに追加
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
-5. アップロード後の YouTube URL を返却
-6. パイプライン側でアップロード完了後に NotebookLM のノートブックを削除
+5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
+6. アップロード後の YouTube URL を返却
+7. パイプライン側でアップロード完了後に NotebookLM のノートブックを削除
 
 **クォータ管理:**
 - `videos.insert` = 1,600 ユニット
@@ -645,7 +647,7 @@ notebooklm:
 
 # YouTube 設定
 youtube:
-  privacy_status: "public"
+  privacy_status: "unlisted"
   category_id: "27"              # Education
   playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"  # My AI-Podcast プレイリスト
   title_prefix: "🎧"

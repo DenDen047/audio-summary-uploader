@@ -24,7 +24,7 @@ class YouTubeUploadParams:
     description: str
     tags: list[str] = field(default_factory=list)
     category_id: str = "27"
-    privacy_status: str = "public"
+    privacy_status: str = "unlisted"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
     playlist_id: str | None = None
@@ -72,6 +72,7 @@ def _upload_video_sync(creds: Credentials, params: YouTubeUploadParams) -> str:
         "status": {
             "privacyStatus": params.privacy_status,
             "selfDeclaredMadeForKids": False,
+            "containsSyntheticMedia": True,
         },
     }
 
