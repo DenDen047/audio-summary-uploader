@@ -18,10 +18,20 @@ def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     return (int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
 
 
-def _load_font(font_name: str, size: int) -> ImageFont.FreeTypeFont:
+def _resolve_font_path(font_name: str) -> str | None:
+    """フォントファイルのパスを解決する（見つからなければ None）."""
     font_path = _FONT_DIR / f"{font_name}.ttf"
     if font_path.exists():
-        return ImageFont.truetype(str(font_path), size)
+        return str(font_path)
+    return None
+
+
+def _load_font(
+    font_name: str, size: int, *, resolved_path: str | None = None,
+) -> ImageFont.FreeTypeFont:
+    path = resolved_path or _resolve_font_path(font_name)
+    if path:
+        return ImageFont.truetype(path, size)
     # システムフォントにフォールバック
     try:
         return ImageFont.truetype(font_name, size)
@@ -35,6 +45,7 @@ def _create_gradient_background(
 ) -> Image.Image:
     """グラデーション背景を生成."""
     img = Image.new("RGB", (width, height))
+    draw = ImageDraw.Draw(img)
     start = _hex_to_rgb(start_color)
     end = _hex_to_rgb(end_color)
     for y in range(height):
@@ -42,8 +53,7 @@ def _create_gradient_background(
         r = int(start[0] + (end[0] - start[0]) * ratio)
         g = int(start[1] + (end[1] - start[1]) * ratio)
         b = int(start[2] + (end[2] - start[2]) * ratio)
-        for x in range(width):
-            img.putpixel((x, y), (r, g, b))
+        draw.line([(0, y), (width, y)], fill=(r, g, b))
     return img
 
 
@@ -69,12 +79,31 @@ def _determine_font_size(
     text: str, font_name: str, max_width: int, size_max: int, size_min: int
 ) -> int:
     """タイトル長に応じてフォントサイズを自動調整."""
+    resolved_path = _resolve_font_path(font_name)
     for size in range(size_max, size_min - 1, -2):
-        font = _load_font(font_name, size)
+        font = _load_font(font_name, size, resolved_path=resolved_path)
         lines = _wrap_text(text, font, max_width)
         if len(lines) <= 4:
             return size
     return size_min
+
+
+def _draw_text_with_shadow(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    x: int,
+    y: int,
+    fill: str,
+    shadow_offset: int = 2,
+    shadow_color: str = "#000000",
+) -> None:
+    """影付きテキストを描画する."""
+    draw.text(
+        (x + shadow_offset, y + shadow_offset),
+        text, fill=shadow_color, font=font,
+    )
+    draw.text((x, y), text, fill=fill, font=font)
 
 
 def generate_thumbnail_sync(
@@ -142,9 +171,9 @@ def generate_thumbnail_sync(
         line_width = bbox[2] - bbox[0]
         x = (width - line_width) // 2
         y = y_start + i * line_height
-        # テキスト影
-        draw.text((x + 2, y + 2), line, fill="#000000", font=title_font)
-        draw.text((x, y), line, fill=text_color, font=title_font)
+        _draw_text_with_shadow(
+            draw, line, title_font, x, y, text_color, shadow_offset=2,
+        )
 
     # サイト名（下部）
     if site_name:
@@ -153,8 +182,10 @@ def generate_thumbnail_sync(
         sw = bbox[2] - bbox[0]
         sx = (width - sw) // 2
         sy = height - 60
-        draw.text((sx + 1, sy + 1), site_name, fill="#999999", font=sub_font)
-        draw.text((sx, sy), site_name, fill="#CCCCCC", font=sub_font)
+        _draw_text_with_shadow(
+            draw, site_name, sub_font, sx, sy, "#CCCCCC",
+            shadow_offset=1, shadow_color="#999999",
+        )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     bg.save(str(output_path), "PNG")

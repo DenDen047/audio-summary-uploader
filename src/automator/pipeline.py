@@ -1,11 +1,17 @@
 """パイプライン全体のオーケストレーション."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from google.oauth2.credentials import Credentials
 
 from automator.config import Settings
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
@@ -102,6 +108,7 @@ async def process_single_url(
     settings: Settings,
     backend: NotebookLMBackend,
     tmp_dir: Path,
+    creds: Credentials | None,
     dry_run: bool = False,
 ) -> ProcessResult:
     """1 URL の処理パイプラインを実行する."""
@@ -167,11 +174,6 @@ async def process_single_url(
     )
 
     # 10. YouTube アップロード
-    creds = authenticate(
-        client_secret_path=Path(settings.credentials.youtube_client_secret),
-        token_path=Path(settings.credentials.youtube_token),
-    )
-
     description = _build_description(metadata, audio_length, prompt_preset_name)
     title = _build_title(metadata, settings)
 
@@ -215,6 +217,13 @@ async def run_pipeline(
     processed_urls = _get_processed_urls(state)
 
     backend = _create_backend(settings)
+
+    # YouTube 認証（1回だけ）
+    creds = authenticate(
+        client_secret_path=Path(settings.credentials.youtube_client_secret),
+        token_path=Path(settings.credentials.youtube_token),
+    ) if not dry_run else None
+
     results: list[ProcessResult] = []
 
     # クォータ制限チェック
@@ -246,7 +255,7 @@ async def run_pipeline(
 
         try:
             result = await process_single_url(
-                entry, settings, backend, tmp_dir, dry_run=dry_run
+                entry, settings, backend, tmp_dir, creds, dry_run=dry_run
             )
             results.append(result)
             if not dry_run:
