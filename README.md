@@ -119,6 +119,72 @@ uv run automator auth youtube
 
 > **カスタムサムネイルについて:** YouTube でカスタムサムネイルを設定するには、チャンネルの電話番号認証が必要です。[YouTube Studio](https://studio.youtube.com) → 設定 → チャンネル → 機能の利用資格 から確認できます。
 
+## Docker で使う（推奨）
+
+Docker を使えば Python や FFmpeg のインストールなしで、すぐに利用できます。
+
+### クイックスタート
+
+```bash
+git clone https://github.com/<your-username>/audio-summary-uploader.git
+cd audio-summary-uploader
+```
+
+#### 1. 認証情報を配置
+
+```bash
+# YouTube API のクライアントシークレット（取得方法は「YouTube API 認証セットアップ」を参照）
+cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
+```
+
+> NotebookLM の認証（`~/.notebooklm/storage_state.json`）は、ホスト側で事前に `uv run notebooklm login` を実行して取得する必要があります。
+
+#### 2. 起動
+
+```bash
+docker compose up -d
+```
+
+http://localhost:8080 で Web ダッシュボードにアクセスできます。
+
+#### 3. 停止
+
+```bash
+docker compose down
+```
+
+### docker-compose.yml のカスタマイズ
+
+```yaml
+services:
+  automator:
+    build: .
+    # GHCR 公開後は以下に置き換え可能:
+    # image: ghcr.io/<your-username>/audio-summary-uploader:latest
+    container_name: audio-summary-uploader
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config          # 設定ファイル
+      - ./credentials:/app/credentials # OAuth トークン
+      - ./tmp:/app/tmp                 # 一時ファイル（音声、動画）
+      - ./data:/app/data               # 状態ファイル (state.json)
+```
+
+### ボリュームの説明
+
+| パス | 用途 |
+|------|------|
+| `./config` | `settings.yaml`（アプリ設定） |
+| `./credentials` | YouTube OAuth トークン |
+| `./tmp` | 生成された音声・サムネイル・動画ファイル |
+| `./data` | `state.json`（処理状態の永続化） |
+
+## ローカルで使う
+
+Docker を使わずにローカル環境で直接実行する場合は、以下の手順でセットアップしてください。
+
 ## 使い方
 
 ### Web ダッシュボード（推奨）

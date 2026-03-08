@@ -1,0 +1,13 @@
+services:
+  automator:
+    build: .
+    # image: ghcr.io/ikuta/audio-summary-uploader:latest  # GHCR公開後はこちらを使用
+    container_name: audio-summary-uploader
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config
+      - ./credentials:/app/credentials
+      - ./tmp:/app/tmp
+      - ./data:/app/data
