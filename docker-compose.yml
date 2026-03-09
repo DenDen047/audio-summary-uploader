@@ -11,3 +11,4 @@ services:
       - ./credentials:/app/credentials
       - ./tmp:/app/tmp
       - ./data:/app/data
+      - ~/.notebooklm:/root/.notebooklm:ro

@@ -135,6 +135,7 @@ class NotebookLMPyBackend(NotebookLMBackend):
             notebook_id,
             output_path,
         )
+        output_path = output_path.resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         async with await self._get_client() as client:
