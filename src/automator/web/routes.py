@@ -16,6 +16,11 @@ from automator.web.app import enqueue_urls, get_queue_status, templates
 router = APIRouter()
 
 
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 def _get_settings(request: Request) -> Settings:
     return request.app.state.settings
 

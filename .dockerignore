@@ -18,4 +18,5 @@ tests/
 specs/
 *.md
 !README.md
+Makefile
 sync_config.jsonc
