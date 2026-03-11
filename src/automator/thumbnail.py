@@ -133,12 +133,61 @@ def _draw_text_with_shadow(
     draw.text((x, y), text, fill=fill, font=font)
 
 
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+def _fetch_image(url_or_path: str) -> Image.Image | None:
+    """URL またはローカルパスから画像を読み込む."""
+    path = Path(url_or_path)
+    if path.exists():
+        try:
+            return Image.open(path).convert("RGBA")
+        except Exception:
+            logger.warning("Failed to open local image: {}", url_or_path)
+            return None
+
+    try:
+        resp = httpx.get(
+            url_or_path, timeout=10.0, follow_redirects=True,
+            headers={"User-Agent": _USER_AGENT},
+        )
+        resp.raise_for_status()
+        return Image.open(BytesIO(resp.content)).convert("RGBA")
+    except Exception:
+        logger.warning("Failed to fetch image: {}", url_or_path)
+        return None
+
+
+def _place_icon_on_gradient(
+    gradient: Image.Image, icon: Image.Image, icon_size: int = 280,
+) -> Image.Image:
+    """グラデーション背景の中央にアイコンを配置する (RGBA を返す)."""
+    # アスペクト比維持でリサイズ
+    ratio = min(icon_size / icon.width, icon_size / icon.height)
+    new_w = int(icon.width * ratio)
+    new_h = int(icon.height * ratio)
+    icon = icon.resize((new_w, new_h), Image.LANCZOS)
+
+    # 中央に配置（テキスト領域を考慮して少し上寄り）
+    bg = gradient.convert("RGBA")
+    x = (bg.width - new_w) // 2
+    y = (bg.height - new_h) // 2 - 40
+    bg.paste(icon, (x, y), icon)
+    return bg
+
+
 def generate_thumbnail_sync(
     title: str,
     site_name: str | None,
     og_image_url: str | None,
     output_path: Path,
     config: ThumbnailConfig,
+    *,
+    favicon_url: str | None = None,
 ) -> Path:
     """サムネイル画像を生成する（同期版）."""
     width, height = config.width, config.height
@@ -147,10 +196,9 @@ def generate_thumbnail_sync(
     # 背景画像の取得
     bg: Image.Image | None = None
     if og_image_url:
-        try:
-            resp = httpx.get(og_image_url, timeout=10.0, follow_redirects=True)
-            resp.raise_for_status()
-            bg = Image.open(BytesIO(resp.content)).convert("RGB")
+        og_img = _fetch_image(og_image_url)
+        if og_img:
+            bg = og_img.convert("RGB")
             # アスペクト比維持でリサイズ＆クロップ
             bg_ratio = max(width / bg.width, height / bg.height)
             new_size = (int(bg.width * bg_ratio), int(bg.height * bg_ratio))
@@ -158,14 +206,21 @@ def generate_thumbnail_sync(
             left = (bg.width - width) // 2
             top = (bg.height - height) // 2
             bg = bg.crop((left, top, left + width, top + height))
-        except Exception:
-            logger.warning("Failed to fetch OG image, using gradient fallback")
-            bg = None
 
     if bg is None:
         start_color, end_color = _generate_random_gradient_colors()
         logger.info("Using random gradient: {} -> {}", start_color, end_color)
-        bg = _create_gradient_background(width, height, start_color, end_color)
+        gradient = _create_gradient_background(width, height, start_color, end_color)
+
+        # ファビコン/アイコンをグラデーション上に配置
+        if favicon_url:
+            icon = _fetch_image(favicon_url)
+            if icon:
+                bg = _place_icon_on_gradient(gradient, icon)
+                logger.info("Placed icon on gradient background")
+
+        if bg is None:
+            bg = gradient
 
     # 暗めオーバーレイ
     alpha = int(255 * config.overlay_opacity)
@@ -224,9 +279,12 @@ async def generate_thumbnail(
     og_image_url: str | None,
     output_path: Path,
     config: ThumbnailConfig,
+    *,
+    favicon_url: str | None = None,
 ) -> Path:
     """サムネイル画像を生成する（async ラッパー）."""
     return await asyncio.to_thread(
         generate_thumbnail_sync,
         title, site_name, og_image_url, output_path, config,
+        favicon_url=favicon_url,
     )

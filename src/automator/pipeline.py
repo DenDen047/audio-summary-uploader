@@ -180,6 +180,7 @@ def _metadata_to_dict(metadata: PageMetadata) -> dict:
         "og_image_url": metadata.og_image_url,
         "site_name": metadata.site_name,
         "language": metadata.language,
+        "favicon_url": metadata.favicon_url,
     }
 
 
@@ -192,6 +193,7 @@ def _dict_to_metadata(url: str, d: dict) -> PageMetadata:
         og_image_url=d.get("og_image_url"),
         site_name=d.get("site_name"),
         language=d.get("language"),
+        favicon_url=d.get("favicon_url"),
     )
 
 
@@ -228,7 +230,8 @@ async def _submit_single(
     # メタデータ取得
     is_local = is_local_path(url)
     if is_local:
-        metadata = metadata_for_local_file(Path(url))
+        tmp_dir = Path(settings.general.tmp_dir)
+        metadata = metadata_for_local_file(Path(url), tmp_dir=tmp_dir)
     else:
         metadata = await fetch_metadata(url)
 
@@ -410,6 +413,7 @@ async def _collect_single(
         og_image_url=metadata.og_image_url,
         output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
         config=settings.thumbnail,
+        favicon_url=metadata.favicon_url,
     )
 
     # 動画変換
@@ -595,7 +599,7 @@ async def process_single_url(
     # 1. メタデータ取得
     is_local = is_local_path(entry.url)
     if is_local:
-        metadata = metadata_for_local_file(Path(entry.url))
+        metadata = metadata_for_local_file(Path(entry.url), tmp_dir=tmp_dir)
     else:
         metadata = await fetch_metadata(entry.url)
 
@@ -641,6 +645,7 @@ async def process_single_url(
         og_image_url=metadata.og_image_url,
         output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
         config=settings.thumbnail,
+        favicon_url=metadata.favicon_url,
     )
 
     # 9. 動画変換
