@@ -134,6 +134,23 @@ def _save_state(state_path: Path, state: dict) -> None:
         raise
 
 
+def _update_job_state(
+    state_path: Path, url: str, updates: dict[str, Any]
+) -> None:
+    """state.json からジョブを検索し、指定フィールドのみ更新して保存する.
+
+    ディスク上の最新 state を読み直すことで、他の操作 (clear, delete 等) との
+    競合によるデータ復活を防ぐ。ジョブが既に削除されていた場合は何もしない。
+    """
+    state = _load_state(state_path)
+    for job in state["jobs"]:
+        if job["url"] == url:
+            job.update(updates)
+            break
+    state["last_run"] = _now_iso()
+    _save_state(state_path, state)
+
+
 def _get_active_urls(state: dict) -> set[str]:
     """生成中・video_ready・uploaded の URL セットを返す."""
     return {
@@ -378,15 +395,16 @@ async def _collect_single(
             logger.info("Audio still generating, polling until completion...")
             gen_status = await backend.wait_for_audio(notebook_id, task_id)
             if gen_status.status.upper() != "COMPLETED":
-                job["status"] = "failed"
-                job["error"] = f"Audio generation failed: {gen_status.status}"
-                state["last_run"] = _now_iso()
-                _save_state(state_path, state)
+                error_msg = f"Audio generation failed: {gen_status.status}"
+                _update_job_state(state_path, url, {
+                    "status": "failed",
+                    "error": error_msg,
+                })
                 return ProcessResult(
                     url=url,
                     title=job["metadata"]["title"] if job["metadata"] else None,
                     status="failed",
-                    error=job["error"],
+                    error=error_msg,
                     phase="collect",
                 )
         else:
@@ -426,14 +444,14 @@ async def _collect_single(
     # ノートブック削除
     await backend.delete_notebook(notebook_id)
 
-    # state 更新
-    job["status"] = "video_ready"
-    job["audio_path"] = str(audio_path)
-    job["thumbnail_path"] = str(thumbnail_path)
-    job["video_path"] = str(video_path)
-    job["collected_at"] = _now_iso()
-    state["last_run"] = _now_iso()
-    _save_state(state_path, state)
+    # state 更新 (ディスクから再読込して競合を防ぐ)
+    _update_job_state(state_path, url, {
+        "status": "video_ready",
+        "audio_path": str(audio_path),
+        "thumbnail_path": str(thumbnail_path),
+        "video_path": str(video_path),
+        "collected_at": _now_iso(),
+    })
 
     return ProcessResult(
         url=url,
@@ -475,10 +493,10 @@ async def collect_audio(
             )
         except Exception as exc:
             logger.error("Failed to collect {}: {}", job["url"], exc)
-            job["status"] = "failed"
-            job["error"] = str(exc)
-            state["last_run"] = _now_iso()
-            _save_state(state_path, state)
+            _update_job_state(state_path, job["url"], {
+                "status": "failed",
+                "error": str(exc),
+            })
             return ProcessResult(
                 url=job["url"],
                 title=job["metadata"]["title"] if job.get("metadata") else None,
@@ -547,11 +565,11 @@ async def upload_videos(settings: Settings) -> list[ProcessResult]:
 
             youtube_url = await upload_video(creds, params)
 
-            job["status"] = "uploaded"
-            job["youtube_url"] = youtube_url
-            job["uploaded_at"] = _now_iso()
-            state["last_run"] = _now_iso()
-            _save_state(state_path, state)
+            _update_job_state(state_path, url, {
+                "status": "uploaded",
+                "youtube_url": youtube_url,
+                "uploaded_at": _now_iso(),
+            })
 
             results.append(
                 ProcessResult(
@@ -564,10 +582,10 @@ async def upload_videos(settings: Settings) -> list[ProcessResult]:
             )
         except Exception as exc:
             logger.error("Failed to upload {}: {}", url, exc)
-            job["status"] = "failed"
-            job["error"] = str(exc)
-            state["last_run"] = _now_iso()
-            _save_state(state_path, state)
+            _update_job_state(state_path, url, {
+                "status": "failed",
+                "error": str(exc),
+            })
             results.append(
                 ProcessResult(
                     url=url,

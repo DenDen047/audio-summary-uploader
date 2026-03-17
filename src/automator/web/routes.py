@@ -294,7 +294,9 @@ async def clear_completed(request: Request) -> HTMLResponse:
 
     before = len(state.get("jobs", []))
     state["jobs"] = [
-        j for j in state.get("jobs", []) if j["status"] != "uploaded"
+        j
+        for j in state.get("jobs", [])
+        if j["status"] not in ("uploaded", "failed")
     ]
     after = len(state["jobs"])
     _save_state(state_path, state)

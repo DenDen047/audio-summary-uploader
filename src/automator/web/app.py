@@ -88,24 +88,19 @@ async def _recover_orphaned_jobs(settings: Settings) -> None:
                 )
         except Exception as exc:
             logger.error("Recovery failed for generating jobs: {}", exc)
-        return  # upload_videos already handles video_ready jobs above
 
     # video_ready ジョブは動画変換済み → upload のみで復旧
-    video_ready = [j for j in jobs if j.get("status") == "video_ready"]
-    if video_ready:
-        logger.info(
-            "Recovering {} video_ready jobs (upload only)",
-            len(video_ready),
-        )
-        try:
-            upload_results = await upload_videos(settings)
-            for r in upload_results:
-                logger.info(
-                    "Recovery upload: url={} status={} error={}",
-                    r.url, r.status, r.error,
-                )
-        except Exception as exc:
-            logger.error("Recovery failed for video_ready jobs: {}", exc)
+    # (generating 復旧内の upload_videos が成功済みなら state 上は uploaded になっており
+    #  upload_videos が再読込するため空振りになる。失敗時はここで再試行される。)
+    try:
+        upload_results = await upload_videos(settings)
+        for r in upload_results:
+            logger.info(
+                "Recovery upload: url={} status={} error={}",
+                r.url, r.status, r.error,
+            )
+    except Exception as exc:
+        logger.error("Recovery failed for video_ready jobs: {}", exc)
 
 
 async def pipeline_worker(settings: Settings) -> None:
