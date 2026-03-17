@@ -39,6 +39,7 @@ async def _recover_orphaned_jobs(settings: Settings) -> None:
 
     - "queued" ジョブ → キューに再投入（submit からやり直す）
     - "generating" ジョブ → collect + upload を直接実行（submit 済みのため）
+    - "video_ready" ジョブ → upload を直接実行（動画変換済みのため）
     """
     state_path = Path(settings.general.state_file)
     if not state_path.exists():
@@ -86,7 +87,20 @@ async def _recover_orphaned_jobs(settings: Settings) -> None:
                     r.url, r.status, r.error,
                 )
         except Exception as exc:
-            logger.error("Recovery failed: {}", exc)
+            logger.error("Recovery failed for generating jobs: {}", exc)
+
+    # video_ready ジョブは動画変換済み → upload のみで復旧
+    # (generating 復旧内の upload_videos が成功済みなら state 上は uploaded になっており
+    #  upload_videos が再読込するため空振りになる。失敗時はここで再試行される。)
+    try:
+        upload_results = await upload_videos(settings)
+        for r in upload_results:
+            logger.info(
+                "Recovery upload: url={} status={} error={}",
+                r.url, r.status, r.error,
+            )
+    except Exception as exc:
+        logger.error("Recovery failed for video_ready jobs: {}", exc)
 
 
 async def pipeline_worker(settings: Settings) -> None:

@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -39,9 +40,14 @@ def authenticate(client_secret_path: Path, token_path: Path) -> Credentials:
 
     if creds and creds.expired and creds.refresh_token:
         logger.info("Refreshing YouTube token")
-        creds.refresh(Request())
-        token_path.write_text(creds.to_json(), encoding="utf-8")
-    elif not creds or not creds.valid:
+        try:
+            creds.refresh(Request())
+            token_path.write_text(creds.to_json(), encoding="utf-8")
+        except RefreshError as exc:
+            logger.warning("Token refresh failed ({}), re-authenticating", exc)
+            token_path.unlink(missing_ok=True)
+            creds = None
+    if not creds or not creds.valid:
         logger.info("Starting YouTube OAuth flow")
         if not client_secret_path.exists():
             msg = f"Client secret not found: {client_secret_path}"

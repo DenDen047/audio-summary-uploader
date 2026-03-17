@@ -11,4 +11,20 @@ services:
       - ./credentials:/app/credentials
       - ./tmp:/app/tmp
       - ./data:/app/data
-      - ~/.notebooklm:/root/.notebooklm:ro
+      - ~/.notebooklm:/home/appuser/.notebooklm:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"

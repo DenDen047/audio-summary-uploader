@@ -16,6 +16,11 @@ from automator.web.app import enqueue_urls, get_queue_status, templates
 router = APIRouter()
 
 
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 def _get_settings(request: Request) -> Settings:
     return request.app.state.settings
 
@@ -289,7 +294,9 @@ async def clear_completed(request: Request) -> HTMLResponse:
 
     before = len(state.get("jobs", []))
     state["jobs"] = [
-        j for j in state.get("jobs", []) if j["status"] != "uploaded"
+        j
+        for j in state.get("jobs", [])
+        if j["status"] not in ("uploaded", "failed")
     ]
     after = len(state["jobs"])
     _save_state(state_path, state)
