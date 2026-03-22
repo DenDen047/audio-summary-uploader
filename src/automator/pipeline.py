@@ -15,6 +15,8 @@ from loguru import logger
 if TYPE_CHECKING:
     from google.oauth2.credentials import Credentials
 
+from notebooklm.exceptions import AuthError as NotebookLMAuthError
+
 from automator.config import Settings
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
 from automator.notebooklm import NotebookLMBackend
@@ -24,6 +26,22 @@ from automator.thumbnail import generate_thumbnail
 from automator.url_parser import UrlEntry, is_local_path
 from automator.video import convert_to_video
 from automator.youtube import YouTubeUploadParams, authenticate, upload_video
+
+_NOTEBOOKLM_AUTH_ERROR_MSG = (
+    "NotebookLM の認証が期限切れです。"
+    "ターミナルで 'uv run notebooklm login' を実行して再認証してください。"
+    "再認証後、Web UI からリトライできます。"
+)
+
+_AUTH_ERROR_KEYWORDS = ("authentication", "expired", "re-authenticate", "login")
+
+
+def _is_notebooklm_auth_error(exc: Exception) -> bool:
+    """NotebookLM の認証エラーかどうかを判定する."""
+    if isinstance(exc, NotebookLMAuthError):
+        return True
+    msg = str(exc).lower()
+    return sum(1 for kw in _AUTH_ERROR_KEYWORDS if kw in msg) >= 2
 
 
 def _make_slug(url: str) -> str:
@@ -344,7 +362,16 @@ async def submit_urls(
                 entry, settings, backend, state, state_path, dry_run
             )
         except Exception as exc:
-            logger.error("Failed to submit {}: {}", entry.url, exc)
+            if _is_notebooklm_auth_error(exc):
+                logger.error(
+                    "NotebookLM 認証エラー (url={}): {}",
+                    entry.url,
+                    _NOTEBOOKLM_AUTH_ERROR_MSG,
+                )
+                error_msg = _NOTEBOOKLM_AUTH_ERROR_MSG
+            else:
+                logger.error("Failed to submit {}: {}", entry.url, exc)
+                error_msg = str(exc)
             # state にエラーを記録
             audio_length = entry.audio_length or settings.notebooklm.audio_length
             prompt_preset_name = entry.prompt or "default"
@@ -352,14 +379,14 @@ async def submit_urls(
                 state, entry.url, audio_length, prompt_preset_name
             )
             job["status"] = "failed"
-            job["error"] = str(exc)
+            job["error"] = error_msg
             job["submitted_at"] = _now_iso()
             state["last_run"] = _now_iso()
             _save_state(state_path, state)
             return ProcessResult(
                 url=entry.url,
                 status="failed",
-                error=str(exc),
+                error=error_msg,
                 phase="submit",
             )
 
@@ -492,16 +519,25 @@ async def collect_audio(
                 job, settings, backend, tmp_dir, poll, state, state_path
             )
         except Exception as exc:
-            logger.error("Failed to collect {}: {}", job["url"], exc)
+            if _is_notebooklm_auth_error(exc):
+                logger.error(
+                    "NotebookLM 認証エラー (url={}): {}",
+                    job["url"],
+                    _NOTEBOOKLM_AUTH_ERROR_MSG,
+                )
+                error_msg = _NOTEBOOKLM_AUTH_ERROR_MSG
+            else:
+                logger.error("Failed to collect {}: {}", job["url"], exc)
+                error_msg = str(exc)
             _update_job_state(state_path, job["url"], {
                 "status": "failed",
-                "error": str(exc),
+                "error": error_msg,
             })
             return ProcessResult(
                 url=job["url"],
                 title=job["metadata"]["title"] if job.get("metadata") else None,
                 status="failed",
-                error=str(exc),
+                error=error_msg,
                 phase="collect",
             )
 
