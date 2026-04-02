@@ -4,7 +4,6 @@
       "Bash(git add:*)",
       "Bash(git checkout:*)",
       "Bash(git commit:*)",
-
       "Bash(uv add:*)",
       "Bash(uv run:*)",
       "Bash(uv sync:*)",
@@ -12,7 +11,6 @@
       "Bash(uv pip list:*)",
       "Bash(uv pip show:*)",
       "Bash(ruff check:*)",
-
       "Bash(curl:*)",
       "Bash(docker build:*)",
       "Bash(eza:*)",
@@ -20,12 +18,10 @@
       "Bash(grep:*)",
       "Bash(ls:*)",
       "Bash(wc:*)",
-
       "WebFetch(domain:developers.google.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebSearch",
-
       "mcp__arxiv-mcp-server__download_paper",
       "mcp__arxiv-mcp-server__read_paper",
       "mcp__arxiv-mcp-server__search_papers",
