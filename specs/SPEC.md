@@ -452,6 +452,8 @@ class YouTubeUploadParams:
 {settings.youtube.title_prefix} {記事タイトル（settings.youtube.title_max_length 文字に切り詰め）}
 ```
 
+- タイトルに YouTube API が拒否する文字（`<`, `>`）が含まれる場合、全角文字（`＜`, `＞`）に自動置換する
+
 **YouTube 説明文テンプレート:**
 ```
 NotebookLM の Audio Overview で自動生成された音声要約です。
