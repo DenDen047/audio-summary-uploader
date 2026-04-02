@@ -1,33 +1,38 @@
 {
   "permissions": {
     "allow": [
-      "Bash(fd:*)",
-      "Bash(uv run:*)",
+      "Bash(git add:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+
       "Bash(uv add:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv pip install:*)",
+      "Bash(uv pip list:*)",
       "Bash(uv pip show:*)",
-      "mcp__deepwiki__ask_question",
-      "mcp__arxiv-mcp-server__search_papers",
+      "Bash(ruff check:*)",
+
+      "Bash(curl:*)",
+      "Bash(docker build:*)",
+      "Bash(eza:*)",
+      "Bash(fd:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+
+      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebSearch",
+
       "mcp__arxiv-mcp-server__download_paper",
       "mcp__arxiv-mcp-server__read_paper",
-      "Bash(uv run python:*)",
-      "Bash(wc:*)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "WebFetch(domain:github.com)",
-      "Bash(uv pip list:*)",
-      "mcp__hugging-face__hub_repo_details",
-      "Bash(ls:*)",
-      "Bash(eza:*)",
-      "Bash(curl:*)",
-      "Bash(uv pip install:*)",
-      "Bash(uv sync:*)",
-      "Bash(grep:*)",
-      "WebSearch",
-      "Bash(git checkout:*)",
-      "Bash(ruff check:*)",
-      "WebFetch(domain:developers.google.com)",
-      "mcp__deepwiki__read_wiki_structure",
+      "mcp__arxiv-mcp-server__search_papers",
+      "mcp__deepwiki__ask_question",
       "mcp__deepwiki__read_wiki_contents",
-      "Bash(docker build:*)"
+      "mcp__deepwiki__read_wiki_structure",
+      "mcp__hugging-face__hub_repo_details"
     ]
   }
 }
