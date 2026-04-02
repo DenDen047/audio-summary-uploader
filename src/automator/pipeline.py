@@ -79,11 +79,22 @@ def _build_description(
 この動画は audio-summary-uploader で自動生成されました。""".strip()
 
 
+def _sanitize_youtube_title(title: str) -> str:
+    """YouTube API が拒否する文字を置換する."""
+    replacements = {
+        "<": "＜",
+        ">": "＞",
+    }
+    for old, new in replacements.items():
+        title = title.replace(old, new)
+    return title
+
+
 def _build_title(metadata: PageMetadata, settings: Settings) -> str:
     """YouTube タイトルを生成する."""
     prefix = settings.youtube.title_prefix
     max_len = settings.youtube.title_max_length
-    title = metadata.title
+    title = _sanitize_youtube_title(metadata.title)
     if len(title) > max_len:
         title = title[: max_len - 1] + "…"
     return f"{prefix} {title}"
