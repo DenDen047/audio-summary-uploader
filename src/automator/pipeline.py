@@ -44,6 +44,23 @@ def _is_notebooklm_auth_error(exc: Exception) -> bool:
     return sum(1 for kw in _AUTH_ERROR_KEYWORDS if kw in msg) >= 2
 
 
+async def _cleanup_notebook(
+    backend: NotebookLMBackend, notebook_id: str
+) -> None:
+    """部分的失敗時に作成済みノートブックを best-effort で削除する.
+
+    削除自体が失敗しても呼び出し元の元エラーを優先したいので、例外は WARN ログのみ。
+    NotebookLM のアカウント上限消費を防ぐためのリーク対策。
+    """
+    try:
+        await backend.delete_notebook(notebook_id)
+        logger.info("Cleaned up orphaned notebook: {}", notebook_id)
+    except Exception as exc:
+        logger.warning(
+            "Failed to cleanup orphaned notebook {}: {}", notebook_id, exc
+        )
+
+
 def _make_slug(url: str) -> str:
     """URL から一意な slug を生成する (SHA-256 先頭 12 文字)."""
     return hashlib.sha256(url.encode()).hexdigest()[:12]
@@ -302,22 +319,27 @@ async def _submit_single(
     job = _find_or_create_job(state, url, audio_length, prompt_preset_name)
     job["notebook_id"] = notebook_id
 
-    # ソース追加
-    if is_local:
-        await backend.add_file_source(notebook_id, Path(url))
-    else:
-        await backend.add_source(notebook_id, url)
+    try:
+        # ソース追加
+        if is_local:
+            await backend.add_file_source(notebook_id, Path(url))
+        else:
+            await backend.add_source(notebook_id, url)
 
-    # プロンプト解決
-    prompt_text = _resolve_prompt_preset(entry.prompt, settings)
+        # プロンプト解決
+        prompt_text = _resolve_prompt_preset(entry.prompt, settings)
 
-    # 音声生成開始（完了を待たない）
-    task_id = await backend.start_audio_generation(
-        notebook_id,
-        language=settings.notebooklm.audio_language,
-        instructions=prompt_text,
-        audio_length=audio_length,
-    )
+        # 音声生成開始（完了を待たない）
+        task_id = await backend.start_audio_generation(
+            notebook_id,
+            language=settings.notebooklm.audio_language,
+            instructions=prompt_text,
+            audio_length=audio_length,
+        )
+    except Exception:
+        # create_notebook は通ったが後段が失敗 → 作成済みノートブックを掃除
+        await _cleanup_notebook(backend, notebook_id)
+        raise
 
     # state 更新
     job["status"] = "generating"
@@ -433,7 +455,9 @@ async def _collect_single(
             logger.info("Audio still generating, polling until completion...")
             gen_status = await backend.wait_for_audio(notebook_id, task_id)
             if gen_status.status.upper() != "COMPLETED":
+                # 音声生成が terminal FAILED で確定 → ノートブックは再利用できない
                 error_msg = f"Audio generation failed: {gen_status.status}"
+                await _cleanup_notebook(backend, notebook_id)
                 _update_job_state(state_path, url, {
                     "status": "failed",
                     "error": error_msg,
@@ -454,30 +478,36 @@ async def _collect_single(
                 phase="collect",
             )
 
-    # 音声ダウンロード
-    audio_path = await backend.download_audio(
-        notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
-    )
+    try:
+        # 音声ダウンロード
+        audio_path = await backend.download_audio(
+            notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
+        )
 
-    # メタデータ復元
-    metadata = _dict_to_metadata(url, job["metadata"])
+        # メタデータ復元
+        metadata = _dict_to_metadata(url, job["metadata"])
 
-    # サムネイル生成
-    thumbnail_path = await generate_thumbnail(
-        title=metadata.title,
-        site_name=metadata.site_name,
-        og_image_url=metadata.og_image_url,
-        output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
-        config=settings.thumbnail,
-        favicon_url=metadata.favicon_url,
-    )
+        # サムネイル生成
+        thumbnail_path = await generate_thumbnail(
+            title=metadata.title,
+            site_name=metadata.site_name,
+            og_image_url=metadata.og_image_url,
+            output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
+            config=settings.thumbnail,
+            favicon_url=metadata.favicon_url,
+        )
 
-    # 動画変換
-    video_path = await convert_to_video(
-        audio_path=audio_path,
-        thumbnail_path=thumbnail_path,
-        output_path=tmp_dir / "videos" / f"{slug}.mp4",
-    )
+        # 動画変換
+        video_path = await convert_to_video(
+            audio_path=audio_path,
+            thumbnail_path=thumbnail_path,
+            output_path=tmp_dir / "videos" / f"{slug}.mp4",
+        )
+    except Exception:
+        # COMPLETED 後の DL/サムネ/動画変換で失敗 → 状態は _safe_collect が failed に
+        # 書き戻すので、ここではノートブックだけ掃除
+        await _cleanup_notebook(backend, notebook_id)
+        raise
 
     # ノートブック削除
     await backend.delete_notebook(notebook_id)
