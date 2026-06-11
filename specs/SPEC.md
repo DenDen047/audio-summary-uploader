@@ -48,7 +48,7 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     ├─ URL をソースとして追加                     │
 │     ├─ Audio Overview 生成（日本語指定）          │
 │     ├─ 音声ファイル (.mp3) ダウンロード           │
-│     └─ アップロード完了後にノートブック削除       │
+│     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
 │  4. サムネイル生成                                │
 │     └─ OGP画像 + タイトルテキスト合成             │
@@ -357,8 +357,10 @@ class NotebookLMBackend(ABC):
 `UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `notebooklm.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` は NotebookLM の「デフォルト」（長め）に対応する。
 
 **音声生成の待機:**
-- 生成完了までポーリング（10秒間隔、最大タイムアウト10分）
+- 生成完了までポーリング（`generation_poll_interval_seconds` 間隔、最大 `generation_timeout_seconds` 秒 = デフォルト 1200 秒）
 - 生成ステータスが「完了」になったらダウンロード
+- タイムアウトや一時的なネットワークエラーの場合は terminal 扱いにせず `generating` を維持し、次回の collect で再試行する（生成自体は継続中の可能性があるため。ノートブックも残す）
+- ステータスが `failed`（terminal）の場合は `failed` に遷移し、ノートブックを削除する。`not_found` は作成直後の一時的な lag の可能性があるため単発では terminal とみなさず、ポーリング側の連続判定（notebooklm-py: 5 回連続 + 10 秒）に委ねる
 
 ### 3.6 サムネイル生成 (`thumbnail.py`)
 

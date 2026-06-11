@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from google.oauth2.credentials import Credentials
 
 from notebooklm.exceptions import AuthError as NotebookLMAuthError
+from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
 from automator.config import Settings
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
@@ -453,13 +454,37 @@ async def submit_urls(
 # --- Phase 2: collect ---
 
 
+async def _fail_collect_job(
+    backend: NotebookLMBackend,
+    state_path: Path,
+    url: str,
+    title: str | None,
+    notebook_id: str | None,
+    error_msg: str,
+) -> ProcessResult:
+    """collect 失敗を確定させる: ノートブック掃除 + failed 遷移."""
+    if notebook_id:
+        await _cleanup_notebook(backend, notebook_id)
+    _update_job_state(state_path, url, {
+        "status": "failed",
+        "error": error_msg,
+        "notebook_id": None,
+    })
+    return ProcessResult(
+        url=url,
+        title=title,
+        status="failed",
+        error=error_msg,
+        phase="collect",
+    )
+
+
 async def _collect_single(
     job: dict,
     settings: Settings,
     backend: NotebookLMBackend,
     tmp_dir: Path,
     poll: bool,
-    state: dict,
     state_path: Path,
 ) -> ProcessResult:
     """1つのジョブに対して collect 処理を実行する."""
@@ -467,70 +492,89 @@ async def _collect_single(
     slug = job["slug"]
     notebook_id = job["notebook_id"]
     task_id = job["task_id"]
+    title = job["metadata"]["title"] if job.get("metadata") else None
 
     logger.info("Collecting: {} (slug={})", url, slug)
+
+    # submit が中断されたジョブは回収できない → 明示的に failed にする
+    if not notebook_id or not task_id:
+        return await _fail_collect_job(
+            backend, state_path, url, title, notebook_id,
+            "submit が完了していないため音声を回収できません。リトライしてください。",
+        )
 
     # ステータスチェック
     gen_status = await backend.check_audio_status(notebook_id, task_id)
 
+    if gen_status.status.upper() == "FAILED":
+        # 生成失敗が確定 → ノートブックは再利用できない。
+        # NOT_FOUND は作成直後の一時的な lag の可能性があるため (notebooklm-py の
+        # is_not_found docstring 参照) 単発では terminal とみなさず、
+        # wait_for_audio 側の連続判定 (5回連続 + 10秒) に委ねる。
+        return await _fail_collect_job(
+            backend, state_path, url, title, notebook_id,
+            f"Audio generation failed: {gen_status.status}",
+        )
+
     if gen_status.status.upper() != "COMPLETED":
-        if poll:
-            logger.info("Audio still generating, polling until completion...")
-            gen_status = await backend.wait_for_audio(notebook_id, task_id)
-            if gen_status.status.upper() != "COMPLETED":
-                # 音声生成が terminal FAILED で確定 → ノートブックは再利用できない
-                error_msg = f"Audio generation failed: {gen_status.status}"
-                await _cleanup_notebook(backend, notebook_id)
-                _update_job_state(state_path, url, {
-                    "status": "failed",
-                    "error": error_msg,
-                })
-                return ProcessResult(
-                    url=url,
-                    title=job["metadata"]["title"] if job["metadata"] else None,
-                    status="failed",
-                    error=error_msg,
-                    phase="collect",
-                )
-        else:
+        if not poll:
             logger.info("Audio still generating for {}, skipping (use --poll)", url)
             return ProcessResult(
                 url=url,
-                title=job["metadata"]["title"] if job["metadata"] else None,
+                title=title,
                 status="generating",
                 phase="collect",
             )
 
-    try:
-        # 音声ダウンロード
-        audio_path = await backend.download_audio(
-            notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
-        )
+        logger.info("Audio still generating, polling until completion...")
+        try:
+            gen_status = await backend.wait_for_audio(notebook_id, task_id)
+        except (TimeoutError, NotebookLMNetworkError) as exc:
+            # タイムアウトや一時的なネットワーク断は terminal ではない:
+            # 生成は継続中の可能性があるため generating のまま残し、
+            # 次回の collect で再試行できるようにする (ノートブックも残す)
+            logger.warning(
+                "Audio polling interrupted for {} (notebook={}): {};"
+                " keeping status=generating for next collect",
+                url, notebook_id, exc,
+            )
+            return ProcessResult(
+                url=url,
+                title=title,
+                status="generating",
+                phase="collect",
+            )
+        if gen_status.status.upper() != "COMPLETED":
+            # 音声生成が terminal FAILED で確定 → ノートブックは再利用できない
+            return await _fail_collect_job(
+                backend, state_path, url, title, notebook_id,
+                f"Audio generation failed: {gen_status.status}",
+            )
 
-        # メタデータ復元
-        metadata = _dict_to_metadata(url, job["metadata"])
+    # 音声ダウンロード (以降の例外時の掃除と failed 遷移は _safe_collect が担う)
+    audio_path = await backend.download_audio(
+        notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
+    )
 
-        # サムネイル生成
-        thumbnail_path = await generate_thumbnail(
-            title=metadata.title,
-            site_name=metadata.site_name,
-            og_image_url=metadata.og_image_url,
-            output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
-            config=settings.thumbnail,
-            favicon_url=metadata.favicon_url,
-        )
+    # メタデータ復元
+    metadata = _dict_to_metadata(url, job["metadata"])
 
-        # 動画変換
-        video_path = await convert_to_video(
-            audio_path=audio_path,
-            thumbnail_path=thumbnail_path,
-            output_path=tmp_dir / "videos" / f"{slug}.mp4",
-        )
-    except Exception:
-        # COMPLETED 後の DL/サムネ/動画変換で失敗 → 状態は _safe_collect が failed に
-        # 書き戻すので、ここではノートブックだけ掃除
-        await _cleanup_notebook(backend, notebook_id)
-        raise
+    # サムネイル生成
+    thumbnail_path = await generate_thumbnail(
+        title=metadata.title,
+        site_name=metadata.site_name,
+        og_image_url=metadata.og_image_url,
+        output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
+        config=settings.thumbnail,
+        favicon_url=metadata.favicon_url,
+    )
+
+    # 動画変換
+    video_path = await convert_to_video(
+        audio_path=audio_path,
+        thumbnail_path=thumbnail_path,
+        output_path=tmp_dir / "videos" / f"{slug}.mp4",
+    )
 
     # ノートブック削除
     await backend.delete_notebook(notebook_id)
@@ -538,6 +582,7 @@ async def _collect_single(
     # state 更新 (ディスクから再読込して競合を防ぐ)
     _update_job_state(state_path, url, {
         "status": "video_ready",
+        "notebook_id": None,
         "audio_path": str(audio_path),
         "thumbnail_path": str(thumbnail_path),
         "video_path": str(video_path),
@@ -580,7 +625,7 @@ async def collect_audio(
     async def _safe_collect(job: dict) -> ProcessResult:
         try:
             return await _collect_single(
-                job, settings, backend, tmp_dir, poll, state, state_path
+                job, settings, backend, tmp_dir, poll, state_path
             )
         except Exception as exc:
             if _is_notebooklm_auth_error(exc):
@@ -593,16 +638,13 @@ async def collect_audio(
             else:
                 logger.error("Failed to collect {}: {}", job["url"], exc)
                 error_msg = str(exc)
-            _update_job_state(state_path, job["url"], {
-                "status": "failed",
-                "error": error_msg,
-            })
-            return ProcessResult(
-                url=job["url"],
-                title=job["metadata"]["title"] if job.get("metadata") else None,
-                status="failed",
-                error=error_msg,
-                phase="collect",
+            return await _fail_collect_job(
+                backend,
+                state_path,
+                job["url"],
+                job["metadata"]["title"] if job.get("metadata") else None,
+                job.get("notebook_id"),
+                error_msg,
             )
 
     results = await asyncio.gather(*[_safe_collect(j) for j in generating_jobs])

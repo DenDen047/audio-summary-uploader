@@ -317,7 +317,8 @@ async def test_full_pipeline_phase_transitions(
     job = jobs[0]
     assert job["status"] == "uploaded"
     assert job["youtube_url"] == "https://youtube.com/watch?v=test123"
-    assert job["notebook_id"] == "notebook-id-abc"
+    # collect 完了時にノートブックは削除され、参照もクリアされる
+    assert job["notebook_id"] is None
     assert job["submitted_at"] is not None
     assert job["collected_at"] is not None
     assert job["uploaded_at"] is not None
