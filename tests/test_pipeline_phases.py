@@ -98,6 +98,7 @@ async def test_submit_sets_generating(settings: Settings, mock_backend: AsyncMoc
             og_image_url=None,
             site_name="Example",
             language="ja",
+            favicon_url=None,
             url="https://example.com/article1",
         )
 
@@ -299,6 +300,7 @@ async def test_full_pipeline_phase_transitions(
             og_image_url=None,
             site_name="Example",
             language="ja",
+            favicon_url=None,
             url="https://example.com/article1",
         )
         mock_thumb_fn.return_value = thumb_path
@@ -362,6 +364,7 @@ async def test_queued_job_not_skipped_by_submit(settings: Settings, mock_backend
             og_image_url=None,
             site_name="Example",
             language="ja",
+            favicon_url=None,
             url="https://example.com/article1",
         )
 
