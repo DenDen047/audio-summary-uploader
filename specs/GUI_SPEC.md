@@ -49,7 +49,7 @@ htmx・Pico CSS は CDN から読み込み。
 │  │                                                             │ │
 ├─────────────────────────────────────────────────────────────────┤
 │  Completed                                                      │
-│  🗑 Clear selected  ✅ Clear completed  🔄 Retry failed         │
+│  ✅ Clear completed  🔄 Retry failed                            │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                 │
 │  │ ✅  論文タイトルC                              🔗  🗑     │ │  ← アップロード済み
@@ -72,20 +72,23 @@ htmx・Pico CSS は CDN から読み込み。
 - Enter キーでも送信可能
 - オプション行: Prompt プリセット選択 + Audio Length 選択
   - `settings.yaml` の `prompt_presets` からドロップダウンを動的生成
-  - Audio Length: `default` / `short` / `long`
+  - Audio Length: `short` / `default`
   - デフォルト値で動くので、触らなくて OK
+- 既に処理中・アップロード済み (`queued` / `generating` / `video_ready` / `uploading` / `uploaded`) の URL はスキップされる（重複実行ガード）。`failed` の URL は再追加で `queued` に戻る
+- 同一バッチ内の重複 URL は 1 件に集約される
 
 ### Processing セクション
 
-`generating`・`video_ready`・`uploading` 状態のジョブを表示。
+`queued`・`generating`・`video_ready`・`uploading` 状態のジョブを表示。
 
 各ジョブの表示内容:
 
 - ステータスアイコン（色付き丸）
 - 記事タイトル（クリックで元 URL を新しいタブで開く）
 - 現在のフェーズを日本語で表示:
+  - `queued` → 「準備中...」
   - `generating` → 「音声を生成中...」
-  - `video_ready` → 「動画変換完了」
+  - `video_ready` → 「動画変換完了、アップロード待ち」
   - `uploading` → 「YouTube にアップロード中...」
 
 htmx で 5 秒ごとにセクション全体を更新。ジョブが完了すると自動的に Completed に移動。
@@ -96,9 +99,8 @@ htmx で 5 秒ごとにセクション全体を更新。ジョブが完了する
 
 一括操作ボタン（MeTube と同じ）:
 
-- **Clear completed**: uploaded ジョブを一覧から削除
+- **Clear completed**: uploaded ジョブを一覧から削除（failed はエラー内容とリトライ機会を残すため対象外。個別の 🗑 で削除する）
 - **Retry failed**: 全 failed ジョブを再実行
-- **Clear selected**: チェックボックスで選択したジョブを削除
 
 各ジョブの表示内容:
 
@@ -128,30 +130,52 @@ Add ボタン
 ### 並行実行の制御
 
 - パイプラインが実行中に新しい URL が追加された場合: **キューに入れて順次実行**
-- 理由: state.json の同時書き込みを避けるため
-- 実行中は「Add」ボタンのテキストを「Add (queued)」に変えてフィードバック
-- キューが詰まっている場合はヘッダーに表示（例: `● 2 processing, 3 queued`）
+- 理由: state.json の同時書き込みと NotebookLM / YouTube の並行操作を避けるため
+- **パイプラインの実行は単一のワーカータスクに一本化する**。起動時リカバリ等の他の経路が直接 collect / upload を呼ぶと、同一ジョブの並行処理（二重 YouTube アップロード等）が起きるため、すべてキュー経由でワーカーに渡す
+- キュー投入前に必ず state.json へ `queued` ステータスを書き込む。これによりワーカーが処理を始める前から UI に表示され、サーバー再起動でもジョブが失われない
+- ヘッダーバッジの processing / queued 件数は state.json のジョブステータスから数える（インメモリのカウンタは持たない）。例: `● 2 processing, 3 queued`
+- 空バッチ（`entries=[]`）の投入は collect / upload スイープの起動として機能する（`run_pipeline` は entries に関わらず state.json 上の全 `generating` / `video_ready` ジョブを処理するため）
+- バッチ全体が例外で失敗した場合、`queued` のまま残ったジョブは failed に遷移させてエラーを可視化する（submit まで進んだジョブは復旧可能性があるため触らない）
 
 ```python
 import asyncio
 
 _task_queue: asyncio.Queue[list[UrlEntry]] = asyncio.Queue()
-_is_running: bool = False
 
 async def pipeline_worker(settings: Settings):
-    """バックグラウンドワーカー: キューからジョブを取り出して実行."""
-    global _is_running
+    """バックグラウンドワーカー: キューからバッチを取り出して直列実行."""
     while True:
         entries = await _task_queue.get()
-        _is_running = True
         try:
-            await run_pipeline(entries, settings, force=False)
+            await run_pipeline(
+                entries, settings, force=False, allow_interactive_auth=False
+            )
         except Exception as exc:
-            logger.error("Pipeline error: {}", exc)
+            logger.exception("Pipeline error: {}", exc)
+            # queued のまま残ったジョブを failed にする
         finally:
-            _is_running = False
             _task_queue.task_done()
 ```
+
+### 起動時リカバリ
+
+サーバー起動時に state.json 内の未完了ジョブをワーカーキュー経由で復旧する:
+
+- `queued` ジョブ → バッチとして再投入（submit からやり直す）
+- `generating` / `video_ready` ジョブ → 空バッチを投入し、run_pipeline の collect / upload スイープに回収させる（queued の再投入がある場合はそのバッチのスイープで回収されるため追加投入しない）
+
+**既知の制限**: 音声生成がポーリングタイムアウト（`generation_timeout_seconds`）を
+超えた `generating` ジョブは UI 上「音声を生成中...」のまま残る。定期スイープは
+存在しないため、再回収のトリガーは「別 URL の Add（そのバッチの collect スイープ）」
+または「サーバー再起動（起動時リカバリ）」のいずれかになる。
+
+### 認証エラーの扱い
+
+Web サーバーは非対話コンテキストのため、YouTube トークンが無効な場合に
+ブラウザ OAuth フローを開始しない（イベントループがブロックされ UI 全体が
+フリーズするため）。代わりに該当ジョブを failed にし、`uv run automator auth
+youtube` での再認証を促すエラーメッセージを表示する。動画ファイルは
+`video_path` に残るため、再認証後のリトライではアップロードのみ再試行される。
 
 ## ステータスマッピング
 
@@ -160,6 +184,7 @@ state.json のステータスと UI 表示の対応:
 
 | state.json    | セクション      | アイコン | 表示テキスト              |
 | ------------- | ---------- | ---- | ------------------- |
+| `queued`      | Processing | 🕐   | 準備中...              |
 | `generating`  | Processing | ⏳    | 音声を生成中...           |
 | `video_ready` | Processing | 🎬   | 動画変換完了、アップロード待ち     |
 | `uploading`   | Processing | ⬆️   | YouTube にアップロード中... |
@@ -216,14 +241,20 @@ Form Data:
   audio_length: str      # "short" | "default"
 ```
 
-- URL を `UrlEntry` に変換してキューに追加
-- 即座に `202 Accepted` を返す
+- 各 URL のジョブを `queued` ステータスで state.json に書き込んでから、`UrlEntry` に変換してキューに追加
+- アクティブな URL（`queued` / `generating` / `video_ready` / `uploading` / `uploaded`）はスキップ
+- `200 OK` + Processing セクションの HTML パーシャルを返す（`HX-Trigger: refreshAll` で全セクションをリフレッシュ）
 - htmx: レスポンスでURL入力欄をクリア + Processing セクションをリフレッシュ
 
 #### `POST /api/retry/{slug}`
 
-- 該当ジョブを `failed` → リセットしてキューに再投入
-- htmx: Completed セクションをリフレッシュ
+- 該当ジョブ（`failed` のみ）をリセットしてキューに再投入。ジョブは**削除せず** `queued` に戻して state.json に残す（ワーカー処理開始までの間も UI に表示され、再起動でもリトライが失われない）
+- 動画変換まで完了済み（`video_path` と `thumbnail_path` のファイルが存在）なら `video_ready` に戻し、音声の再生成をスキップしてアップロードのみ再試行する（動画の重複アップロード防止）
+- htmx: Completed セクションをリフレッシュ（`HX-Trigger: refreshAll`）
+
+#### `POST /api/retry-all-failed`
+
+- 全 `failed` ジョブに `/api/retry/{slug}` と同じリセットを適用し、1 バッチで再投入
 
 #### `DELETE /api/jobs/{slug}`
 
@@ -282,7 +313,9 @@ uv run automator web [--port 8080] [--config PATH]
 
 - settings.yaml の GUI 編集
 - ログのリアルタイムストリーミング
-- ユーザー認証（ローカル専用のため不要）
+- ユーザー認証（ローカル専用のため不要。**そのため LAN に公開しないこと** — docker-compose は `127.0.0.1` バインド）
 - urls.yaml のファイル選択・編集
 - サムネイルのプレビュー
+- Clear selected（チェックボックスで選択したジョブの一括削除）
+- 実行中の「Add (queued)」ボタンテキスト切替フィードバック
 

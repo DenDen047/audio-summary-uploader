@@ -11,9 +11,12 @@ from loguru import logger
 from automator.config import Settings
 from automator.pipeline import _find_or_create_job, _load_state, _save_state
 from automator.url_parser import UrlEntry
-from automator.web.app import enqueue_urls, get_queue_status, templates
+from automator.web.app import enqueue_urls, templates
 
 router = APIRouter()
+
+# 追加・再投入を受け付けないステータス (failed のみ再投入可能)
+_ACTIVE_STATUSES = ("queued", "generating", "video_ready", "uploading", "uploaded")
 
 
 @router.get("/health")
@@ -44,6 +47,21 @@ def _completed_jobs(jobs: list[dict]) -> list[dict]:
     return [
         j for j in jobs if j.get("status") in ("uploaded", "failed")
     ]
+
+
+def _badge_counts(jobs: list[dict]) -> tuple[int, int]:
+    """ヘッダーバッジ用の (processing, queued) 件数を state.json から数える.
+
+    インメモリのキューカウンタではなく state を単一の情報源にすることで、
+    リスト表示とバッジの食い違いを防ぐ。
+    """
+    processing = sum(
+        1
+        for j in jobs
+        if j.get("status") in ("generating", "video_ready", "uploading")
+    )
+    queued = sum(1 for j in jobs if j.get("status") == "queued")
+    return processing, queued
 
 
 def _job_title(job: dict) -> str:
@@ -85,9 +103,9 @@ def _template_ctx(**kwargs: object) -> dict[str, object]:
 async def dashboard(request: Request) -> HTMLResponse:
     settings = _get_settings(request)
     jobs = _get_jobs(settings)
-    _is_running, queued = get_queue_status()
     processing = _processing_jobs(jobs)
     completed = _completed_jobs(jobs)
+    processing_count, queued_count = _badge_counts(jobs)
     presets = list(settings.notebooklm.prompt_presets.keys())
 
     return templates.TemplateResponse(
@@ -96,8 +114,8 @@ async def dashboard(request: Request) -> HTMLResponse:
         _template_ctx(
             processing_jobs=processing,
             completed_jobs=completed,
-            processing_count=len(processing),
-            queued_count=queued,
+            processing_count=processing_count,
+            queued_count=queued_count,
             presets=presets,
         ),
     )
@@ -110,12 +128,11 @@ async def dashboard(request: Request) -> HTMLResponse:
 async def header_badge(request: Request) -> HTMLResponse:
     settings = _get_settings(request)
     jobs = _get_jobs(settings)
-    _is_running, queued = get_queue_status()
-    processing = _processing_jobs(jobs)
+    processing_count, queued_count = _badge_counts(jobs)
     return templates.TemplateResponse(
         request,
         "partials/header_badge.html",
-        {"processing_count": len(processing), "queued_count": queued},
+        {"processing_count": processing_count, "queued_count": queued_count},
     )
 
 
@@ -163,32 +180,42 @@ async def add_urls(request: Request) -> HTMLResponse:
         )
 
     urls = [u.strip() for u in urls_text.splitlines() if u.strip()]
-    entries = [
-        UrlEntry(url=u, audio_length=audio_length, prompt=prompt)
-        for u in urls
-    ]
+    # 重複行を除去 (同一バッチ内で同じ URL を二重 submit しないため)
+    urls = list(dict.fromkeys(urls))
+
+    # state.json に即座に "queued" ジョブを書き込み → UI に即反映。
+    # 処理中・アップロード済みの URL はスキップし、重複実行ガードを保つ。
+    state_path = Path(settings.general.state_file)
+    state = _load_state(state_path)
+    to_queue: list[UrlEntry] = []
+    for url in urls:
+        existing = next(
+            (j for j in state["jobs"] if j["url"] == url), None
+        )
+        if existing and existing["status"] in _ACTIVE_STATUSES:
+            logger.info(
+                "Skipping already active URL: {} (status={})",
+                url,
+                existing["status"],
+            )
+            continue
+        job = _find_or_create_job(state, url, audio_length, prompt)
+        job["status"] = "queued"
+        job["error"] = None
+        to_queue.append(
+            UrlEntry(url=url, audio_length=audio_length, prompt=prompt)
+        )
+    _save_state(state_path, state)
 
     logger.info(
         "Adding {} URLs to queue (prompt={}, audio_length={})",
-        len(entries),
+        len(to_queue),
         prompt,
         audio_length,
     )
 
-    # state.json に即座に "queued" ジョブを書き込み → UI に即反映
-    state_path = Path(settings.general.state_file)
-    state = _load_state(state_path)
-    for entry in entries:
-        job = _find_or_create_job(
-            state,
-            entry.url,
-            entry.audio_length or "default",
-            entry.prompt or "default",
-        )
-        job["status"] = "queued"
-    _save_state(state_path, state)
-
-    await enqueue_urls(entries)
+    if to_queue:
+        await enqueue_urls(to_queue)
 
     jobs = _get_jobs(settings)
     processing = _processing_jobs(jobs)
@@ -200,6 +227,36 @@ async def add_urls(request: Request) -> HTMLResponse:
     )
 
 
+def _reset_failed_job(job: dict) -> UrlEntry | None:
+    """failed ジョブを再実行用にリセットする (state への保存は呼び出し元が行う).
+
+    ジョブを削除せず queued に戻して state.json に残すことで、ワーカーが
+    処理を始めるまでの間も UI に表示され、サーバー再起動でもリトライが
+    失われない。動画変換まで完了済みなら video_ready に戻し、音声の
+    再生成をスキップしてアップロードのみ再試行する (動画の重複防止)。
+    """
+    job["error"] = None
+    video_path = job.get("video_path")
+    thumbnail_path = job.get("thumbnail_path")
+    # youtube_url が残っているジョブ (CLI --force 再実行の失敗等) は
+    # アップロード済みのため、video_ready 再開すると同じ動画が重複する
+    if (
+        job.get("youtube_url") is None
+        and video_path
+        and Path(video_path).exists()
+        and thumbnail_path
+        and Path(thumbnail_path).exists()
+    ):
+        job["status"] = "video_ready"
+        return None
+    job["status"] = "queued"
+    return UrlEntry(
+        url=job["url"],
+        audio_length=job.get("audio_length", "default"),
+        prompt=job.get("prompt", "default"),
+    )
+
+
 @router.post("/api/retry/{slug}", response_class=HTMLResponse)
 async def retry_job(slug: str, request: Request) -> HTMLResponse:
     settings = _get_settings(request)
@@ -208,20 +265,16 @@ async def retry_job(slug: str, request: Request) -> HTMLResponse:
 
     for job in state.get("jobs", []):
         if job["slug"] == slug and job["status"] == "failed":
-            url = job["url"]
-            audio_length = job.get("audio_length", "default")
-            prompt = job.get("prompt", "default")
-
-            state["jobs"] = [
-                j for j in state["jobs"] if j["slug"] != slug
-            ]
+            entry = _reset_failed_job(job)
             _save_state(state_path, state)
-
-            entry = UrlEntry(
-                url=url, audio_length=audio_length, prompt=prompt
+            # entry が None なら video_ready 再開 → 空バッチで upload スイープを起動
+            await enqueue_urls([entry] if entry else [])
+            logger.info(
+                "Retrying job: {} (slug={}, resume={})",
+                job["url"],
+                slug,
+                "upload" if entry is None else "submit",
             )
-            await enqueue_urls([entry])
-            logger.info("Retrying job: {} (slug={})", url, slug)
             break
 
     jobs = _get_jobs(settings)
@@ -243,23 +296,17 @@ async def retry_all_failed(request: Request) -> HTMLResponse:
     failed_jobs = [
         j for j in state.get("jobs", []) if j["status"] == "failed"
     ]
-    entries = [
-        UrlEntry(
-            url=job["url"],
-            audio_length=job.get("audio_length", "default"),
-            prompt=job.get("prompt", "default"),
-        )
-        for job in failed_jobs
-    ]
+    entries: list[UrlEntry] = []
+    for job in failed_jobs:
+        entry = _reset_failed_job(job)
+        if entry:
+            entries.append(entry)
 
-    state["jobs"] = [
-        j for j in state["jobs"] if j["status"] != "failed"
-    ]
-    _save_state(state_path, state)
-
-    if entries:
+    if failed_jobs:
+        _save_state(state_path, state)
+        # entries が空でも video_ready 再開分の upload スイープとして投入する
         await enqueue_urls(entries)
-        logger.info("Retrying {} failed jobs", len(entries))
+        logger.info("Retrying {} failed jobs", len(failed_jobs))
 
     jobs = _get_jobs(settings)
     completed = _completed_jobs(jobs)
@@ -292,11 +339,11 @@ async def clear_completed(request: Request) -> HTMLResponse:
     state_path = Path(settings.general.state_file)
     state = _load_state(state_path)
 
+    # GUI_SPEC: uploaded のみ削除する。failed はエラー内容とリトライ機会を
+    # 残すため対象外 (個別の削除ボタンで消せる)。
     before = len(state.get("jobs", []))
     state["jobs"] = [
-        j
-        for j in state.get("jobs", [])
-        if j["status"] not in ("uploaded", "failed")
+        j for j in state.get("jobs", []) if j["status"] != "uploaded"
     ]
     after = len(state["jobs"])
     _save_state(state_path, state)
