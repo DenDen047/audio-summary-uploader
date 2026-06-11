@@ -256,6 +256,7 @@ class PageMetadata:
     og_image_url: str | None  # og:image
     site_name: str | None   # og:site_name
     language: str | None    # html lang attribute
+    favicon_url: str | None  # <link rel="icon"> → /favicon.ico フォールバック
 ```
 
 **実装方針:**
@@ -263,7 +264,8 @@ class PageMetadata:
 - OGP が取得できない場合は `<title>` タグにフォールバック
 - タイムアウト: 10秒
 - User-Agent: 一般的なブラウザの User-Agent を使用（403 回避のため）
-- ローカルファイルの場合: ファイル名からタイトルを生成（OGP取得なし）
+- ファビコン: `<link rel="icon">` を抽出、無ければ `/favicon.ico` にフォールバック（サムネイルのアイコン表示に使用）
+- ローカルファイルの場合: ファイル名からタイトルを生成（OGP取得なし）。PDF は先頭 5 ページを走査して最大の埋め込み画像（25MP 以下）を `og_image_url` 相当として抽出を試み、失敗時は PDF アイコンを `favicon_url` に設定
 
 ### 3.5 NotebookLM 操作 (`notebooklm.py` + バックエンド)
 
