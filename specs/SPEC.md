@@ -520,19 +520,30 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 **Phase 1: submit_urls(entries, settings, force, dry_run)**
 1. state.json をロード、生成中/処理済みのURLをスキップ（`--force`で上書き）
 2. 各URLに対して `asyncio.gather` で並列実行:
-   - メタデータ取得 → ノートブック作成 → ソース追加 → `start_audio_generation()`
-   - state に `status="generating"` + `notebook_id` + `task_id` + `metadata` を保存
+   - 既存ジョブに `notebook_id` が残っていれば best-effort で旧ノートブックを削除（リトライ・force 再実行時のリーク防止）
+   - メタデータ取得 → ノートブック作成（作成直後に `notebook_id` を永続化）→ ソース追加 → `start_audio_generation()`
+   - state に `status="generating"` + `task_id` + `metadata` を保存
 3. 各URLのエラーは個別にキャッチして `failed` として記録
+4. `--dry-run` は state.json に一切書き込まない（本実行のスキップ判定や collect を汚染しないため）
+
+**state 書き込みの原則（全フェーズ共通）:**
+ジョブ更新は必ずディスク上の最新 state を読み直してから該当ジョブのみ更新して
+保存する（`_update_job_state` / `_upsert_job_state`）。メモリ上の古い state
+スナップショット全体を書き戻すと、並行する Web 操作（削除・クリア・リトライ・追加）を
+巻き戻してしまうため。
 
 **Phase 2: collect_audio(settings, poll, timeout)**
 1. state.json から `status="generating"` のジョブを取得
-2. 各ジョブに対して並列で `check_audio_status()` を呼び出し
-3. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`
-4. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機 / なし → ステータス報告のみ
+2. `notebook_id` / `task_id` が無いジョブ（submit 中断）は明示的なエラーで `failed` に遷移
+3. 各ジョブに対して並列で `check_audio_status()` を呼び出し
+4. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
+5. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`（`notebook_id` をクリア）
+6. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
+7. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
-**Phase 3: upload_videos(settings)**
+**Phase 3: upload_videos(settings, allow_interactive_auth)**
 1. state.json から `status="video_ready"` のジョブを取得
-2. YouTube認証（1回）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
+2. YouTube認証（1回、`asyncio.to_thread` でラップ）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
 3. `status="uploaded"` + `youtube_url` を記録
 
 **エラーハンドリング:**

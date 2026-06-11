@@ -197,6 +197,27 @@ def _update_job_state(
     _save_state(state_path, state)
 
 
+def _upsert_job_state(
+    state_path: Path,
+    url: str,
+    audio_length: str,
+    prompt: str,
+    updates: dict[str, Any],
+) -> None:
+    """state.json を読み直してジョブを find-or-create し、更新して保存する.
+
+    submit フェーズ用。メモリ上の古い state 全体を書き戻すと、並行する
+    Web 操作 (delete / clear / retry / add) を巻き戻してしまうため、
+    必ずディスク上の最新 state に対して更新する。処理中のジョブが
+    並行操作で削除されていた場合は再作成する (オーファン化を防ぐ)。
+    """
+    state = _load_state(state_path)
+    job = _find_or_create_job(state, url, audio_length, prompt)
+    job.update(updates)
+    state["last_run"] = _now_iso()
+    _save_state(state_path, state)
+
+
 def _get_active_urls(state: dict) -> set[str]:
     """生成中・video_ready・uploaded の URL セットを返す."""
     return {
@@ -212,6 +233,9 @@ def _find_or_create_job(
     """既存ジョブを探すか新規作成する."""
     for job in state["jobs"]:
         if job["url"] == url:
+            # 再投入時の audio_length / prompt 指定変更を反映する
+            job["audio_length"] = audio_length
+            job["prompt"] = prompt
             return job
     job: dict[str, Any] = {
         "url": url,
@@ -278,7 +302,6 @@ async def _submit_single(
     entry: UrlEntry,
     settings: Settings,
     backend: NotebookLMBackend,
-    state: dict,
     state_path: Path,
     dry_run: bool,
 ) -> ProcessResult:
@@ -299,13 +322,9 @@ async def _submit_single(
         metadata = await fetch_metadata(url)
 
     if dry_run:
+        # state.json には書き込まない。generating を書くと以後の本実行が
+        # スキップされ、collect が notebook_id なしのジョブで失敗するため。
         logger.info("[DRY RUN] Would submit: {!r}", metadata.title)
-        job = _find_or_create_job(state, url, audio_length, prompt_preset_name)
-        job["status"] = "generating"
-        job["metadata"] = _metadata_to_dict(metadata)
-        job["submitted_at"] = _now_iso()
-        state["last_run"] = _now_iso()
-        _save_state(state_path, state)
         return ProcessResult(
             url=url,
             title=metadata.title,
@@ -313,11 +332,20 @@ async def _submit_single(
             phase="submit",
         )
 
-    # ノートブック作成
-    notebook_id = await backend.create_notebook(f"Summary: {metadata.title}")
+    # 旧ノートブックが残っていれば掃除 (force 再実行・リトライ経路でのリーク防止)
+    state = _load_state(state_path)
+    existing = next((j for j in state["jobs"] if j["url"] == url), None)
+    if existing and existing.get("notebook_id"):
+        await _cleanup_notebook(backend, existing["notebook_id"])
 
-    job = _find_or_create_job(state, url, audio_length, prompt_preset_name)
-    job["notebook_id"] = notebook_id
+    # ノートブック作成 → ID を即座に永続化 (クラッシュ時のオーファン追跡用)。
+    # 旧 task_id を残すと collect の submit 中断検出ガードをすり抜けるためクリアする。
+    notebook_id = await backend.create_notebook(f"Summary: {metadata.title}")
+    _upsert_job_state(state_path, url, audio_length, prompt_preset_name, {
+        "notebook_id": notebook_id,
+        "task_id": None,
+        "status": "generating",
+    })
 
     try:
         # ソース追加
@@ -342,13 +370,13 @@ async def _submit_single(
         raise
 
     # state 更新
-    job["status"] = "generating"
-    job["task_id"] = task_id
-    job["metadata"] = _metadata_to_dict(metadata)
-    job["submitted_at"] = _now_iso()
-    job["error"] = None
-    state["last_run"] = _now_iso()
-    _save_state(state_path, state)
+    _upsert_job_state(state_path, url, audio_length, prompt_preset_name, {
+        "status": "generating",
+        "task_id": task_id,
+        "metadata": _metadata_to_dict(metadata),
+        "submitted_at": _now_iso(),
+        "error": None,
+    })
 
     return ProcessResult(
         url=url,
@@ -377,12 +405,6 @@ async def submit_urls(
         if not force and entry.url in active_urls:
             logger.info("Skipping already active: {}", entry.url)
             continue
-        if force:
-            # force の場合は既存ジョブをリセット
-            for job in state["jobs"]:
-                if job["url"] == entry.url:
-                    job["status"] = "failed"
-                    break
         to_submit.append(entry)
 
     if not to_submit:
@@ -392,7 +414,7 @@ async def submit_urls(
     async def _safe_submit(entry: UrlEntry) -> ProcessResult:
         try:
             return await _submit_single(
-                entry, settings, backend, state, state_path, dry_run
+                entry, settings, backend, state_path, dry_run
             )
         except Exception as exc:
             if _is_notebooklm_auth_error(exc):
@@ -405,17 +427,18 @@ async def submit_urls(
             else:
                 logger.error("Failed to submit {}: {}", entry.url, exc)
                 error_msg = str(exc)
-            # state にエラーを記録
+            # state にエラーを記録。notebook_id は破棄しない:
+            # 掃除に失敗したノートブックが残っていても、リトライ時の
+            # _submit_single 冒頭で best-effort 削除されるため。
             audio_length = entry.audio_length or settings.notebooklm.audio_length
             prompt_preset_name = entry.prompt or "default"
-            job = _find_or_create_job(
-                state, entry.url, audio_length, prompt_preset_name
+            _upsert_job_state(
+                state_path, entry.url, audio_length, prompt_preset_name, {
+                    "status": "failed",
+                    "error": error_msg,
+                    "submitted_at": _now_iso(),
+                },
             )
-            job["status"] = "failed"
-            job["error"] = error_msg
-            job["submitted_at"] = _now_iso()
-            state["last_run"] = _now_iso()
-            _save_state(state_path, state)
             return ProcessResult(
                 url=entry.url,
                 status="failed",
