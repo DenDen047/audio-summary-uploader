@@ -60,9 +60,6 @@ thumbnail:
   title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
-  fallback_gradient:
-    start: "#1a1a2e"
-    end: "#16213e"
 
 # 認証情報パス
 credentials:

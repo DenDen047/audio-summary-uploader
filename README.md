@@ -388,7 +388,7 @@ notebooklm:
   backend: "notebooklm-py"       # "notebooklm-py" or "playwright"
   audio_language: "ja"
   audio_length: "short"           # "short" | "default"
-  generation_timeout_seconds: 600
+  generation_timeout_seconds: 1200
   prompt_presets:
     default: >
       この内容を日本語で要約してポッドキャスト形式で説明してください。

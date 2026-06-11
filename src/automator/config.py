@@ -12,7 +12,7 @@ class NotebookLMConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
     audio_length: str = "short"
-    generation_timeout_seconds: int = 600
+    generation_timeout_seconds: int = 1200
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
 
@@ -51,9 +51,6 @@ class ThumbnailConfig:
     title_font_size_min: int = 44
     subtitle_font_size: int = 24
     text_color: str = "#FFFFFF"
-    fallback_gradient: dict[str, str] = field(
-        default_factory=lambda: {"start": "#1a1a2e", "end": "#16213e"}
-    )
 
 
 @dataclass
