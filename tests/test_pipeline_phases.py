@@ -439,3 +439,351 @@ async def test_collect_handles_lowercase_completed(
     assert results[0].status == "video_ready"
     # wait_for_audio は呼ばれない（check_audio_status で completed 検知済み）
     mock_backend.wait_for_audio.assert_not_called()
+
+
+# --- レビュー修正で追加された挙動のテスト ---
+
+
+def _make_job(**overrides) -> dict:
+    """テスト用ジョブ dict を生成する."""
+    job = {
+        "url": "https://example.com/article1",
+        "slug": "abc123",
+        "audio_length": "default",
+        "prompt": "default",
+        "status": "generating",
+        "notebook_id": "notebook-id-abc",
+        "task_id": "test-task-123",
+        "metadata": {
+            "title": "Test Article",
+            "description": "desc",
+            "og_image_url": None,
+            "site_name": "Example",
+            "language": "ja",
+        },
+        "audio_path": None,
+        "thumbnail_path": None,
+        "video_path": None,
+        "youtube_url": None,
+        "error": None,
+        "submitted_at": "2026-01-01T00:00:00+00:00",
+        "collected_at": None,
+        "uploaded_at": None,
+    }
+    job.update(overrides)
+    return job
+
+
+def _write_state(state_path: Path, jobs: list[dict]) -> None:
+    state_path.write_text(
+        json.dumps({"last_run": None, "jobs": jobs}), encoding="utf-8"
+    )
+
+
+@pytest.mark.asyncio()
+async def test_collect_terminal_failed_without_poll(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """poll なしでも terminal な FAILED は failed に遷移しノートブックを掃除する."""
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+
+    mock_backend.check_audio_status.return_value = _mock_generation_status("FAILED")
+
+    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=False)
+
+    assert results[0].status == "failed"
+    assert "FAILED" in results[0].error
+    mock_backend.delete_notebook.assert_called_once_with("notebook-id-abc")
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["status"] == "failed"
+    assert state["jobs"][0]["notebook_id"] is None
+
+
+@pytest.mark.asyncio()
+async def test_collect_timeout_keeps_generating(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """wait_for_audio のタイムアウトでは failed にせず generating を維持する."""
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+
+    mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
+    mock_backend.wait_for_audio.side_effect = TimeoutError("timed out")
+
+    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "generating"
+    assert results[0].error is None
+    mock_backend.delete_notebook.assert_not_called()
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["status"] == "generating"
+    assert state["jobs"][0]["notebook_id"] == "notebook-id-abc"
+
+
+@pytest.mark.asyncio()
+async def test_collect_missing_task_id_fails_with_clear_error(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """submit が中断されたジョブ (task_id なし) は明確なエラーで failed になる."""
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job(task_id=None)])
+
+    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "failed"
+    assert "submit が完了していない" in results[0].error
+    # 残っているノートブックは掃除される
+    mock_backend.delete_notebook.assert_called_once_with("notebook-id-abc")
+    mock_backend.check_audio_status.assert_not_called()
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["status"] == "failed"
+
+
+@pytest.mark.asyncio()
+async def test_dry_run_does_not_write_state(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """dry-run は state.json を汚染しない (以後の本実行を壊さない)."""
+    state_path = Path(settings.general.state_file)
+    entries = [UrlEntry(url="https://example.com/article1")]
+
+    with (
+        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline.fetch_metadata") as mock_meta,
+    ):
+        mock_meta.return_value = MagicMock(
+            title="Test Article",
+            description="desc",
+            og_image_url=None,
+            site_name="Example",
+            language="ja",
+            favicon_url=None,
+            url="https://example.com/article1",
+        )
+        results = await submit_urls(entries, settings, dry_run=True)
+
+    assert results[0].status == "generating (dry-run)"
+    assert not state_path.exists()
+    mock_backend.create_notebook.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_submit_failure_does_not_clobber_other_jobs(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """submit 中の state 書き込みが、並行して書き込まれた他ジョブを巻き戻さない."""
+    state_path = Path(settings.general.state_file)
+    other_job = _make_job(
+        url="https://example.com/other", slug="other1", status="uploaded"
+    )
+    _write_state(state_path, [other_job])
+
+    async def _add_source_with_concurrent_edit(notebook_id: str, url: str) -> None:
+        # submit 実行中に Web ハンドラが other ジョブを削除した状況を再現
+        state = _load_state(state_path)
+        state["jobs"] = [j for j in state["jobs"] if j["slug"] != "other1"]
+        from automator.pipeline import _save_state
+
+        _save_state(state_path, state)
+        raise RuntimeError("source add failed")
+
+    mock_backend.add_source.side_effect = _add_source_with_concurrent_edit
+
+    entries = [UrlEntry(url="https://example.com/article1")]
+    with (
+        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline.fetch_metadata") as mock_meta,
+    ):
+        mock_meta.return_value = MagicMock(
+            title="Test Article",
+            description="desc",
+            og_image_url=None,
+            site_name="Example",
+            language="ja",
+            favicon_url=None,
+            url="https://example.com/article1",
+        )
+        results = await submit_urls(entries, settings)
+
+    assert results[0].status == "failed"
+    state = _load_state(state_path)
+    # 削除された other ジョブは復活しない
+    urls = [j["url"] for j in state["jobs"]]
+    assert "https://example.com/other" not in urls
+    assert urls == ["https://example.com/article1"]
+    assert state["jobs"][0]["status"] == "failed"
+
+
+@pytest.mark.asyncio()
+async def test_submit_cleans_up_old_notebook(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """failed ジョブの再 submit 時、残存ノートブックを best-effort で削除する."""
+    state_path = Path(settings.general.state_file)
+    _write_state(
+        state_path,
+        [_make_job(status="failed", notebook_id="nb-old", error="boom")],
+    )
+
+    entries = [UrlEntry(url="https://example.com/article1")]
+    with (
+        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline.fetch_metadata") as mock_meta,
+    ):
+        mock_meta.return_value = MagicMock(
+            title="Test Article",
+            description="desc",
+            og_image_url=None,
+            site_name="Example",
+            language="ja",
+            favicon_url=None,
+            url="https://example.com/article1",
+        )
+        results = await submit_urls(entries, settings)
+
+    assert results[0].status == "generating"
+    mock_backend.delete_notebook.assert_called_once_with("nb-old")
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["notebook_id"] == "notebook-id-abc"
+
+
+@pytest.mark.asyncio()
+async def test_upload_auth_failure_non_interactive_marks_failed(
+    settings: Settings,
+) -> None:
+    """Web コンテキストでの認証失敗はジョブを failed にして可視化する."""
+    state_path = Path(settings.general.state_file)
+    _write_state(
+        state_path,
+        [_make_job(status="video_ready", video_path="/tmp/v.mp4",
+                   thumbnail_path="/tmp/t.png")],
+    )
+
+    with patch(
+        "automator.pipeline.authenticate",
+        side_effect=RuntimeError("YouTube の認証が必要です"),
+    ) as mock_auth:
+        results = await upload_videos(settings, allow_interactive_auth=False)
+
+    # 非対話フラグが authenticate まで配線されている (対話 OAuth 復活の防止)
+    assert mock_auth.call_args.kwargs["allow_interactive"] is False
+    assert results[0].status == "failed"
+    assert "認証" in results[0].error
+
+    state = _load_state(state_path)
+    job = state["jobs"][0]
+    assert job["status"] == "failed"
+    # 動画は残るため、リトライで video_ready に戻してアップロードのみ再試行できる
+    assert job["video_path"] == "/tmp/v.mp4"
+
+
+@pytest.mark.asyncio()
+async def test_upload_auth_failure_interactive_raises(
+    settings: Settings,
+) -> None:
+    """CLI コンテキストでの認証失敗は Fail Fast でそのまま例外にする."""
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job(status="video_ready")])
+
+    with (
+        patch(
+            "automator.pipeline.authenticate",
+            side_effect=RuntimeError("auth failed"),
+        ),
+        pytest.raises(RuntimeError, match="auth failed"),
+    ):
+        await upload_videos(settings, allow_interactive_auth=True)
+
+
+@pytest.mark.asyncio()
+async def test_collect_single_not_found_not_terminal(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """単発の not_found は一時的 lag の可能性があるため terminal 扱いしない."""
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+
+    mock_backend.check_audio_status.return_value = _mock_generation_status("not_found")
+
+    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=False)
+
+    assert results[0].status == "generating"
+    assert results[0].error is None
+    # 生成中の可能性があるノートブックを削除しない
+    mock_backend.delete_notebook.assert_not_called()
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["status"] == "generating"
+
+
+@pytest.mark.asyncio()
+async def test_collect_network_error_keeps_generating(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """ポーリング中の一時的なネットワークエラーでは failed にしない."""
+    from notebooklm.exceptions import NetworkError
+
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+
+    mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
+    mock_backend.wait_for_audio.side_effect = NetworkError("connection reset")
+
+    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "generating"
+    mock_backend.delete_notebook.assert_not_called()
+
+    state = _load_state(state_path)
+    assert state["jobs"][0]["status"] == "generating"
+    assert state["jobs"][0]["notebook_id"] == "notebook-id-abc"
+
+
+@pytest.mark.asyncio()
+async def test_resubmit_clears_stale_task_id(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """再 submit の最初の永続化で旧 task_id がクリアされる.
+
+    クリアしないと、submit 中断時に「新 notebook_id + 旧 task_id」の
+    不整合ペアが残り、collect の中断検出ガードをすり抜ける。
+    """
+    state_path = Path(settings.general.state_file)
+    _write_state(
+        state_path,
+        [_make_job(status="failed", notebook_id=None, task_id="task-old",
+                   error="boom")],
+    )
+
+    # start_audio_generation で失敗させ、1回目の upsert 内容を観測する
+    mock_backend.start_audio_generation.side_effect = RuntimeError("gen failed")
+
+    entries = [UrlEntry(url="https://example.com/article1")]
+    with (
+        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline.fetch_metadata") as mock_meta,
+    ):
+        mock_meta.return_value = MagicMock(
+            title="Test Article",
+            description="desc",
+            og_image_url=None,
+            site_name="Example",
+            language="ja",
+            favicon_url=None,
+            url="https://example.com/article1",
+        )
+        results = await submit_urls(entries, settings)
+
+    assert results[0].status == "failed"
+    state = _load_state(state_path)
+    assert state["jobs"][0]["task_id"] is None
