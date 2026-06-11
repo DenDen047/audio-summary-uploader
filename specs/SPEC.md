@@ -480,7 +480,16 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
 5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
 6. アップロード後の YouTube URL を返却
-7. パイプライン側でアップロード完了後に NotebookLM のノートブックを削除
+7. NotebookLM のノートブックは collect フェーズの動画変換完了時点で削除済み（`run-single` のみアップロード完了後に削除）
+
+手順 2〜3（サムネイル設定・プレイリスト追加）の失敗は WARN ログに留め、ジョブは
+`uploaded` として扱う。動画本体は `videos.insert` で既にアップロード済みのため、
+ここで failed にするとリトライで同じ動画が重複アップロードされてしまう。
+
+**認証コンテキスト:**
+- CLI（対話可能）: トークンが無効な場合はブラウザ OAuth フローを開始する
+- Web サーバー（非対話、`allow_interactive_auth=False`）: OAuth フローを開始せず
+  即座にエラーにし、該当ジョブを failed として記録する（`auth youtube` での再認証を促す）
 
 **クォータ管理:**
 - `videos.insert` = 1,600 ユニット
@@ -488,7 +497,7 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 - `playlistItems.insert` = 50 ユニット
 - 1URLあたり合計 ≈ 1,700 ユニット
 - デフォルトクォータ 10,000/日 → 1日あたり最大5本
-- クォータ残量チェックを実装（超過時は翌日に持ち越し）
+- 1回の upload 実行あたり `daily_upload_limit` 件で停止する（残りは `video_ready` のまま次回実行に持ち越し。API のクォータ残量チェックは行わない）
 
 ### 3.9 パイプラインオーケストレーション (`pipeline.py`)
 

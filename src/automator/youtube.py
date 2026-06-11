@@ -31,8 +31,23 @@ class YouTubeUploadParams:
     playlist_id: str | None = None
 
 
-def authenticate(client_secret_path: Path, token_path: Path) -> Credentials:
-    """YouTube API の OAuth 認証を行い Credentials を返す."""
+_AUTH_REQUIRED_MSG = (
+    "YouTube の認証が必要です。"
+    "ターミナルで 'uv run automator auth youtube' を実行して再認証してください。"
+    "再認証後、Web UI からリトライできます。"
+)
+
+
+def authenticate(
+    client_secret_path: Path,
+    token_path: Path,
+    allow_interactive: bool = True,
+) -> Credentials:
+    """YouTube API の OAuth 認証を行い Credentials を返す.
+
+    allow_interactive=False の場合（Web サーバー等の非対話コンテキスト）、
+    有効なトークンがなければブラウザフローを開始せず即座にエラーにする。
+    """
     creds: Credentials | None = None
 
     if token_path.exists():
@@ -48,6 +63,8 @@ def authenticate(client_secret_path: Path, token_path: Path) -> Credentials:
             token_path.unlink(missing_ok=True)
             creds = None
     if not creds or not creds.valid:
+        if not allow_interactive:
+            raise RuntimeError(_AUTH_REQUIRED_MSG)
         logger.info("Starting YouTube OAuth flow")
         if not client_secret_path.exists():
             msg = f"Client secret not found: {client_secret_path}"
@@ -103,31 +120,47 @@ def _upload_video_sync(creds: Credentials, params: YouTubeUploadParams) -> str:
     youtube_url = f"https://youtu.be/{video_id}"
     logger.info("Video uploaded: {}", youtube_url)
 
+    # 以降の後処理は失敗しても動画自体はアップロード済みなので WARN に留める。
+    # ここで例外を投げるとジョブが failed になり、リトライで動画が重複するため。
+
     # サムネイル設定
     if params.thumbnail_path and params.thumbnail_path.exists():
         logger.info("Setting custom thumbnail")
-        youtube.thumbnails().set(
-            videoId=video_id,
-            media_body=MediaFileUpload(
-                str(params.thumbnail_path), mimetype="image/png"
-            ),
-        ).execute()
+        try:
+            youtube.thumbnails().set(
+                videoId=video_id,
+                media_body=MediaFileUpload(
+                    str(params.thumbnail_path), mimetype="image/png"
+                ),
+            ).execute()
+        except Exception as exc:
+            logger.warning(
+                "Failed to set thumbnail for {}: {}", youtube_url, exc
+            )
 
     # プレイリストに追加
     if params.playlist_id:
         logger.info("Adding to playlist {}", params.playlist_id)
-        youtube.playlistItems().insert(
-            part="snippet",
-            body={
-                "snippet": {
-                    "playlistId": params.playlist_id,
-                    "resourceId": {
-                        "kind": "youtube#video",
-                        "videoId": video_id,
+        try:
+            youtube.playlistItems().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "playlistId": params.playlist_id,
+                        "resourceId": {
+                            "kind": "youtube#video",
+                            "videoId": video_id,
+                        },
                     },
                 },
-            },
-        ).execute()
+            ).execute()
+        except Exception as exc:
+            logger.warning(
+                "Failed to add {} to playlist {}: {}",
+                youtube_url,
+                params.playlist_id,
+                exc,
+            )
 
     return youtube_url
 

@@ -654,8 +654,16 @@ async def collect_audio(
 # --- Phase 3: upload ---
 
 
-async def upload_videos(settings: Settings) -> list[ProcessResult]:
-    """Phase 3: video_ready のジョブを YouTube にアップロードする."""
+async def upload_videos(
+    settings: Settings,
+    allow_interactive_auth: bool = True,
+) -> list[ProcessResult]:
+    """Phase 3: video_ready のジョブを YouTube にアップロードする.
+
+    allow_interactive_auth=False (Web サーバー等) では、対話 OAuth フローを
+    開始せずに認証失敗を failed として記録する。同期的な認証処理で
+    イベントループをブロックしないよう to_thread でラップする。
+    """
     state_path = Path(settings.general.state_file)
     state = _load_state(state_path)
 
@@ -668,10 +676,36 @@ async def upload_videos(settings: Settings) -> list[ProcessResult]:
         return []
 
     # YouTube 認証（1回）
-    creds = authenticate(
-        client_secret_path=Path(settings.credentials.youtube_client_secret),
-        token_path=Path(settings.credentials.youtube_token),
-    )
+    try:
+        creds = await asyncio.to_thread(
+            authenticate,
+            client_secret_path=Path(settings.credentials.youtube_client_secret),
+            token_path=Path(settings.credentials.youtube_token),
+            allow_interactive=allow_interactive_auth,
+        )
+    except Exception as exc:
+        if allow_interactive_auth:
+            # CLI コンテキストでは Fail Fast でそのままクラッシュさせる
+            raise
+        # Web コンテキストではジョブを failed にして UI にエラーを可視化する。
+        # 動画ファイルは video_path に残るため、リトライでアップロードのみ再試行できる。
+        logger.error("YouTube authentication failed: {}", exc)
+        results = []
+        for job in ready_jobs:
+            _update_job_state(state_path, job["url"], {
+                "status": "failed",
+                "error": str(exc),
+            })
+            results.append(
+                ProcessResult(
+                    url=job["url"],
+                    title=job["metadata"]["title"] if job.get("metadata") else None,
+                    status="failed",
+                    error=str(exc),
+                    phase="upload",
+                )
+            )
+        return results
 
     results: list[ProcessResult] = []
     daily_limit = settings.youtube.daily_upload_limit
@@ -849,6 +883,7 @@ async def run_pipeline(
     dry_run: bool = False,
     force: bool = False,
     retry_failed: bool = False,
+    allow_interactive_auth: bool = True,
 ) -> list[ProcessResult]:
     """パイプライン全体を実行する（3フェーズ統合）."""
     if retry_failed:
@@ -882,7 +917,9 @@ async def run_pipeline(
     all_results.extend(collect_results)
 
     # Phase 3: upload
-    upload_results = await upload_videos(settings)
+    upload_results = await upload_videos(
+        settings, allow_interactive_auth=allow_interactive_auth
+    )
     all_results.extend(upload_results)
 
     return all_results
