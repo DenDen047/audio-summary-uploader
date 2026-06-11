@@ -15,9 +15,18 @@ class ProcessResult:
     phase: str | None = None
 
 
+def _is_success(result: ProcessResult) -> bool:
+    """フェーズ成功かどうかを判定する.
+
+    各フェーズの正常ステータス (generating / video_ready / uploaded / success*)
+    はすべて error が None になるため、error の有無で判定する。
+    """
+    return result.error is None
+
+
 def print_report(results: list[ProcessResult]) -> None:
     """処理結果をターミナルに出力する."""
-    success_count = sum(1 for r in results if r.status.startswith("success"))
+    success_count = sum(1 for r in results if _is_success(r))
     total = len(results)
 
     separator = "═" * 52
@@ -34,13 +43,15 @@ def print_report(results: list[ProcessResult]) -> None:
         logger.info("")
 
         for i, result in enumerate(results, 1):
-            if result.status.startswith("success"):
-                display = result.title or result.url
+            display = result.title or result.url
+            if _is_success(result):
                 logger.info("  {}. ✅ {}", i, display)
                 if result.youtube_url:
                     logger.info("     📺 {}", result.youtube_url)
+                elif result.status != "uploaded":
+                    logger.info("     ({})", result.status)
             else:
-                logger.info("  {}. ❌ {}", i, result.url)
+                logger.info("  {}. ❌ {}", i, display)
                 if result.error:
                     logger.info("     ⚠️  Error: {}", result.error)
 
