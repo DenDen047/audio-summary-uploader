@@ -1,0 +1,131 @@
+"""機能1: Spark メール出典の安全化（説明文）と collect での chat 抽出のテスト."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from automator.citation import EmailCitation
+from automator.config import (
+    CredentialsConfig,
+    GeneralConfig,
+    NotebookLMConfig,
+    Settings,
+    ThumbnailConfig,
+    YouTubeConfig,
+)
+from automator.metadata import PageMetadata
+from automator.pipeline import _build_description, _load_state, collect_audio
+
+SPARK_URL = "https://app.sparkmailapp.com/web-share/AbC123xyz"
+
+
+def _meta(url: str, title: str = "T") -> PageMetadata:
+    return PageMetadata(
+        url=url, title=title, description="", og_image_url=None,
+        site_name=None, language=None, favicon_url=None,
+    )
+
+
+def _completed() -> MagicMock:
+    gs = MagicMock()
+    gs.status = "COMPLETED"
+    return gs
+
+
+class TestBuildDescription:
+    def test_non_spark_keeps_url(self) -> None:
+        m = _meta("https://arxiv.org/abs/2511.15059", "Paper")
+        assert "https://arxiv.org/abs/2511.15059" in _build_description(
+            m, "short", "default"
+        )
+
+    def test_spark_with_citation_hides_url_shows_source(self) -> None:
+        m = _meta(SPARK_URL, "Are Anthropic Bills Accurate?")
+        c = EmailCitation(sender="Applied AI", date="2026-06-25", domain=None)
+        desc = _build_description(m, "short", "default", citation=c)
+        assert "sparkmailapp.com" not in desc
+        assert "Applied AI" in desc
+        assert "2026-06-25" in desc
+
+    def test_spark_without_citation_hides_url(self) -> None:
+        m = _meta(SPARK_URL, "メール要約（タイトル取得中）")
+        assert "sparkmailapp.com" not in _build_description(m, "short", "default")
+
+
+def _settings(tmp_path: Path) -> Settings:
+    state_path = tmp_path / "data" / "state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    return Settings(
+        notebooklm=NotebookLMConfig(prompt_presets={"default": "p"}),
+        youtube=YouTubeConfig(),
+        thumbnail=ThumbnailConfig(),
+        credentials=CredentialsConfig(),
+        general=GeneralConfig(
+            tmp_dir=str(tmp_path / "tmp"), state_file=str(state_path)
+        ),
+    )
+
+
+def _spark_job() -> dict:
+    return {
+        "url": SPARK_URL, "slug": "spark1", "audio_length": "short",
+        "prompt": "default", "status": "generating", "notebook_id": "nb-1",
+        "task_id": "t-1",
+        "metadata": {
+            "title": "メール要約（タイトル取得中）", "description": "",
+            "og_image_url": None, "site_name": "メールニュースレター",
+            "language": None,
+        },
+        "audio_path": None, "thumbnail_path": None, "video_path": None,
+        "youtube_url": None, "error": None,
+        "submitted_at": "2026-01-01T00:00:00+00:00", "collected_at": None,
+        "uploaded_at": None,
+    }
+
+
+@pytest.mark.asyncio()
+async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
+    """Spark ジョブの collect で chat 抽出が行われ、件名・出典が state に入る."""
+    settings = _settings(tmp_path)
+    state_path = Path(settings.general.state_file)
+    state_path.write_text(
+        json.dumps({"last_run": None, "jobs": [_spark_job()]}), encoding="utf-8"
+    )
+
+    backend = AsyncMock()
+    backend.check_audio_status = AsyncMock(return_value=_completed())
+    backend.ask = AsyncMock(return_value=(
+        '```json\n{"title": "Are Anthropic Bills Accurate?", '
+        '"sender": "Applied AI", "domain": null, "date": "2026-06-25"}\n```'
+    ))
+    audio = tmp_path / "tmp" / "audio" / "spark1.mp3"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"x")
+    backend.download_audio = AsyncMock(return_value=audio)
+    backend.delete_notebook = AsyncMock()
+
+    with (
+        patch("automator.pipeline._create_backend", return_value=backend),
+        patch(
+            "automator.pipeline.generate_thumbnail",
+            return_value=tmp_path / "t.png",
+        ),
+        patch(
+            "automator.pipeline.convert_to_video",
+            return_value=tmp_path / "v.mp4",
+        ),
+    ):
+        results = await collect_audio(settings, poll=False)
+
+    assert results[0].status == "video_ready"
+    backend.ask.assert_called_once()
+
+    job = _load_state(state_path)["jobs"][0]
+    assert job["metadata"]["title"] == "Are Anthropic Bills Accurate?"
+    assert job["citation"]["sender"] == "Applied AI"
+    assert job["citation"]["date"] == "2026-06-25"
+    # 生 URL は state の url にのみ残り、公開フィールドには出さない
+    assert job["url"] == SPARK_URL

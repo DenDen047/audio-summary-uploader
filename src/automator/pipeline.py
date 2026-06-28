@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 from notebooklm.exceptions import AuthError as NotebookLMAuthError
 from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
+from automator.citation import (
+    EmailCitation,
+    format_source_line,
+    is_spark_share_url,
+    parse_email_metadata,
+    sanitize_public_text,
+)
 from automator.config import Settings
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
 from automator.notebooklm import NotebookLMBackend
@@ -35,6 +42,16 @@ _NOTEBOOKLM_AUTH_ERROR_MSG = (
 )
 
 _AUTH_ERROR_KEYWORDS = ("authentication", "expired", "re-authenticate", "login")
+
+# Spark メール等、OGP が無く title=URL になりがちなソース用の仮タイトル
+_SPARK_TITLE_PLACEHOLDER = "メール要約（タイトル取得中）"
+# メール系ソースの出典抽出に使う chat 質問（受信者情報は出させない）
+_EMAIL_META_QUESTION = (
+    "以下のソースはメール（ニュースレター）です。"
+    "メールの『件名・送信者の表示名・送信元ドメイン・送信日(YYYY-MM-DD)』だけを"
+    "JSONで返してください。キー: title, sender, domain, date。分からない項目はnull。"
+    "受信者(宛先)の名前やアドレスは絶対に含めないでください。JSONのみ出力。"
+)
 
 
 def _is_notebooklm_auth_error(exc: Exception) -> bool:
@@ -81,13 +98,26 @@ def _build_description(
     metadata: PageMetadata,
     audio_length: str,
     prompt_preset_name: str,
+    citation: EmailCitation | None = None,
 ) -> str:
-    """YouTube 説明文を生成する."""
-    source_line = f"📰 ソース: {metadata.site_name}" if metadata.site_name else ""
-    return f"""NotebookLM の Audio Overview で自動生成された音声要約です。
+    """YouTube 説明文を生成する（個人情報はサニタイズ）.
 
-📄 元記事: {metadata.url}
-{source_line}
+    メール系ソース（Spark 共有等）は生 URL を公開面に出さない。出典が取れていれば
+    「出典: 送信元 - 日付」を、取れていなければ汎用ラベルを表示する。
+    """
+    if citation is not None:
+        source_block = format_source_line(citation)
+    elif is_spark_share_url(metadata.url):
+        source_block = "📰 ソース: メールニュースレター"
+    else:
+        lines = [f"📄 元記事: {metadata.url}"]
+        if metadata.site_name:
+            lines.append(f"📰 ソース: {metadata.site_name}")
+        source_block = "\n".join(lines)
+
+    description = f"""NotebookLM の Audio Overview で自動生成された音声要約です。
+
+{source_block}
 
 🔧 生成条件
   音声の長さ: {audio_length}
@@ -95,6 +125,8 @@ def _build_description(
 
 ---
 この動画は audio-summary-uploader で自動生成されました。""".strip()
+    # 最後の砦: メールアドレス・Spark 共有 URL を除去する
+    return sanitize_public_text(description)
 
 
 def _sanitize_youtube_title(title: str) -> str:
@@ -112,10 +144,37 @@ def _build_title(metadata: PageMetadata, settings: Settings) -> str:
     """YouTube タイトルを生成する."""
     prefix = settings.youtube.title_prefix
     max_len = settings.youtube.title_max_length
-    title = _sanitize_youtube_title(metadata.title)
+    title = sanitize_public_text(_sanitize_youtube_title(metadata.title))
     if len(title) > max_len:
         title = title[: max_len - 1] + "…"
     return f"{prefix} {title}"
+
+
+def _apply_spark_safety(metadata: PageMetadata) -> None:
+    """Spark 共有ソースの生 URL がタイトル・サムネに漏れないようにする（in-place）.
+
+    Spark の共有ページは OGP を持たず title=URL になりがち。実際の件名は collect
+    フェーズで NotebookLM chat から取得するため、それまでは仮タイトルにしておく。
+    """
+    if is_spark_share_url(metadata.url):
+        metadata.title = _SPARK_TITLE_PLACEHOLDER
+        metadata.site_name = metadata.site_name or "メールニュースレター"
+        metadata.og_image_url = None
+
+
+async def _extract_email_citation(
+    backend: NotebookLMBackend, notebook_id: str, url: str
+) -> EmailCitation | None:
+    """メール系ソースから出典(件名/送信元/日付)を chat で抽出する."""
+    try:
+        answer = await backend.ask(notebook_id, _EMAIL_META_QUESTION)
+    except Exception as exc:
+        logger.warning("出典抽出に失敗 ({}): {}", url, exc)
+        return None
+    citation = parse_email_metadata(answer)
+    if citation is None:
+        logger.warning("出典の解析に失敗 ({})", url)
+    return citation
 
 
 # --- 状態管理 ---
@@ -321,6 +380,7 @@ async def _submit_single(
         metadata = metadata_for_local_file(Path(url), tmp_dir=tmp_dir)
     else:
         metadata = await fetch_metadata(url)
+        _apply_spark_safety(metadata)
 
     if dry_run:
         # state.json には書き込まない。generating を書くと以後の本実行が
@@ -559,6 +619,20 @@ async def _collect_single(
     # メタデータ復元
     metadata = _dict_to_metadata(url, job["metadata"])
 
+    # メール系ソース: ノートブック削除前に chat で出典(件名/送信元/日付)を抽出し、
+    # 件名をタイトルに反映する（生 URL を公開面に出さないため）。
+    citation_dict = job.get("citation")
+    if is_spark_share_url(url):
+        citation = await _extract_email_citation(backend, notebook_id, url)
+        if citation is not None:
+            if citation.title:
+                metadata.title = citation.title
+            citation_dict = {
+                "sender": citation.sender,
+                "date": citation.date,
+                "domain": citation.domain,
+            }
+
     # サムネイル生成
     thumbnail_path = await generate_thumbnail(
         title=metadata.title,
@@ -583,6 +657,8 @@ async def _collect_single(
     _update_job_state(state_path, url, {
         "status": "video_ready",
         "notebook_id": None,
+        "metadata": _metadata_to_dict(metadata),
+        "citation": citation_dict,
         "audio_path": str(audio_path),
         "thumbnail_path": str(thumbnail_path),
         "video_path": str(video_path),
@@ -723,8 +799,10 @@ async def upload_videos(
             audio_length = job.get("audio_length", "default")
             prompt_preset_name = job.get("prompt", "default")
 
+            citation_data = job.get("citation")
+            citation = EmailCitation(**citation_data) if citation_data else None
             description = _build_description(
-                metadata, audio_length, prompt_preset_name
+                metadata, audio_length, prompt_preset_name, citation=citation
             )
             title = _build_title(metadata, settings)
 
@@ -796,6 +874,7 @@ async def process_single_url(
         metadata = metadata_for_local_file(Path(entry.url), tmp_dir=tmp_dir)
     else:
         metadata = await fetch_metadata(entry.url)
+        _apply_spark_safety(metadata)
 
     if dry_run:
         logger.info("[DRY RUN] Would process: {!r}", metadata.title)

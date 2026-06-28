@@ -321,6 +321,14 @@ class NotebookLMBackend(ABC):
         ...
 
     @abstractmethod
+    async def ask(
+        self, notebook_id: str, question: str,
+        source_ids: list[str] | None = None,
+    ) -> str:
+        """ノートブックのソースにチャットで質問し回答を返す（出典/タイトル抽出用）"""
+        ...
+
+    @abstractmethod
     async def download_audio(self, notebook_id: str, output_path: Path) -> Path:
         """生成された音声をダウンロードする"""
         ...
@@ -473,6 +481,11 @@ NotebookLM の Audio Overview で自動生成された音声要約です。
 この動画は audio-summary-uploader で自動生成されました。
 ```
 
+- 説明文・タイトルは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL を除去）。
+- **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面（タイトル・説明文）に出さない。
+  collect フェーズで NotebookLM チャット（`ask`）から件名・送信元・日付を抽出し、説明文に
+  「出典: {送信元}（{ドメイン}）- {日付}」を表示する（生 URL は state.json のみに保持）。
+  タイトルも抽出した件名に置き換える。抽出失敗時は仮タイトルのまま生 URL は出さない。
 - `audio_length` / `prompt_preset_name` には実際に使用された値（per-URL 指定 or settings.yaml デフォルト）を記載する
 
 **アップロード手順:**
