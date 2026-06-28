@@ -61,6 +61,20 @@ class NotebookLMBackend(ABC):
         ...
 
     @abstractmethod
+    async def ask(
+        self,
+        notebook_id: str,
+        question: str,
+        source_ids: list[str] | None = None,
+    ) -> str:
+        """ノートブックのソースに対してチャットで質問し、回答テキストを返す.
+
+        メタデータ抽出（件名・送信元・日付）やタイトル生成に用いる。
+        source_ids=None の場合はノートブック内の全ソースを対象にする。
+        """
+        ...
+
+    @abstractmethod
     async def download_audio(self, notebook_id: str, output_path: Path) -> Path:
         """生成された音声をダウンロードする."""
         ...

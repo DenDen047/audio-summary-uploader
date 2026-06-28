@@ -129,6 +129,20 @@ class NotebookLMPyBackend(NotebookLMBackend):
         logger.info("Audio generation complete: {}", result.task_id)
         return result.task_id
 
+    async def ask(
+        self,
+        notebook_id: str,
+        question: str,
+        source_ids: list[str] | None = None,
+    ) -> str:
+        logger.info("Asking notebook {}: {!r}", notebook_id, question[:60])
+        async with await self._get_client() as client:
+            result = await client.chat.ask(
+                notebook_id, question, source_ids=source_ids
+            )
+        logger.info("Chat answer received ({} chars)", len(result.answer))
+        return result.answer
+
     async def download_audio(self, notebook_id: str, output_path: Path) -> Path:
         logger.info(
             "Downloading audio for notebook {} → {}",
