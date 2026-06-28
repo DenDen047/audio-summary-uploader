@@ -71,6 +71,17 @@ class TestBuildDescription:
         assert "sparkmailapp.com" not in desc
         assert "メールニュースレター" in desc
 
+    def test_primary_spark_citation_still_lists_extra_sources(self) -> None:
+        # 先頭がメール(citation)でも、追加の非メールソースは出典に列挙される
+        m = _meta(SPARK_URL, "Multi")
+        c = EmailCitation(sender="Applied AI", date="2026-06-25", domain=None)
+        desc = _build_description(
+            m, citation=c, extra_urls=["https://arxiv.org/abs/9"]
+        )
+        assert "Applied AI" in desc                  # メール出典
+        assert "https://arxiv.org/abs/9" in desc     # 追加ソースも列挙
+        assert "sparkmailapp.com" not in desc        # 生 Spark URL は秘匿
+
     def test_email_anywhere_is_sanitized(self) -> None:
         # site_name 等にメールアドレスが紛れても最後の砦で除去される
         m = PageMetadata(
@@ -169,3 +180,57 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
     assert job["citation"]["date"] == "2026-06-25"
     # 生 URL は state の url にのみ残り、公開フィールドには出さない
     assert job["url"] == SPARK_URL
+
+
+def _multi_job_with_user_title() -> dict:
+    return {
+        "url": "https://arxiv.org/abs/1", "slug": "multi1",
+        "audio_length": "short", "prompt": "default", "status": "generating",
+        "notebook_id": "nb-2", "task_id": "t-2",
+        "metadata": {
+            "title": "仮タイトル", "description": "", "og_image_url": None,
+            "site_name": None, "language": None,
+        },
+        "extra_urls": ["https://arxiv.org/abs/2"],
+        "user_title": "今週のAIニュースまとめ", "citation": None,
+        "audio_path": None, "thumbnail_path": None, "video_path": None,
+        "youtube_url": None, "error": None,
+        "submitted_at": "2026-01-01T00:00:00+00:00", "collected_at": None,
+        "uploaded_at": None,
+    }
+
+
+@pytest.mark.asyncio()
+async def test_collect_honors_user_title(tmp_path: Path) -> None:
+    """user_title があれば ② を呼ばずにそのタイトルを使う（非Sparkなので ① も無し）."""
+    settings = _settings(tmp_path)
+    state_path = Path(settings.general.state_file)
+    state_path.write_text(
+        json.dumps({"last_run": None, "jobs": [_multi_job_with_user_title()]}),
+        encoding="utf-8",
+    )
+
+    backend = AsyncMock()
+    backend.check_audio_status = AsyncMock(return_value=_completed())
+    audio = tmp_path / "tmp" / "audio" / "multi1.mp3"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"x")
+    backend.download_audio = AsyncMock(return_value=audio)
+    backend.delete_notebook = AsyncMock()
+
+    with (
+        patch("automator.pipeline._create_backend", return_value=backend),
+        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+        ),
+        patch(
+            "automator.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+        ),
+    ):
+        results = await collect_audio(settings, poll=False)
+
+    assert results[0].status == "video_ready"
+    backend.ask.assert_not_called()
+    job = _load_state(state_path)["jobs"][0]
+    assert job["metadata"]["title"] == "今週のAIニュースまとめ"

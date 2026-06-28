@@ -169,6 +169,9 @@ def _build_description(
     """
     if citation is not None:
         source_block = format_source_line(citation)
+        # 複数ソースで先頭がメールでも、メール以外の追加ソースは出典として列挙する
+        if extra_urls:
+            source_block = f"{source_block}\n{_format_source_block(extra_urls, None)}"
     else:
         source_block = _format_source_block(
             [metadata.url, *(extra_urls or [])], metadata.site_name
@@ -569,6 +572,7 @@ async def _submit_single(
         "task_id": task_id,
         "metadata": _metadata_to_dict(metadata),
         "extra_urls": entry.extra_urls,
+        "user_title": entry.title,
         "submitted_at": _now_iso(),
         "error": None,
     })
@@ -767,13 +771,18 @@ async def _collect_single(
                 "domain": citation.domain,
             }
 
-    # 日本語タイトル生成（全ソース共通）。失敗時は既存タイトルを維持する。
-    jp_title = await _generate_japanese_title(
-        backend, notebook_id, settings.youtube.generated_title_max_length
-    )
-    if jp_title:
-        logger.info("生成タイトル: {!r} → {!r}", metadata.title, jp_title)
-        metadata.title = jp_title
+    # タイトル: ユーザー指定(複数ソースの title)があれば尊重。無ければ ② で日本語生成
+    # （失敗時は既存タイトルを維持）。
+    user_title = job.get("user_title")
+    if user_title:
+        metadata.title = user_title
+    else:
+        jp_title = await _generate_japanese_title(
+            backend, notebook_id, settings.youtube.generated_title_max_length
+        )
+        if jp_title:
+            logger.info("生成タイトル: {!r} → {!r}", metadata.title, jp_title)
+            metadata.title = jp_title
 
     # カテゴリ判定（③）: サムネ配色とプレイリスト振り分けに使う
     category = classify_category(url)
