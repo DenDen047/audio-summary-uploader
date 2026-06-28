@@ -38,21 +38,49 @@ def _completed() -> MagicMock:
 class TestBuildDescription:
     def test_non_spark_keeps_url(self) -> None:
         m = _meta("https://arxiv.org/abs/2511.15059", "Paper")
-        assert "https://arxiv.org/abs/2511.15059" in _build_description(
-            m, "short", "default"
-        )
+        desc = _build_description(m, category="paper")
+        assert "https://arxiv.org/abs/2511.15059" in desc
+        # ⑤ カテゴリ別ハッシュタグが入る
+        assert "#論文解説" in desc
+        # 内部設定（プロンプト名）は公開面に出さない
+        assert "プロンプト" not in desc
 
     def test_spark_with_citation_hides_url_shows_source(self) -> None:
         m = _meta(SPARK_URL, "Are Anthropic Bills Accurate?")
         c = EmailCitation(sender="Applied AI", date="2026-06-25", domain=None)
-        desc = _build_description(m, "short", "default", citation=c)
+        desc = _build_description(m, citation=c, category="news")
         assert "sparkmailapp.com" not in desc
         assert "Applied AI" in desc
         assert "2026-06-25" in desc
+        assert "#AIニュース" in desc
 
     def test_spark_without_citation_hides_url(self) -> None:
         m = _meta(SPARK_URL, "メール要約（タイトル取得中）")
-        assert "sparkmailapp.com" not in _build_description(m, "short", "default")
+        assert "sparkmailapp.com" not in _build_description(m)
+
+    def test_multi_source_lists_all_urls(self) -> None:
+        m = _meta("https://arxiv.org/abs/1", "Multi")
+        desc = _build_description(m, extra_urls=["https://arxiv.org/abs/2"])
+        assert "https://arxiv.org/abs/1" in desc
+        assert "https://arxiv.org/abs/2" in desc
+
+    def test_multi_source_hides_spark_among_extras(self) -> None:
+        m = _meta("https://arxiv.org/abs/1", "Multi")
+        desc = _build_description(m, extra_urls=[SPARK_URL])
+        assert "https://arxiv.org/abs/1" in desc
+        assert "sparkmailapp.com" not in desc
+        assert "メールニュースレター" in desc
+
+    def test_email_anywhere_is_sanitized(self) -> None:
+        # site_name 等にメールアドレスが紛れても最後の砦で除去される
+        m = PageMetadata(
+            url="https://example.com/x", title="T", description="",
+            og_image_url=None, site_name="From me@personal.example",
+            language=None, favicon_url=None,
+        )
+        desc = _build_description(m)
+        assert "me@personal.example" not in desc
+        assert "[メールアドレス非公開]" in desc
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -88,7 +116,10 @@ def _spark_job() -> dict:
 
 @pytest.mark.asyncio()
 async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
-    """Spark ジョブの collect で chat 抽出が行われ、件名・出典が state に入る."""
+    """Spark の collect で chat 抽出(①)＋日本語タイトル生成(②)が行われる.
+
+    ask は2回呼ばれ、出典は①、公開タイトルは②の日本語タイトルで上書きされる。
+    """
     settings = _settings(tmp_path)
     state_path = Path(settings.general.state_file)
     state_path.write_text(
@@ -97,10 +128,13 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
 
     backend = AsyncMock()
     backend.check_audio_status = AsyncMock(return_value=_completed())
-    backend.ask = AsyncMock(return_value=(
-        '```json\n{"title": "Are Anthropic Bills Accurate?", '
-        '"sender": "Applied AI", "domain": null, "date": "2026-06-25"}\n```'
-    ))
+    backend.ask = AsyncMock(side_effect=[
+        (
+            '```json\n{"title": "Are Anthropic Bills Accurate?", '
+            '"sender": "Applied AI", "domain": null, "date": "2026-06-25"}\n```'
+        ),
+        "Anthropicの請求は本当に正確なのか検証",
+    ])
     audio = tmp_path / "tmp" / "audio" / "spark1.mp3"
     audio.parent.mkdir(parents=True, exist_ok=True)
     audio.write_bytes(b"x")
@@ -109,6 +143,10 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
 
     with (
         patch("automator.pipeline._create_backend", return_value=backend),
+        patch(
+            "automator.pipeline._generate_ai_thumbnail",
+            return_value=None,
+        ),
         patch(
             "automator.pipeline.generate_thumbnail",
             return_value=tmp_path / "t.png",
@@ -121,10 +159,12 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "video_ready"
-    backend.ask.assert_called_once()
+    assert backend.ask.await_count == 2
 
     job = _load_state(state_path)["jobs"][0]
-    assert job["metadata"]["title"] == "Are Anthropic Bills Accurate?"
+    # ② が件名を上書きして日本語タイトルになる
+    assert job["metadata"]["title"] == "Anthropicの請求は本当に正確なのか検証"
+    # 出典(送信元/日付)は ① で取得済み
     assert job["citation"]["sender"] == "Applied AI"
     assert job["citation"]["date"] == "2026-06-25"
     # 生 URL は state の url にのみ残り、公開フィールドには出さない

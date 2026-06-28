@@ -18,14 +18,25 @@ if TYPE_CHECKING:
 from notebooklm.exceptions import AuthError as NotebookLMAuthError
 from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
+from automator.category import (
+    classify_category,
+    resolve_playlist_id,
+    style_for_category,
+)
 from automator.citation import (
     EmailCitation,
     format_source_line,
     is_spark_share_url,
     parse_email_metadata,
     sanitize_public_text,
+    strip_citation_markers,
 )
 from automator.config import Settings
+from automator.image_gen import (
+    DEFAULT_STYLE,
+    ThumbnailStyle,
+    generate_thumbnail_image,
+)
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
 from automator.notebooklm import NotebookLMBackend
 from automator.notebooklm_py_backend import NotebookLMPyBackend
@@ -45,12 +56,26 @@ _AUTH_ERROR_KEYWORDS = ("authentication", "expired", "re-authenticate", "login")
 
 # Spark メール等、OGP が無く title=URL になりがちなソース用の仮タイトル
 _SPARK_TITLE_PLACEHOLDER = "メール要約（タイトル取得中）"
+# 複数ソースを1音声にまとめる場合の仮タイトル（最終タイトルは ② chat で生成）
+_MULTI_TITLE_PLACEHOLDER = "複数ソースのまとめ"
 # メール系ソースの出典抽出に使う chat 質問（受信者情報は出させない）
 _EMAIL_META_QUESTION = (
     "以下のソースはメール（ニュースレター）です。"
     "メールの『件名・送信者の表示名・送信元ドメイン・送信日(YYYY-MM-DD)』だけを"
     "JSONで返してください。キー: title, sender, domain, date。分からない項目はnull。"
     "受信者(宛先)の名前やアドレスは絶対に含めないでください。JSONのみ出力。"
+)
+# 日本語タイトル生成に使う chat 質問
+_JP_TITLE_QUESTION = (
+    "このソースの内容にふさわしい日本語の YouTube 動画タイトルを"
+    "1つだけ提案してください。"
+    "条件: 全角35字以内、内容に忠実、過度に煽らない、鉤括弧や引用符で全体を囲まない、"
+    "絵文字や [1] のような注釈を付けない。タイトル本文のみを1行で出力してください。"
+)
+# タイトル先頭から剥がす絵文字・記号と、全体を囲う引用符ペア
+_TITLE_LEADING_STRIP = "🎧🎙️📻🔊 　"
+_TITLE_QUOTE_PAIRS = (
+    ("「", "」"), ("『", "』"), ("“", "”"), ('"', '"'), ("'", "'"),
 )
 
 
@@ -94,39 +119,74 @@ def _resolve_prompt_preset(preset_name: str | None, settings: Settings) -> str:
     return presets[name]
 
 
+# ⑤ カテゴリ別ハッシュタグ（3〜5個）。未分類は汎用。
+_CATEGORY_HASHTAGS: dict[str, list[str]] = {
+    "paper": ["#AI", "#論文解説", "#機械学習"],
+    "news": ["#AI", "#AIニュース", "#テック"],
+    "engineering": ["#AI", "#プログラミング", "#開発"],
+    "business": ["#AI", "#ビジネス", "#副業"],
+}
+_DEFAULT_HASHTAGS = ["#AI", "#音声要約", "#NotebookLM"]
+
+
+def _build_hashtags(category: str | None) -> str:
+    """カテゴリに応じたハッシュタグ行を返す."""
+    tags = _CATEGORY_HASHTAGS.get(category or "", _DEFAULT_HASHTAGS)
+    return " ".join(tags)
+
+
+def _format_source_block(urls: list[str], site_name: str | None) -> str:
+    """公開用の出典ブロックを作る（Spark 等のメール共有 URL は秘匿）.
+
+    複数ソースは各 URL を列挙する。メール系ソースは URL を出さず汎用ラベルにする。
+    """
+    lines: list[str] = []
+    has_email = False
+    for source_url in urls:
+        if is_spark_share_url(source_url):
+            has_email = True
+        else:
+            lines.append(f"📄 元記事: {source_url}")
+    if site_name and len(urls) == 1 and not has_email:
+        lines.append(f"📰 ソース: {site_name}")
+    if has_email:
+        lines.append("📰 ソース: メールニュースレター")
+    return "\n".join(lines) if lines else "📰 ソース: メールニュースレター"
+
+
 def _build_description(
     metadata: PageMetadata,
-    audio_length: str,
-    prompt_preset_name: str,
+    *,
     citation: EmailCitation | None = None,
+    category: str | None = None,
+    extra_urls: list[str] | None = None,
 ) -> str:
-    """YouTube 説明文を生成する（個人情報はサニタイズ）.
+    """YouTube 概要欄を生成する（冒頭＋出典＋ハッシュタグ、個人情報はサニタイズ）.
 
     メール系ソース（Spark 共有等）は生 URL を公開面に出さない。出典が取れていれば
-    「出典: 送信元 - 日付」を、取れていなければ汎用ラベルを表示する。
+    「出典: 送信元 - 日付」を、取れていなければ汎用ラベルを表示する。複数ソースは
+    全 URL を列挙する。内部設定（プロンプト名・音声長）は公開面に出さない。
     """
     if citation is not None:
         source_block = format_source_line(citation)
-    elif is_spark_share_url(metadata.url):
-        source_block = "📰 ソース: メールニュースレター"
     else:
-        lines = [f"📄 元記事: {metadata.url}"]
-        if metadata.site_name:
-            lines.append(f"📰 ソース: {metadata.site_name}")
-        source_block = "\n".join(lines)
+        source_block = _format_source_block(
+            [metadata.url, *(extra_urls or [])], metadata.site_name
+        )
 
-    description = f"""NotebookLM の Audio Overview で自動生成された音声要約です。
-
-{source_block}
-
-🔧 生成条件
-  音声の長さ: {audio_length}
-  プロンプト: {prompt_preset_name}
-
----
-この動画は audio-summary-uploader で自動生成されました。""".strip()
+    intro = (
+        "AIが元情報をもとに自動生成した、ポッドキャスト風の音声要約です。\n"
+        "通勤や作業のお供にどうぞ。"
+    )
+    footer = (
+        "※ NotebookLM の Audio Overview で自動生成。要点把握用です。"
+        "正確な内容は元情報をご確認ください。"
+    )
+    description = (
+        f"{intro}\n\n{source_block}\n\n{_build_hashtags(category)}\n\n---\n{footer}"
+    )
     # 最後の砦: メールアドレス・Spark 共有 URL を除去する
-    return sanitize_public_text(description)
+    return sanitize_public_text(description.strip())
 
 
 def _sanitize_youtube_title(title: str) -> str:
@@ -177,6 +237,64 @@ async def _extract_email_citation(
     return citation
 
 
+def _clean_generated_title(raw: str, max_len: int) -> str | None:
+    """chat が生成した日本語タイトルを整形する（整形できなければ None）.
+
+    引用マーカー除去 → 最初の非空行 → 全体を囲う引用符の除去 →
+    先頭の絵文字/空白の除去 → 全角換算の長さ上限。
+    """
+    if not raw:
+        return None
+    text = strip_citation_markers(raw)
+    title = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    if not title:
+        return None
+    for open_q, close_q in _TITLE_QUOTE_PAIRS:
+        if len(title) >= 2 and title[0] == open_q and title[-1] == close_q:
+            title = title[1:-1].strip()
+            break
+    title = title.lstrip(_TITLE_LEADING_STRIP).strip()
+    if not title:
+        return None
+    if len(title) > max_len:
+        title = title[: max_len - 1] + "…"
+    return title
+
+
+async def _generate_japanese_title(
+    backend: NotebookLMBackend, notebook_id: str, max_len: int
+) -> str | None:
+    """ノートブックの内容から日本語の YouTube タイトルを chat で生成する."""
+    try:
+        answer = await backend.ask(notebook_id, _JP_TITLE_QUESTION)
+    except Exception as exc:
+        logger.warning("日本語タイトル生成に失敗: {}", exc)
+        return None
+    if not isinstance(answer, str):
+        logger.warning("日本語タイトル生成: 予期しない回答型 {}", type(answer).__name__)
+        return None
+    title = _clean_generated_title(answer, max_len)
+    if title is None:
+        logger.warning("生成タイトルの整形に失敗")
+    return title
+
+
+async def _generate_ai_thumbnail(
+    headline: str,
+    output_path: Path,
+    settings: Settings,
+    style: ThumbnailStyle | None = None,
+) -> Path | None:
+    """Nano Banana で見出し入りAIサムネを生成する（失敗時 None でフォールバック）."""
+    return await generate_thumbnail_image(
+        headline,
+        output_path,
+        width=settings.thumbnail.width,
+        height=settings.thumbnail.height,
+        style=style or DEFAULT_STYLE,
+    )
+
+
 # --- 状態管理 ---
 
 
@@ -203,6 +321,7 @@ def _migrate_state(state: dict) -> dict:
             "notebook_id": entry.get("notebook_id"),
             "task_id": None,
             "metadata": None,
+            "extra_urls": [],
             "audio_path": None,
             "thumbnail_path": None,
             "video_path": None,
@@ -306,6 +425,7 @@ def _find_or_create_job(
         "notebook_id": None,
         "task_id": None,
         "metadata": None,
+        "extra_urls": [],
         "audio_path": None,
         "thumbnail_path": None,
         "video_path": None,
@@ -373,9 +493,21 @@ async def _submit_single(
 
     logger.info("Submitting: {} (slug={})", url, slug)
 
-    # メタデータ取得
-    is_local = is_local_path(url)
-    if is_local:
+    # メタデータ取得（複数ソースはページ取得せず仮タイトル。最終タイトルは ② で生成）
+    sources = entry.sources
+    is_multi = len(sources) > 1
+    is_local = is_local_path(url) and not is_multi
+    if is_multi:
+        metadata = PageMetadata(
+            url=url,
+            title=entry.title or _MULTI_TITLE_PLACEHOLDER,
+            description="",
+            og_image_url=None,
+            site_name=None,
+            language=None,
+            favicon_url=None,
+        )
+    elif is_local:
         tmp_dir = Path(settings.general.tmp_dir)
         metadata = metadata_for_local_file(Path(url), tmp_dir=tmp_dir)
     else:
@@ -409,11 +541,12 @@ async def _submit_single(
     })
 
     try:
-        # ソース追加
+        # ソース追加（複数ソースは同一ノートブックに全て追加）
         if is_local:
             await backend.add_file_source(notebook_id, Path(url))
         else:
-            await backend.add_source(notebook_id, url)
+            for source_url in sources:
+                await backend.add_source(notebook_id, source_url)
 
         # プロンプト解決
         prompt_text = _resolve_prompt_preset(entry.prompt, settings)
@@ -435,6 +568,7 @@ async def _submit_single(
         "status": "generating",
         "task_id": task_id,
         "metadata": _metadata_to_dict(metadata),
+        "extra_urls": entry.extra_urls,
         "submitted_at": _now_iso(),
         "error": None,
     })
@@ -633,15 +767,36 @@ async def _collect_single(
                 "domain": citation.domain,
             }
 
-    # サムネイル生成
-    thumbnail_path = await generate_thumbnail(
-        title=metadata.title,
-        site_name=metadata.site_name,
-        og_image_url=metadata.og_image_url,
-        output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
-        config=settings.thumbnail,
-        favicon_url=metadata.favicon_url,
+    # 日本語タイトル生成（全ソース共通）。失敗時は既存タイトルを維持する。
+    jp_title = await _generate_japanese_title(
+        backend, notebook_id, settings.youtube.generated_title_max_length
     )
+    if jp_title:
+        logger.info("生成タイトル: {!r} → {!r}", metadata.title, jp_title)
+        metadata.title = jp_title
+
+    # カテゴリ判定（③）: サムネ配色とプレイリスト振り分けに使う
+    category = classify_category(url)
+    logger.info("カテゴリ判定: {} → {}", url, category)
+
+    # サムネイル生成: まず Nano Banana で見出し入りAIサムネを生成（OGP流用は廃止）。
+    # 失敗時はグラデーション(Pillow)へフォールバックする。
+    # 見出しは画像に焼き込まれ公開される唯一の非サニタイズ面なので、ここで除去する。
+    headline = sanitize_public_text(metadata.title)
+    thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
+    ai_thumb = await _generate_ai_thumbnail(
+        headline, thumbnail_path, settings, style=style_for_category(category)
+    )
+    if ai_thumb is None:
+        logger.info("AIサムネ生成失敗 → グラデーションにフォールバック")
+        thumbnail_path = await generate_thumbnail(
+            title=headline,
+            site_name=metadata.site_name,
+            og_image_url=None,  # OGP 流用は廃止（著作権・ごちゃつき回避）
+            output_path=thumbnail_path,
+            config=settings.thumbnail,
+            favicon_url=None,  # 中央のアイコンが見出しと重なるため使わない
+        )
 
     # 動画変換
     video_path = await convert_to_video(
@@ -659,6 +814,7 @@ async def _collect_single(
         "notebook_id": None,
         "metadata": _metadata_to_dict(metadata),
         "citation": citation_dict,
+        "category": category,
         "audio_path": str(audio_path),
         "thumbnail_path": str(thumbnail_path),
         "video_path": str(video_path),
@@ -796,15 +952,24 @@ async def upload_videos(
         url = job["url"]
         try:
             metadata = _dict_to_metadata(url, job["metadata"])
-            audio_length = job.get("audio_length", "default")
-            prompt_preset_name = job.get("prompt", "default")
+            category = job.get("category")
 
             citation_data = job.get("citation")
             citation = EmailCitation(**citation_data) if citation_data else None
             description = _build_description(
-                metadata, audio_length, prompt_preset_name, citation=citation
+                metadata,
+                citation=citation,
+                category=category,
+                extra_urls=job.get("extra_urls", []),
             )
             title = _build_title(metadata, settings)
+
+            # ③ カテゴリ→プレイリスト解決（無ければ既定 playlist_id へフォールバック）
+            playlist_id = resolve_playlist_id(
+                category,
+                settings.youtube.playlists,
+                settings.youtube.playlist_id,
+            )
 
             params = YouTubeUploadParams(
                 file_path=Path(job["video_path"]),
@@ -814,7 +979,7 @@ async def upload_videos(
                 category_id=settings.youtube.category_id,
                 privacy_status=settings.youtube.privacy_status,
                 thumbnail_path=Path(job["thumbnail_path"]),
-                playlist_id=settings.youtube.playlist_id,
+                playlist_id=playlist_id,
             )
 
             youtube_url = await upload_video(creds, params)
@@ -893,7 +1058,6 @@ async def process_single_url(
 
     # 4. プロンプト解決
     prompt_text = _resolve_prompt_preset(entry.prompt, settings)
-    prompt_preset_name = entry.prompt or "default"
 
     # 5. audio_length 解決
     audio_length = entry.audio_length or settings.notebooklm.audio_length
@@ -911,15 +1075,22 @@ async def process_single_url(
         notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
     )
 
-    # 8. サムネイル生成
-    thumbnail_path = await generate_thumbnail(
-        title=metadata.title,
-        site_name=metadata.site_name,
-        og_image_url=metadata.og_image_url,
-        output_path=tmp_dir / "thumbnails" / f"{slug}_thumb.png",
-        config=settings.thumbnail,
-        favicon_url=metadata.favicon_url,
+    # 8. サムネイル生成（OGP 流用は廃止。AI サムネ→失敗時グラデーション）
+    headline = sanitize_public_text(metadata.title)
+    thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
+    category = classify_category(entry.url)
+    ai_thumb = await _generate_ai_thumbnail(
+        headline, thumbnail_path, settings, style=style_for_category(category)
     )
+    if ai_thumb is None:
+        thumbnail_path = await generate_thumbnail(
+            title=headline,
+            site_name=metadata.site_name,
+            og_image_url=None,
+            output_path=thumbnail_path,
+            config=settings.thumbnail,
+            favicon_url=None,  # 中央のアイコンが見出しと重なるため使わない
+        )
 
     # 9. 動画変換
     video_path = await convert_to_video(
@@ -929,7 +1100,7 @@ async def process_single_url(
     )
 
     # 10. YouTube アップロード
-    description = _build_description(metadata, audio_length, prompt_preset_name)
+    description = _build_description(metadata, category=category)
     title = _build_title(metadata, settings)
 
     params = YouTubeUploadParams(

@@ -1,6 +1,6 @@
 """URL リスト読み込み・バリデーション."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,9 +10,18 @@ from loguru import logger
 
 @dataclass
 class UrlEntry:
+    """1つ以上のソース＋共通設定。単一ソースは extra_urls=[] で従来どおり."""
+
     url: str
     audio_length: str | None = None
     prompt: str | None = None
+    title: str | None = None
+    extra_urls: list[str] = field(default_factory=list)
+
+    @property
+    def sources(self) -> list[str]:
+        """このエントリの全ソース（代表URL + 追加URL）を返す."""
+        return [self.url, *self.extra_urls]
 
 
 def _validate_url(url: str) -> bool:
@@ -29,6 +38,65 @@ def is_local_path(source: str) -> bool:
 def _validate_audio_length(value: str | None) -> bool:
     """audio_length のバリデーション."""
     return value is None or value in ("short", "default")
+
+
+def _parse_multi_entry(
+    item: dict,
+    index: int,
+    seen_urls: set[str],
+    valid_prompt_presets: set[str] | None,
+) -> UrlEntry | None:
+    """`urls:` リスト形式（複数ソース→1音声）のエントリを解釈する.
+
+    複数ソースは http(s) のみ対応（ローカルPDFの束ねは対象外）。代表URLは先頭。
+    """
+    raw_urls = item.get("urls")
+    if not isinstance(raw_urls, list) or not raw_urls:
+        logger.warning("Skipping entry {}: 'urls' must be a non-empty list", index + 1)
+        return None
+
+    urls: list[str] = []
+    for raw in raw_urls:
+        candidate = str(raw).strip()
+        if not _validate_url(candidate):
+            logger.warning("Skipping invalid URL in entry {}: {}", index + 1, candidate)
+            continue
+        if candidate in seen_urls or candidate in urls:
+            logger.warning("Skipping duplicate URL: {}", candidate)
+            continue
+        urls.append(candidate)
+
+    if not urls:
+        logger.warning("Skipping entry {}: no valid URLs", index + 1)
+        return None
+
+    audio_length = item.get("audio_length")
+    if not _validate_audio_length(audio_length):
+        logger.warning(
+            "Skipping entry {} — invalid audio_length: {!r}", index + 1, audio_length
+        )
+        return None
+
+    prompt = item.get("prompt")
+    unknown_prompt = (
+        prompt is not None
+        and valid_prompt_presets
+        and prompt not in valid_prompt_presets
+    )
+    if unknown_prompt:
+        logger.warning(
+            "Skipping entry {} — unknown prompt preset: {!r}", index + 1, prompt
+        )
+        return None
+
+    seen_urls.update(urls)
+    return UrlEntry(
+        url=urls[0],
+        extra_urls=urls[1:],
+        audio_length=audio_length,
+        prompt=prompt,
+        title=(str(item["title"]).strip() if item.get("title") else None),
+    )
 
 
 def parse_url_file(
@@ -57,7 +125,18 @@ def parse_url_file(
     seen_urls: set[str] = set()
 
     for i, item in enumerate(raw):
-        if not isinstance(item, dict) or "url" not in item:
+        if not isinstance(item, dict):
+            logger.warning("Skipping entry {}: not a mapping", i + 1)
+            continue
+
+        # 複数ソース形式（urls: リスト）。後方互換のため url: は従来どおり処理。
+        if "urls" in item:
+            multi = _parse_multi_entry(item, i, seen_urls, valid_prompt_presets)
+            if multi is not None:
+                entries.append(multi)
+            continue
+
+        if "url" not in item:
             logger.warning("Skipping entry {}: missing 'url' key", i + 1)
             continue
 

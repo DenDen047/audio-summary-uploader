@@ -40,9 +40,17 @@ notebooklm:
 youtube:
   privacy_status: "unlisted"
   category_id: "27"              # Education
-  playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"
+  playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"  # 既定（カテゴリ未設定時のフォールバック）
+  # ③ カテゴリ→プレイリストID。匿名チャンネル作成後に実IDを設定。
+  # 空のカテゴリは playlist_id にフォールバックする。
+  playlists: {}
+    # paper: "PLxxxx"
+    # news: "PLxxxx"
+    # engineering: "PLxxxx"
+    # business: "PLxxxx"
   title_prefix: "🎧"
   title_max_length: 95
+  generated_title_max_length: 35   # ② chat 生成タイトルの全角字数上限
   default_tags:
     - "NotebookLM"
     - "Audio Summary"

@@ -40,26 +40,30 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     └─ urls.yaml を読み込み、UrlEntry リストを生成 │
 │                                                 │
 │  2. メタデータ取得                                │
-│     └─ 各 URL から OGP 情報を取得                 │
-│        (タイトル、説明、OGP画像URL)               │
+│     └─ 各 URL からタイトル/サイト名を取得         │
+│        (複数ソース・メール系は collect で補完)     │
 │                                                 │
 │  3. NotebookLM 操作 (notebooklm-py)              │
 │     ├─ ノートブック作成                           │
-│     ├─ URL をソースとして追加                     │
+│     ├─ 全ソース(1つ以上)を追加                    │
 │     ├─ Audio Overview 生成（日本語指定）          │
+│     ├─ chat で日本語タイトル/メール出典を抽出     │
 │     ├─ 音声ファイル (.mp3) ダウンロード           │
 │     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
-│  4. サムネイル生成                                │
-│     └─ OGP画像 + タイトルテキスト合成             │
+│  4. カテゴリ判定＋サムネイル生成                  │
+│     └─ AI画像生成(Nano Banana)で見出し入り        │
+│        サムネ生成（OGP流用は廃止/失敗時は         │
+│        グラデーションへフォールバック）           │
 │                                                 │
 │  5. 動画変換                                     │
-│     └─ FFmpeg: 静止画 + mp3 → mp4               │
+│     └─ FFmpeg: 静止画 + mp3 → mp4（メタ除去）   │
 │                                                 │
 │  6. YouTube アップロード                          │
 │     ├─ YouTube Data API v3 (videos.insert)       │
 │     ├─ サムネイル設定 (thumbnails.set)            │
-│     └─ 公開ステータス: public                     │
+│     ├─ カテゴリ→プレイリスト振り分け             │
+│     └─ 公開ステータス: 既定 unlisted              │
 │                                                 │
 │  7. 結果レポート                                  │
 │     └─ 処理結果 + YouTube URL を出力             │
@@ -84,12 +88,15 @@ audio-summary-uploader/
 │       ├── cli.py                # CLI エントリポイント (Click)
 │       ├── config.py             # 設定読み込み
 │       ├── pipeline.py           # パイプライン全体のオーケストレーション
-│       ├── url_parser.py         # URL リスト読み込み・バリデーション
+│       ├── url_parser.py         # URL リスト読み込み・バリデーション（複数ソース対応）
 │       ├── metadata.py           # OGP メタデータ取得
 │       ├── notebooklm.py         # NotebookLM 操作（抽象層）
 │       ├── notebooklm_py_backend.py  # notebooklm-py による実装
 │       ├── notebooklm_playwright_backend.py  # Playwright による実装（Phase 2）
-│       ├── thumbnail.py          # サムネイル生成 (Pillow)
+│       ├── citation.py           # 出典抽出・公開テキストのサニタイズ
+│       ├── category.py           # カテゴリ判定→サムネ配色/プレイリスト解決
+│       ├── image_gen.py          # AIサムネ生成 (gemini-webapi / Nano Banana)
+│       ├── thumbnail.py          # サムネイル生成 フォールバック (Pillow)
 │       ├── video.py              # FFmpeg による動画変換
 │       ├── youtube.py            # YouTube API 操作
 │       ├── report.py             # 結果レポート生成
@@ -175,9 +182,11 @@ class NotebookLMConfig:
 class YouTubeConfig:
     privacy_status: str = "unlisted"
     category_id: str = "27"
-    playlist_id: str | None = None
+    playlist_id: str | None = None          # 既定（カテゴリ未設定時のフォールバック）
+    playlists: dict[str, str] = field(default_factory=dict)  # カテゴリ→playlist_id
     title_prefix: str = "🎧"
     title_max_length: int = 95
+    generated_title_max_length: int = 35    # ② chat 生成タイトルの全角字数上限
     default_tags: list[str] = field(default_factory=list)
     daily_upload_limit: int = 5
 
@@ -217,6 +226,13 @@ class Settings:
 # フォルダ指定（中の全 PDF を処理）
 - url: ~/Documents/papers/
   prompt: paper_summary
+
+# 複数ソース→1音声（⑦）。任意 title、無ければ chat 生成。代表URLは先頭。
+- title: 今週のAIニュースまとめ
+  urls:
+    - https://app.sparkmailapp.com/web-share/xxxx
+    - https://www.theinformation.com/articles/yyyy
+  prompt: paper_summary
 ```
 
 **データモデル:**
@@ -224,9 +240,15 @@ class Settings:
 ```python
 @dataclass
 class UrlEntry:
-    url: str                          # URL またはローカルファイルパス
-    audio_length: str | None = None   # "short" or "default", None = settings.yaml のデフォルトを使用
-    prompt: str | None = None         # プリセット名 ("default", "paper_summary"), None = "default" プリセットを使用
+    url: str                          # 代表URL（複数ソース時は先頭）またはローカルパス
+    audio_length: str | None = None   # "short" or "default", None = settings.yaml のデフォルト
+    prompt: str | None = None         # プリセット名, None = "default"
+    title: str | None = None          # 複数ソース時の任意タイトル
+    extra_urls: list[str] = field(default_factory=list)  # 2番目以降のソース
+
+    @property
+    def sources(self) -> list[str]:   # [url, *extra_urls]
+        ...
 ```
 
 **処理内容:**
@@ -372,44 +394,36 @@ class NotebookLMBackend(ABC):
 - タイムアウトや一時的なネットワークエラーの場合は terminal 扱いにせず `generating` を維持し、次回の collect で再試行する（生成自体は継続中の可能性があるため。ノートブックも残す）
 - ステータスが `failed`（terminal）の場合は `failed` に遷移し、ノートブックを削除する。`not_found` は作成直後の一時的な lag の可能性があるため単発では terminal とみなさず、ポーリング側の連続判定（notebooklm-py: 5 回連続 + 10 秒）に委ねる
 
-### 3.6 サムネイル生成 (`thumbnail.py`)
+### 3.6 サムネイル生成（`image_gen.py` 主 / `thumbnail.py` フォールバック / `category.py`）
 
-YouTube のサムネイル画像（1280×720px）を生成する。
+YouTube サムネ（1280×720px）は **AI 画像生成（Nano Banana）で日本語見出し入りを毎回生成**する（④）。
+OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を回避）。AI 生成に失敗した場合のみ Pillow の
+グラデーション背景＋日本語見出しにフォールバックする。
 
-**生成ロジック:**
+**カテゴリ判定（`category.py`, ③）:**
+- URL のドメイン/拡張子のルールでカテゴリを判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
+  github 等→`engineering`、youtube→`business`、その他→`default`）。
+- カテゴリは (1) サムネの配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）の両方に使う。
 
-```
-┌──────────────────────────────────────────┐
-│                                          │
-│   ┌──────────────────────────────────┐   │
-│   │                                  │   │
-│   │     OGP 画像（暗めフィルター）     │   │
-│   │                                  │   │
-│   │  ┌────────────────────────────┐  │   │
-│   │  │                            │  │   │
-│   │  │    記事タイトル（日本語）     │  │   │
-│   │  │    白文字・影つき            │  │   │
-│   │  │                            │  │   │
-│   │  └────────────────────────────┘  │   │
-│   │                                  │   │
-│   │           サイト名               │   │
-│   └──────────────────────────────────┘   │
-│                                          │
-└──────────────────────────────────────────┘
-```
+**AIサムネ生成（`image_gen.py`, 方式A）:**
+- cookie 源 = NotebookLM と同一アカウントの `~/.notebooklm/profiles/default/storage_state.json` の
+  `__Secure-1PSID` / `__Secure-1PSIDTS`（`.google.com`）。値はログに出さない。
+- `gemini-webapi`（非公式）で「16:9・カテゴリ別配色＋日本語見出しをそのまま描画」を指示して生成し、
+  生成画像（約 2752×1536）を 1280×720 へ中央クロップして PNG 保存。見出しは焼き込み前に
+  `sanitize_public_text` で個人情報を除去する（画像は公開面で唯一の非サニタイズ面のため）。
+- **失敗時は `None` を返しフォールバックへ**（cookie 失効・地域/アカウント制限・画像未返却など）。
+  非公式 API のため例外は握りつぶし、パイプラインは止めない。
+- **cookie 鮮度の制約**: `__Secure-1PSIDTS` は短時間で値がローテーションし、storage_state.json の
+  コピーは `notebooklm login`（ブラウザ）でしか更新されない。古くなると `UNAUTHENTICATED` となり
+  画像が返らずフォールバックする（理由は応答テキストとして WARN ログに残す）。確実に AI サムネを
+  出すには直前に `uv run notebooklm login` で cookie を更新する（将来 browser-cookie3 等での自動
+  鮮度確保を検討）。
 
-**処理フロー:**
-1. OGP 画像を URL からダウンロード
-2. 1280×720 にリサイズ（アスペクト比維持、クロップ）
-3. 半透明の暗いオーバーレイを適用（rgba(0,0,0,0.5)）
-4. タイトルテキストを中央に白文字でレンダリング
-   - フォント: Noto Sans JP Bold
-   - フォントサイズ: 自動調整（タイトル長に応じて）
-   - テキスト影: 黒い影をつけて視認性確保
-5. サイト名を下部にサブテキストとして配置
-6. OGP 画像が取得できない場合はランダム生成のグラデーション背景にフォールバックし、ファビコン（PDF はアイコン）があれば中央に配置
+**フォールバック（`thumbnail.py`, 方式B）:**
+- ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を
+  中央に描画。中央アイコン（favicon）は見出しと重なるため使わない。OGP も使わない。
 
-**実装:** `Pillow` (PIL)
+**実装:** `gemini-webapi`（AI生成）/ `Pillow`（フォールバック）
 
 ### 3.7 動画変換 (`video.py`)
 
@@ -418,6 +432,7 @@ YouTube は音声のみのアップロードに対応していないため、静
 **FFmpeg コマンド:**
 ```bash
 ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
+  -map_metadata -1 \
   -c:v libx264 -tune stillimage -c:a aac -b:a 192k \
   -pix_fmt yuv420p -shortest -movflags +faststart \
   output.mp4
@@ -430,6 +445,8 @@ ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
 - 出力: MP4 (H.264 + AAC)
 - 音声ビットレート: 192kbps
 - FFmpeg がインストールされていない場合はエラーメッセージを表示
+- **メタデータ除去（⑥）**: `-map_metadata -1` で入力（NotebookLM の mp3 等）のメタデータを引き継がず、
+  出力 mp4 にローカルパス・個人情報・元タイトル等を残さない（自動テストで担保）
 
 ### 3.8 YouTube アップロード (`youtube.py`)
 
@@ -447,46 +464,51 @@ ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
 @dataclass
 class YouTubeUploadParams:
     file_path: Path               # mp4 ファイルパス
-    title: str                    # "[Audio Summary] {記事タイトル}"
-    description: str              # 元記事の説明 + URL + 生成条件
+    title: str                    # "{title_prefix} {日本語タイトル}"（②）
+    description: str              # 冒頭 + 出典 + ハッシュタグ（⑤、サニタイズ済み）
     tags: list[str]               # ["NotebookLM", "Audio Summary", "AI", ...]
     category_id: str = "27"       # Education カテゴリ
     privacy_status: str = "unlisted"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
-    playlist_id: str | None = None  # 追加先プレイリスト ID
+    playlist_id: str | None = None  # カテゴリ解決後のプレイリスト ID（③）
     made_for_kids: bool = False       # "No, it's not made for kids"
     contains_synthetic_media: bool = True  # AI生成コンテンツラベル
 ```
 
 **YouTube タイトルの形式:**
 ```
-{settings.youtube.title_prefix} {記事タイトル（settings.youtube.title_max_length 文字に切り詰め）}
+{settings.youtube.title_prefix} {日本語タイトル（generated_title_max_length 全角字以内）}
 ```
 
-- タイトルに YouTube API が拒否する文字（`<`, `>`）が含まれる場合、全角文字（`＜`, `＞`）に自動置換する
+- タイトルは **② で collect フェーズに NotebookLM チャット（`ask`）から日本語生成**する。引用マーカー
+  （`[1]`）・全体を囲う引用符・先頭絵文字を除去し、全角 `generated_title_max_length` 字に丸める。
+  chat 失敗時は元タイトル（メール系は抽出した件名）にフォールバックする。
+- YouTube API が拒否する文字（`<`, `>`）は全角（`＜`, `＞`）に自動置換し、出力前に
+  `sanitize_public_text` で個人情報を除去する。
 
-**YouTube 説明文テンプレート:**
+**YouTube 説明文テンプレート（⑤）:**
 ```
-NotebookLM の Audio Overview で自動生成された音声要約です。
+AIが元情報をもとに自動生成した、ポッドキャスト風の音声要約です。
+通勤や作業のお供にどうぞ。
 
-📄 元記事: {URL}
-📰 ソース: {サイト名}
+📄 元記事: {URL}            # 複数ソースは全URLを列挙
+📰 ソース: {サイト名}        # 単一・非メール時のみ
 
-🔧 生成条件
-  音声の長さ: {audio_length}（"short" / "default"）
-  プロンプト: {prompt_preset_name}（"default" / "paper_summary"）
+#AI #論文解説 #機械学習      # カテゴリ別ハッシュタグ（3〜5）
 
 ---
-この動画は audio-summary-uploader で自動生成されました。
+※ NotebookLM の Audio Overview で自動生成。要点把握用です。正確な内容は元情報をご確認ください。
 ```
 
-- 説明文・タイトルは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL を除去）。
-- **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面（タイトル・説明文）に出さない。
-  collect フェーズで NotebookLM チャット（`ask`）から件名・送信元・日付を抽出し、説明文に
-  「出典: {送信元}（{ドメイン}）- {日付}」を表示する（生 URL は state.json のみに保持）。
-  タイトルも抽出した件名に置き換える。抽出失敗時は仮タイトルのまま生 URL は出さない。
-- `audio_length` / `prompt_preset_name` には実際に使用された値（per-URL 指定 or settings.yaml デフォルト）を記載する
+- **内部設定（プロンプト名・音声長）は公開面に出さない**（旧テンプレの「🔧 生成条件」は廃止）。
+- 説明文・タイトル・サムネ見出しは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL を除去）。
+- **複数ソース（⑦）**: `extra_urls` を含む全ソースを列挙する。メール系（Spark 共有）が混じる場合は
+  当該 URL を出さず「📰 ソース: メールニュースレター」を表示する。
+- **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面に出さない。collect で NotebookLM
+  チャット（`ask`）から件名・送信元・日付を抽出し、説明文に「出典: {送信元}（{ドメイン}）- {日付}」を
+  表示する（生 URL は state.json のみに保持）。抽出失敗時も生 URL は出さない。
+- **プレイリスト振り分け（③）**: カテゴリ→`youtube.playlists` で解決し、無ければ `playlist_id` にフォールバックする。
 
 **アップロード手順:**
 1. `videos.insert` で動画をアップロード（resumable upload）

@@ -84,7 +84,9 @@ def mock_backend():
 
 
 @pytest.mark.asyncio()
-async def test_submit_sets_generating(settings: Settings, mock_backend: AsyncMock) -> None:
+async def test_submit_sets_generating(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
     """submit_urls がジョブを generating にセットすることを確認."""
     entries = [UrlEntry(url="https://example.com/article1")]
 
@@ -163,6 +165,7 @@ async def test_collect_transitions_to_video_ready(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -229,6 +232,7 @@ async def test_collect_still_generating(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -289,6 +293,7 @@ async def test_full_pipeline_phase_transitions(
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
         patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb_fn,
         patch("automator.pipeline.convert_to_video") as mock_video_fn,
         patch("automator.pipeline.authenticate") as mock_auth,
@@ -308,7 +313,7 @@ async def test_full_pipeline_phase_transitions(
         mock_auth.return_value = MagicMock()
         mock_upload.return_value = "https://youtube.com/watch?v=test123"
 
-        results = await run_pipeline(entries, settings)
+        await run_pipeline(entries, settings)
 
     # 最終状態を確認
     state = _load_state(state_path)
@@ -325,7 +330,9 @@ async def test_full_pipeline_phase_transitions(
 
 
 @pytest.mark.asyncio()
-async def test_queued_job_not_skipped_by_submit(settings: Settings, mock_backend: AsyncMock) -> None:
+async def test_queued_job_not_skipped_by_submit(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
     """queued ステータスのジョブが submit_urls でスキップされないことを確認."""
     state_path = Path(settings.general.state_file)
     state = {
@@ -427,6 +434,7 @@ async def test_collect_handles_lowercase_completed(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):

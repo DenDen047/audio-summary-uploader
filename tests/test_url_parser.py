@@ -82,3 +82,51 @@ def test_file_not_found() -> None:
 
     with pytest.raises(FileNotFoundError):
         parse_url_file(Path("/nonexistent/urls.yaml"))
+
+
+def test_parse_multi_source(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - title: 今週のAIニュースまとめ
+          urls:
+            - https://example.com/a
+            - https://example.com/b
+          prompt: deep_dive
+    """)
+    entries = parse_url_file(path, valid_prompt_presets={"default", "deep_dive"})
+    assert len(entries) == 1
+    e = entries[0]
+    assert e.url == "https://example.com/a"
+    assert e.extra_urls == ["https://example.com/b"]
+    assert e.sources == ["https://example.com/a", "https://example.com/b"]
+    assert e.title == "今週のAIニュースまとめ"
+    assert e.prompt == "deep_dive"
+
+
+def test_multi_source_filters_invalid_urls(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - urls:
+            - not-a-url
+            - https://example.com/ok
+    """)
+    entries = parse_url_file(path)
+    assert len(entries) == 1
+    assert entries[0].url == "https://example.com/ok"
+    assert entries[0].extra_urls == []
+
+
+def test_multi_source_all_invalid_skipped(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - urls:
+            - not-a-url
+            - also-bad
+    """)
+    assert parse_url_file(path) == []
+
+
+def test_single_url_has_empty_extra_urls(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - url: https://example.com/article
+    """)
+    entries = parse_url_file(path)
+    assert entries[0].extra_urls == []
+    assert entries[0].sources == ["https://example.com/article"]

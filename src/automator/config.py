@@ -35,8 +35,10 @@ class YouTubeConfig:
     privacy_status: str = "unlisted"
     category_id: str = "27"
     playlist_id: str | None = None
+    playlists: dict[str, str] = field(default_factory=dict)
     title_prefix: str = "🎧"
     title_max_length: int = 95
+    generated_title_max_length: int = 35
     default_tags: list[str] = field(default_factory=list)
     daily_upload_limit: int = 5
 

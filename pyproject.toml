@@ -20,6 +20,7 @@ dependencies = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "pymupdf>=1.27.1",
+    "gemini-webapi>=2.0.0",
 ]
 
 [project.scripts]

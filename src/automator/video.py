@@ -39,6 +39,8 @@ async def convert_to_video(
         "-loop", "1",
         "-i", str(thumbnail_path),
         "-i", str(audio_path),
+        # ⑥ 入力(mp3/画像)のメタデータを一切引き継がない（個人情報・ローカルパス除去）
+        "-map_metadata", "-1",
         "-c:v", "libx264",
         "-tune", "stillimage",
         "-c:a", "aac",
