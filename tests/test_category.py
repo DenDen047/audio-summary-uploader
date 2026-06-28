@@ -4,12 +4,14 @@ from __future__ import annotations
 import pytest
 
 from automator.category import (
+    AMBIGUOUS_CATEGORIES,
     BUSINESS,
     DEFAULT,
     ENGINEERING,
     NEWS,
     PAPER,
     classify_category,
+    parse_category,
     resolve_playlist_id,
     style_for_category,
 )
@@ -34,6 +36,24 @@ class TestClassify:
     )
     def test_classify(self, url: str, expected: str) -> None:
         assert classify_category(url) == expected
+
+
+class TestParseCategory:
+    def test_exact_key(self) -> None:
+        assert parse_category("engineering") == ENGINEERING
+
+    def test_with_noise_and_marker(self) -> None:
+        assert parse_category("Category: paper [1]") == PAPER
+
+    def test_unparseable_returns_none(self) -> None:
+        assert parse_category("よくわかりません") is None
+
+    def test_business_and_default(self) -> None:
+        assert parse_category("business") == BUSINESS
+        assert parse_category("default") == DEFAULT
+
+    def test_only_business_and_default_are_ambiguous(self) -> None:
+        assert AMBIGUOUS_CATEGORIES == {BUSINESS, DEFAULT}
 
 
 class TestStyle:

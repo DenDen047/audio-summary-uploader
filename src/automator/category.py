@@ -16,6 +16,10 @@ ENGINEERING = "engineering"
 BUSINESS = "business"
 DEFAULT = "default"
 
+ALL_CATEGORIES: tuple[str, ...] = (PAPER, NEWS, ENGINEERING, BUSINESS, DEFAULT)
+# ルールで確定しづらい（ドメインだけでは内容が判らない）カテゴリ。chat 再判定の対象。
+AMBIGUOUS_CATEGORIES: frozenset[str] = frozenset({BUSINESS, DEFAULT})
+
 # ドメイン部分一致 → カテゴリ のルール（上から順に評価）
 _DOMAIN_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("arxiv.org", "openreview.net", "aclanthology.org", "nature.com"), PAPER),
@@ -72,6 +76,15 @@ def classify_category(url: str) -> str:
         if any(domain in host for domain in domains):
             return category
     return DEFAULT
+
+
+def parse_category(answer: str) -> str | None:
+    """chat 回答から既知のカテゴリキーを1つ抽出する（見つからなければ None）."""
+    lowered = answer.lower()
+    for category in ALL_CATEGORIES:
+        if category in lowered:
+            return category
+    return None
 
 
 def style_for_category(category: str | None) -> ThumbnailStyle:

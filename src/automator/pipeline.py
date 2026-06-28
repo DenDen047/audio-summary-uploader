@@ -19,7 +19,9 @@ from notebooklm.exceptions import AuthError as NotebookLMAuthError
 from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
 from automator.category import (
+    AMBIGUOUS_CATEGORIES,
     classify_category,
+    parse_category,
     resolve_playlist_id,
     style_for_category,
 )
@@ -71,6 +73,12 @@ _JP_TITLE_QUESTION = (
     "1つだけ提案してください。"
     "条件: 全角35字以内、内容に忠実、過度に煽らない、鉤括弧や引用符で全体を囲まない、"
     "絵文字や [1] のような注釈を付けない。タイトル本文のみを1行で出力してください。"
+)
+# カテゴリ内容判定に使う chat 質問（曖昧カテゴリのみ）
+_CATEGORY_QUESTION = (
+    "このソースの内容は次のどれに最も近いですか。英語のキーで1語だけ答えてください: "
+    "paper(研究・論文), news(ニュース・時事), engineering(技術・開発・実装), "
+    "business(ビジネス・お金・キャリア・副業), default(その他)。キーのみ出力。"
 )
 # タイトル先頭から剥がす絵文字・記号と、全体を囲う引用符ペア
 _TITLE_LEADING_STRIP = "🎧🎙️📻🔊 　"
@@ -280,6 +288,31 @@ async def _generate_japanese_title(
     if title is None:
         logger.warning("生成タイトルの整形に失敗")
     return title
+
+
+async def _refine_category(
+    backend: NotebookLMBackend, notebook_id: str, rule_category: str
+) -> str:
+    """曖昧カテゴリ(business/default)のみ NotebookLM chat で内容ベースに再判定する.
+
+    確定カテゴリ(arxiv/spark/github 等)はそのまま返す。chat 失敗/解析不可なら
+    ルール判定結果にフォールバックする。
+    """
+    if rule_category not in AMBIGUOUS_CATEGORIES:
+        return rule_category
+    try:
+        answer = await backend.ask(notebook_id, _CATEGORY_QUESTION)
+    except Exception as exc:
+        logger.warning("カテゴリ再判定に失敗: {}", exc)
+        return rule_category
+    if not isinstance(answer, str):
+        return rule_category
+    refined = parse_category(answer)
+    if refined is None:
+        return rule_category
+    if refined != rule_category:
+        logger.info("カテゴリ再判定: {} → {}", rule_category, refined)
+    return refined
 
 
 async def _generate_ai_thumbnail(
@@ -784,8 +817,9 @@ async def _collect_single(
             logger.info("生成タイトル: {!r} → {!r}", metadata.title, jp_title)
             metadata.title = jp_title
 
-    # カテゴリ判定（③）: サムネ配色とプレイリスト振り分けに使う
-    category = classify_category(url)
+    # カテゴリ判定（③）: ルール第一、曖昧時のみ chat で内容判定（C）。
+    # サムネ配色とプレイリスト振り分けに使う。
+    category = await _refine_category(backend, notebook_id, classify_category(url))
     logger.info("カテゴリ判定: {} → {}", url, category)
 
     # サムネイル生成: まず Nano Banana で見出し入りAIサムネを生成（OGP流用は廃止）。

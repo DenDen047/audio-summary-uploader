@@ -401,8 +401,12 @@ OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を�
 グラデーション背景＋日本語見出しにフォールバックする。
 
 **カテゴリ判定（`category.py`, ③）:**
-- URL のドメイン/拡張子のルールでカテゴリを判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
+- まず URL のドメイン/拡張子のルールで判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
   github 等→`engineering`、youtube→`business`、その他→`default`）。
+- **曖昧なカテゴリ（`business`/`default`、＝ドメインだけでは内容が判らないもの）のみ、collect で
+  NotebookLM chat に内容を 5 カテゴリから1語で選ばせて再判定**（C）。例: AI 研究の YouTube 動画は
+  `business` ではなく `paper`/`engineering` に補正され、ハッシュタグの的外れ（#副業 等）を防ぐ。
+  確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
 - カテゴリは (1) サムネの配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）の両方に使う。
 
 **AIサムネ生成（`image_gen.py`, 方式A）:**

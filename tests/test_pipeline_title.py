@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from automator.pipeline import _clean_generated_title, _generate_japanese_title
+from automator.pipeline import (
+    _clean_generated_title,
+    _generate_japanese_title,
+    _refine_category,
+)
 
 
 class TestCleanGeneratedTitle:
@@ -66,3 +70,32 @@ async def test_generate_title_non_str_answer_returns_none() -> None:
     # backend.ask 未設定の AsyncMock は str 以外を返す → None で安全に縮退
     backend = AsyncMock()
     assert await _generate_japanese_title(backend, "nb-1", 35) is None
+
+
+@pytest.mark.asyncio()
+async def test_refine_category_skips_confident() -> None:
+    # 確定カテゴリ(paper)は chat を呼ばずそのまま返す
+    backend = AsyncMock()
+    assert await _refine_category(backend, "nb-1", "paper") == "paper"
+    backend.ask.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_refine_category_uses_chat_for_ambiguous() -> None:
+    backend = AsyncMock()
+    backend.ask = AsyncMock(return_value="engineering")
+    assert await _refine_category(backend, "nb-1", "business") == "engineering"
+
+
+@pytest.mark.asyncio()
+async def test_refine_category_falls_back_on_failure() -> None:
+    backend = AsyncMock()
+    backend.ask = AsyncMock(side_effect=RuntimeError("down"))
+    assert await _refine_category(backend, "nb-1", "default") == "default"
+
+
+@pytest.mark.asyncio()
+async def test_refine_category_falls_back_on_unparseable() -> None:
+    backend = AsyncMock()
+    backend.ask = AsyncMock(return_value="???")
+    assert await _refine_category(backend, "nb-1", "business") == "business"
