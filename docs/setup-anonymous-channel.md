@@ -76,6 +76,7 @@
       news: "PLxxxx"
       engineering: "PLxxxx"
       business: "PLxxxx"
+    all_playlist_id: "PLxxxx"        # 全動画横断プレイリスト（カテゴリ別に加えて常に追加）
   ```
 
 ## 4.（手動）Google Cloud で OAuth クライアントを作成

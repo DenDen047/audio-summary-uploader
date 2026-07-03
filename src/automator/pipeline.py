@@ -22,7 +22,7 @@ from automator.category import (
     AMBIGUOUS_CATEGORIES,
     classify_category,
     parse_category,
-    resolve_playlist_id,
+    resolve_playlist_ids,
     style_for_category,
 )
 from automator.citation import (
@@ -1008,10 +1008,12 @@ async def upload_videos(
             title = _build_title(metadata, settings)
 
             # ③ カテゴリ→プレイリスト解決（無ければ既定 playlist_id へフォールバック）
-            playlist_id = resolve_playlist_id(
+            # ＋ all_playlist_id（全動画横断）を常に追加
+            playlist_ids = resolve_playlist_ids(
                 category,
                 settings.youtube.playlists,
                 settings.youtube.playlist_id,
+                settings.youtube.all_playlist_id,
             )
 
             params = YouTubeUploadParams(
@@ -1022,7 +1024,7 @@ async def upload_videos(
                 category_id=settings.youtube.category_id,
                 privacy_status=settings.youtube.privacy_status,
                 thumbnail_path=Path(job["thumbnail_path"]),
-                playlist_id=playlist_id,
+                playlist_ids=playlist_ids,
             )
 
             youtube_url = await upload_video(creds, params)
@@ -1154,7 +1156,12 @@ async def process_single_url(
         category_id=settings.youtube.category_id,
         privacy_status=settings.youtube.privacy_status,
         thumbnail_path=thumbnail_path,
-        playlist_id=settings.youtube.playlist_id,
+        playlist_ids=resolve_playlist_ids(
+            category,
+            settings.youtube.playlists,
+            settings.youtube.playlist_id,
+            settings.youtube.all_playlist_id,
+        ),
     )
 
     youtube_url = await upload_video(creds, params)

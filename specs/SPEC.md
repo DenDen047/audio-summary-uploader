@@ -184,6 +184,7 @@ class YouTubeConfig:
     category_id: str = "27"
     playlist_id: str | None = None          # 既定（カテゴリ未設定時のフォールバック）
     playlists: dict[str, str] = field(default_factory=dict)  # カテゴリ→playlist_id
+    all_playlist_id: str | None = None      # 全動画横断プレイリスト（常に追加）
     title_prefix: str = "🎧"
     title_max_length: int = 95
     generated_title_max_length: int = 35    # ② chat 生成タイトルの全角字数上限
@@ -475,7 +476,7 @@ class YouTubeUploadParams:
     privacy_status: str = "unlisted"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
-    playlist_id: str | None = None  # カテゴリ解決後のプレイリスト ID（③）
+    playlist_ids: list[str] = field(default_factory=list)  # 追加先プレイリスト ID 一覧（③カテゴリ解決＋全動画横断）
     made_for_kids: bool = False       # "No, it's not made for kids"
     contains_synthetic_media: bool = True  # AI生成コンテンツラベル
 ```
@@ -717,7 +718,13 @@ notebooklm:
 youtube:
   privacy_status: "unlisted"
   category_id: "27"              # Education
-  playlist_id: "PLB9Pwo4Wnh7UuI9jWgxN9Jy2oflIICABO"  # My AI-Podcast プレイリスト
+  playlist_id: null                # 既定（カテゴリ未設定時のフォールバック）
+  playlists:                       # カテゴリ→playlist_id（③）
+    paper: "PLxxxx"
+    news: "PLxxxx"
+    engineering: "PLxxxx"
+    business: "PLxxxx"
+  all_playlist_id: "PLxxxx"        # 全動画横断プレイリスト（常に追加）
   title_prefix: "🎧"
   title_max_length: 95
   default_tags:

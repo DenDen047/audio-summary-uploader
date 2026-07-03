@@ -28,7 +28,7 @@ class YouTubeUploadParams:
     privacy_status: str = "unlisted"
     default_language: str = "ja"
     thumbnail_path: Path | None = None
-    playlist_id: str | None = None
+    playlist_ids: list[str] = field(default_factory=list)
 
 
 _AUTH_REQUIRED_MSG = (
@@ -138,15 +138,15 @@ def _upload_video_sync(creds: Credentials, params: YouTubeUploadParams) -> str:
                 "Failed to set thumbnail for {}: {}", youtube_url, exc
             )
 
-    # プレイリストに追加
-    if params.playlist_id:
-        logger.info("Adding to playlist {}", params.playlist_id)
+    # プレイリストに追加（カテゴリ別＋全動画横断）
+    for playlist_id in params.playlist_ids:
+        logger.info("Adding to playlist {}", playlist_id)
         try:
             youtube.playlistItems().insert(
                 part="snippet",
                 body={
                     "snippet": {
-                        "playlistId": params.playlist_id,
+                        "playlistId": playlist_id,
                         "resourceId": {
                             "kind": "youtube#video",
                             "videoId": video_id,
@@ -158,7 +158,7 @@ def _upload_video_sync(creds: Credentials, params: YouTubeUploadParams) -> str:
             logger.warning(
                 "Failed to add {} to playlist {}: {}",
                 youtube_url,
-                params.playlist_id,
+                playlist_id,
                 exc,
             )
 

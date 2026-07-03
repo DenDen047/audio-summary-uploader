@@ -103,3 +103,18 @@ def resolve_playlist_id(
     if category and category in playlists:
         return playlists[category]
     return default_playlist_id
+
+
+def resolve_playlist_ids(
+    category: str | None,
+    playlists: dict[str, str],
+    default_playlist_id: str | None,
+    all_playlist_id: str | None,
+) -> list[str]:
+    """追加先プレイリスト ID の一覧を返す（カテゴリ解決＋全動画横断、重複除外）."""
+    resolved = resolve_playlist_id(category, playlists, default_playlist_id)
+    ids = []
+    for playlist_id in (resolved, all_playlist_id):
+        if playlist_id and playlist_id not in ids:
+            ids.append(playlist_id)
+    return ids

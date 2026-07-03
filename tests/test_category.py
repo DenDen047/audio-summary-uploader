@@ -13,6 +13,7 @@ from automator.category import (
     classify_category,
     parse_category,
     resolve_playlist_id,
+    resolve_playlist_ids,
     style_for_category,
 )
 from automator.image_gen import DEFAULT_STYLE
@@ -82,3 +83,26 @@ class TestResolvePlaylist:
 
     def test_returns_none_when_no_default(self) -> None:
         assert resolve_playlist_id("paper", {}, None) is None
+
+
+class TestResolvePlaylistIds:
+    def test_category_plus_all(self) -> None:
+        playlists = {"paper": "PL_paper"}
+        assert resolve_playlist_ids("paper", playlists, "PL_default", "PL_all") == [
+            "PL_paper",
+            "PL_all",
+        ]
+
+    def test_all_only_when_no_category_nor_default(self) -> None:
+        assert resolve_playlist_ids("news", {}, None, "PL_all") == ["PL_all"]
+
+    def test_category_only_when_no_all(self) -> None:
+        assert resolve_playlist_ids("paper", {"paper": "PL_paper"}, None, None) == [
+            "PL_paper"
+        ]
+
+    def test_dedupes_same_id(self) -> None:
+        assert resolve_playlist_ids(None, {}, "PL_all", "PL_all") == ["PL_all"]
+
+    def test_empty_when_nothing_configured(self) -> None:
+        assert resolve_playlist_ids(None, {}, None, None) == []
