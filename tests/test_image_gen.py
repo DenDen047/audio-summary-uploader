@@ -16,7 +16,8 @@ from automator.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     _resize_cover,
-    build_thumbnail_prompt,
+    build_background_prompt,
+    build_thumbnail_base_prompt,
     generate_thumbnail_image,
     load_google_cookies,
 )
@@ -46,18 +47,39 @@ class TestLoadGoogleCookies:
         assert load_google_cookies(tmp_path / "nope.json") == (None, None)
 
 
-class TestBuildPrompt:
-    def test_contains_headline_and_style(self) -> None:
-        prompt = build_thumbnail_prompt("拡散モデルの謎", DEFAULT_STYLE)
+class TestBuildBasePrompt:
+    def test_contains_topic_and_style(self) -> None:
+        prompt = build_thumbnail_base_prompt("拡散モデルの謎", DEFAULT_STYLE)
         assert "拡散モデルの謎" in prompt
-        assert DEFAULT_STYLE.text_color in prompt
+        assert DEFAULT_STYLE.palette in prompt
         assert "16:9" in prompt
+
+    def test_forbids_text_and_real_people(self) -> None:
+        prompt = build_thumbnail_base_prompt("速報", DEFAULT_STYLE)
+        assert "NO text" in prompt
+        assert "fictional" in prompt
 
     def test_uses_custom_style(self) -> None:
         style = ThumbnailStyle(name="news", palette="warm red", motif="newspaper")
-        prompt = build_thumbnail_prompt("速報", style)
+        prompt = build_thumbnail_base_prompt("速報", style)
         assert "warm red" in prompt
-        assert "newspaper" in prompt
+
+
+class TestBuildBackgroundPrompt:
+    def test_topic_and_variation_included(self) -> None:
+        prompt = build_background_prompt(
+            DEFAULT_STYLE,
+            topic="米政府のオープンソースAI移行",
+            variation="wide cinematic establishing shot",
+        )
+        assert "米政府のオープンソースAI移行" in prompt
+        assert "wide cinematic establishing shot" in prompt
+        assert "NO text" in prompt
+
+    def test_works_without_topic(self) -> None:
+        prompt = build_background_prompt(DEFAULT_STYLE)
+        assert "NO text" in prompt
+        assert DEFAULT_STYLE.palette in prompt
 
 
 class TestResizeCover:

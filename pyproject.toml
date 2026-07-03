@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pymupdf>=1.27.1",
     "gemini-webapi>=2.0.0",
+    "budoux>=0.8.4",
 ]
 
 [project.scripts]

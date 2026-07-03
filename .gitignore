@@ -237,6 +237,7 @@ AI_INSTRUCTIONS.md
 
 # Project-specific
 credentials/*.json
+credentials/gemini_cookie_cache/
 !credentials/.gitkeep
 tmp/audio/
 tmp/thumbnails/

@@ -1,14 +1,16 @@
-"""AIサムネ画像生成 (gemini-webapi / Nano Banana).
+"""AI画像生成 (gemini-webapi / Nano Banana).
 
-NotebookLM と同一アカウントの cookie (storage_state.json) を用いて、日本語見出しを
-焼き込んだ 16:9 サムネを生成する（方式A）。非公式 API のため失敗し得る
-（cookie 切れ・地域制限・画像が返らない等）。失敗時は None を返し、呼び出し側は
-Pillow グラデーションのフォールバックに切り替える。OGP 画像の流用は行わない。
+NotebookLM と同一アカウントの cookie (storage_state.json) を用いて、サムネ用の
+文字なしベース画像（方式A2、文字は thumbnail.compose_thumbnail が Pillow で合成）と
+動画背景用の話題関連画像を生成する。非公式 API のため失敗し得る
+（cookie 切れ・地域制限・画像が返らない等）。失敗時は None を返し、呼び出し側が
+フォールバック（グラデーションサムネ / 静止背景）に切り替える。
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +21,22 @@ from PIL import Image
 _DEFAULT_STORAGE_STATE = (
     Path.home() / ".notebooklm" / "profiles" / "default" / "storage_state.json"
 )
+
+
+def storage_state_for_profile(profile: str) -> Path:
+    """notebooklm プロファイル名から storage_state.json のパスを返す."""
+    return (
+        Path.home() / ".notebooklm" / "profiles" / profile / "storage_state.json"
+    )
 _GOOGLE_DOMAIN = ".google.com"
+
+# gemini-webapi がローテート済み 1PSIDTS を保存するキャッシュ先。
+# 既定の $TMPDIR は macOS が定期削除するため、gitignore 済みの credentials/ 配下に置く。
+_GEMINI_COOKIE_CACHE_DIR = Path("credentials") / "gemini_cookie_cache"
+
+# 画像生成の直列化ロック。複数ジョブの collect が並列でも Nano Banana へは
+# 1リクエストずつ送る（同時実行はタイムアウトと cookie ローテーションの競合を招く）
+_GENERATION_LOCK = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -32,6 +49,7 @@ class ThumbnailStyle:
     )
     motif: str = "a luminous abstract AI neural network glowing on the right side"
     text_color: str = "vivid gold (#FFD24A)"
+    accent: str = "#D7263D"  # バナー帯など Pillow 合成で使う hex カラー
 
 
 DEFAULT_STYLE = ThumbnailStyle()
@@ -60,19 +78,28 @@ def load_google_cookies(
     return psid, psidts
 
 
-def build_thumbnail_prompt(
-    headline: str, style: ThumbnailStyle = DEFAULT_STYLE
+def build_thumbnail_base_prompt(
+    topic: str, style: ThumbnailStyle = DEFAULT_STYLE
 ) -> str:
-    """方式A: 日本語見出しを正確に焼き込むサムネ生成プロンプトを作る."""
+    """方式A2: サムネ用の文字なしベース画像プロンプトを作る.
+
+    文字（バナー・見出し）は Pillow 側で合成するため、画像には一切描かせない。
+    人の顔や象徴的な被写体を右側に大きく置き、左側は文字用に空けさせる。
+    実在人物の描写は権利・ポリシー上のリスクがあるため架空の人物を指定する。
+    """
     return (
-        "Create a professional, eye-catching 16:9 YouTube thumbnail. "
-        f"Background: {style.palette}. Visual motif: {style.motif}. "
-        "Leave the left ~60% open for a bold headline. "
-        "Render this EXACT Japanese headline text on the left, very large, bold, "
-        f"highly legible, {style.text_color} with a thick dark outline: 「{headline}」 "
-        "Reproduce every Japanese character exactly with no typos, no garbled or "
-        "invented glyphs, and add no other text anywhere. "
-        "High contrast, cinematic lighting. No watermark, no logos, no UI elements."
+        "Create a dramatic, photorealistic 16:9 editorial image for a "
+        "Japanese tech news YouTube thumbnail. "
+        f"The imagery must clearly relate to this topic: 「{topic}」. "
+        "Feature ONE striking, expressive fictional person (NOT any real or "
+        "famous individual) or an iconic symbolic subject of the topic, "
+        "large on the RIGHT side, facing the viewer, with dramatic rim "
+        "lighting and strong emotion. "
+        f"Color mood: {style.palette}. "
+        "Keep the LEFT 55% dark, simple and uncluttered so large text can be "
+        "overlaid there later. "
+        "Absolutely NO text, NO letters, NO numbers, NO logos anywhere. "
+        "High contrast, cinematic, hyper-detailed. No watermark, no UI elements."
     )
 
 
@@ -100,42 +127,168 @@ async def _close_client(client: object) -> None:
         pass
 
 
+def build_background_prompt(
+    style: ThumbnailStyle = DEFAULT_STYLE,
+    topic: str | None = None,
+    variation: str | None = None,
+) -> str:
+    """動画の背景ローテーション用: テキストなし背景画像の生成プロンプトを作る.
+
+    topic（動画の日本語タイトル等）を渡すと話題に関連した画像になる。
+    variation は構図のヒント（複数枚生成時に同じ絵にならないようにする）。
+    """
+    topic_part = (
+        "The imagery must clearly and concretely relate to this topic: "
+        f"「{topic}」. Depict the subject matter itself, not generic tech decoration. "
+        if topic
+        else ""
+    )
+    variation_part = f"Composition: {variation}. " if variation else ""
+    return (
+        "Create a professional, atmospheric 16:9 background image for a "
+        "tech podcast video segment. "
+        f"{topic_part}"
+        f"{variation_part}"
+        f"Color mood: {style.palette}. "
+        "Absolutely NO text, NO letters, NO numbers, NO logos anywhere — "
+        "do not write the topic words in the image. Avoid diagrams, charts and "
+        "labeled screens; if any screen or document appears, its contents must "
+        "be abstract blurred shapes with no readable characters. "
+        "High contrast, cinematic lighting. No watermark, no UI elements."
+    )
+
+
 async def generate_thumbnail_image(
-    headline: str,
+    topic: str,
     output_path: Path,
     *,
     width: int,
     height: int,
     style: ThumbnailStyle = DEFAULT_STYLE,
     storage_state_path: Path | None = None,
-    timeout: float = 120.0,
+    timeout: float = 360.0,
 ) -> Path | None:
-    """Nano Banana で見出し入りサムネを生成し output_path(PNG) に保存する.
+    """Nano Banana でサムネ用の文字なしベース画像を生成し PNG 保存する.
 
-    失敗時は None を返す（呼び出し側が Pillow フォールバックに切替）。
+    文字は呼び出し側が Pillow（`thumbnail.compose_thumbnail`）で合成する。
+    失敗時は None を返す（呼び出し側がグラデーションフォールバックに切替）。
     """
+    logger.info("AIサムネベース生成中 (topic={!r})", topic)
+    return await _generate_image(
+        build_thumbnail_base_prompt(topic, style),
+        output_path,
+        width=width,
+        height=height,
+        storage_state_path=storage_state_path,
+        timeout=timeout,
+        label=f"topic={topic!r}",
+    )
+
+
+async def generate_background_image(
+    output_path: Path,
+    *,
+    width: int,
+    height: int,
+    style: ThumbnailStyle = DEFAULT_STYLE,
+    topic: str | None = None,
+    variation: str | None = None,
+    storage_state_path: Path | None = None,
+    timeout: float = 360.0,
+) -> Path | None:
+    """Nano Banana でテキストなし・話題関連の背景画像を生成する.
+
+    失敗時は None を返す（呼び出し側は背景なし＝静止背景に縮退）。
+    """
+    logger.info(
+        "AI背景生成中 (style={}, topic={!r}, variation={!r})",
+        style.name, topic, variation,
+    )
+    return await _generate_image(
+        build_background_prompt(style, topic=topic, variation=variation),
+        output_path,
+        width=width,
+        height=height,
+        storage_state_path=storage_state_path,
+        timeout=timeout,
+        label=f"style={style.name} topic={topic!r}",
+    )
+
+
+async def _generate_image(
+    prompt: str,
+    output_path: Path,
+    *,
+    width: int,
+    height: int,
+    storage_state_path: Path | None,
+    timeout: float,
+    label: str,
+) -> Path | None:
+    """Nano Banana でプロンプトから画像を生成し整形して保存する共通コア.
+
+    プロセス内で直列化される（_GENERATION_LOCK）。
+    """
+    async with _GENERATION_LOCK:
+        return await _generate_image_locked(
+            prompt,
+            output_path,
+            width=width,
+            height=height,
+            storage_state_path=storage_state_path,
+            timeout=timeout,
+            label=label,
+        )
+
+
+async def _generate_image_locked(
+    prompt: str,
+    output_path: Path,
+    *,
+    width: int,
+    height: int,
+    storage_state_path: Path | None,
+    timeout: float,
+    label: str,
+) -> Path | None:
     try:
         psid, psidts = load_google_cookies(storage_state_path)
     except Exception as exc:  # noqa: BLE001 - 壊れた cookie ファイルでも縮退する
-        logger.warning("AIサムネ: cookie 読み込みに失敗: {}", exc)
+        logger.warning("AI画像: cookie 読み込みに失敗: {}", exc)
         return None
     if not psid:
-        logger.warning("AIサムネ: Google cookie が無いためスキップ")
+        logger.warning("AI画像: Google cookie が無いためスキップ")
         return None
 
     try:
         from gemini_webapi import GeminiClient
+        from gemini_webapi.constants import AccountStatus
+        from gemini_webapi.utils import rotate_1psidts
     except ImportError:
-        logger.warning("AIサムネ: gemini-webapi 未インストール")
+        logger.warning("AI画像: gemini-webapi 未インストール")
         return None
+
+    os.environ.setdefault("GEMINI_COOKIE_PATH", str(_GEMINI_COOKIE_CACHE_DIR))
 
     client = None
     raw_path: Path | None = None
     try:
         client = GeminiClient(psid, psidts)
         await client.init(timeout=60)
-        prompt = build_thumbnail_prompt(headline, style)
-        logger.info("AIサムネ生成中 (headline={!r})", headline)
+        if client.account_status != AccountStatus.AVAILABLE:
+            logger.warning(
+                "AI画像: Gemini セッション未認証 ({}) — "
+                "`uv run notebooklm login` で cookie を更新してください",
+                client.account_status.name,
+            )
+            return None
+        # クライアントは生成のたびに使い捨てるため auto_refresh の周期には届かない。
+        # 認証確認後に 1PSIDTS を即時ローテートして永続キャッシュへ保存しておくと、
+        # storage_state.json 側が失効しても次回 init はキャッシュ側で認証できる。
+        try:
+            await rotate_1psidts(client.client)
+        except Exception as exc:  # noqa: BLE001 - ローテート失敗は生成継続に影響しない
+            logger.warning("AI画像: cookie ローテートに失敗（生成は継続）: {}", exc)
         resp = await asyncio.wait_for(
             client.generate_content(prompt), timeout=timeout
         )
@@ -145,8 +298,7 @@ async def generate_thumbnail_image(
             # 応答テキストに理由が出るので残す（要 notebooklm login で cookie 更新）。
             reason = (getattr(resp, "text", "") or "")[:200]
             logger.warning(
-                "AIサムネ: 画像が返らなかった headline={!r} reason={!r}",
-                headline, reason,
+                "AI画像: 画像が返らなかった {} reason={!r}", label, reason
             )
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +309,7 @@ async def generate_thumbnail_image(
         )
         raw_path = Path(saved)
     except Exception as exc:  # noqa: BLE001 - 非公式APIの失敗は握って縮退する
-        logger.warning("AIサムネ生成に失敗: {}: {}", type(exc).__name__, exc)
+        logger.warning("AI画像生成に失敗 ({}): {}: {}", label, type(exc).__name__, exc)
         return None
     finally:
         if client is not None:
@@ -169,11 +321,11 @@ async def generate_thumbnail_image(
             shaped = _resize_cover(img, width, height)
         shaped.save(str(output_path), "PNG", optimize=True)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("AIサムネ整形に失敗: {}", exc)
+        logger.warning("AI画像整形に失敗 ({}): {}", label, exc)
         return None
     finally:
         if raw_path and raw_path.exists() and raw_path != output_path:
             raw_path.unlink(missing_ok=True)
 
-    logger.info("AIサムネ生成完了: {}", output_path)
+    logger.info("AI画像生成完了: {}", output_path)
     return output_path

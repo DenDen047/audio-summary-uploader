@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-21T13:37:41.602335Z"
+exclude-newer = "2026-06-26T02:47:07.590021Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -47,6 +47,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "budoux" },
     { name = "click" },
     { name = "fastapi" },
     { name = "gemini-webapi" },
@@ -74,6 +75,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12" },
+    { name = "budoux", specifier = ">=0.8.4" },
     { name = "click", specifier = ">=8.0" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "gemini-webapi", specifier = ">=2.0.0" },
@@ -109,6 +111,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c3/b0/1c6a16426d389813b48d95e26898aff79abbde42ad353958ad95cc8c9b21/beautifulsoup4-4.14.3.tar.gz", hash = "sha256:6292b1c5186d356bba669ef9f7f051757099565ad9ada5dd630bd9de5fa7fb86", size = 627737, upload-time = "2025-11-30T15:08:26.084Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/39/47f9197bdd44df24d67ac8893641e16f386c984a0619ef2ee4c51fbbc019/beautifulsoup4-4.14.3-py3-none-any.whl", hash = "sha256:0918bfe44902e6ad8d57732ba310582e98da931428d231a5ecb9e7c703a735bb", size = 107721, upload-time = "2025-11-30T15:08:24.087Z" },
+]
+
+[[package]]
+name = "budoux"
+version = "0.8.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/5c/57f8bf230311d6a0b1096cdf31e48c4a3fe763c9185724ba62b35bb49c21/budoux-0.8.4.tar.gz", hash = "sha256:cbbb5c1185955caafaa18394fcb802e36f1fcc220a138212372a78c9f9ddd289", size = 106395, upload-time = "2026-05-18T01:47:35.366Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/33/f9fc20d531782c71211effdb22ceea76bf1bbd8246b2cdd08f8955febf5d/budoux-0.8.4-py3-none-any.whl", hash = "sha256:e3d0ae89dd6d1b52b1b54b8a81d312229041d715603bf1c45391b90499eeb9da", size = 101831, upload-time = "2026-05-18T01:47:34.116Z" },
 ]
 
 [[package]]

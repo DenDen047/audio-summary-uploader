@@ -15,6 +15,9 @@ class NotebookLMConfig:
     generation_timeout_seconds: int = 1200
     generation_poll_interval_seconds: int = 10
     prompt_presets: dict[str, str] = field(default_factory=dict)
+    # AI画像生成(Nano Banana)用の notebooklm プロファイル名。本体と同じセッションを
+    # 共有すると login/RPC の cookie 更新で画像側が無効化されるため、専用に分離する
+    image_profile: str = "default"
 
     def __post_init__(self) -> None:
         valid_backends = {"notebooklm-py", "playwright"}
@@ -36,6 +39,7 @@ class YouTubeConfig:
     category_id: str = "27"
     playlist_id: str | None = None
     playlists: dict[str, str] = field(default_factory=dict)
+    all_playlist_id: str | None = None
     title_prefix: str = "🎧"
     title_max_length: int = 95
     generated_title_max_length: int = 35

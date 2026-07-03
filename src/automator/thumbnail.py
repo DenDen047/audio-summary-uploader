@@ -6,6 +6,7 @@ import random
 from io import BytesIO
 from pathlib import Path
 
+import budoux
 import httpx
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
@@ -13,6 +14,9 @@ from PIL import Image, ImageDraw, ImageFont
 from automator.config import ThumbnailConfig
 
 _FONT_DIR = Path(__file__).resolve().parent.parent.parent / "fonts"
+
+# 日本語の自然な改行位置（文節境界）判定用。Chrome の日本語改行と同じ budoux を使う
+_BUDOUX_PARSER = budoux.load_default_japanese_parser()
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -99,6 +103,35 @@ def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[
             current_line = test_line
     if current_line:
         lines.append(current_line)
+    return lines
+
+
+def _wrap_text_phrases(
+    text: str, font: ImageFont.FreeTypeFont, max_width: int
+) -> list[str]:
+    """budoux の文節境界で自然に折り返す.
+
+    日本語として不自然な語中改行（「オー/プンソース」等）を避ける。
+    文節単体が幅を超える場合のみ、その文節を文字単位で分割する。
+    """
+    lines: list[str] = []
+    current = ""
+    for phrase in _BUDOUX_PARSER.parse(text):
+        test = current + phrase
+        if font.getbbox(test)[2] - font.getbbox(test)[0] <= max_width:
+            current = test
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        if font.getbbox(phrase)[2] - font.getbbox(phrase)[0] <= max_width:
+            current = phrase
+        else:
+            chunks = _wrap_text(phrase, font, max_width)
+            lines.extend(chunks[:-1])
+            current = chunks[-1]
+    if current:
+        lines.append(current)
     return lines
 
 
@@ -288,3 +321,89 @@ async def generate_thumbnail(
         title, site_name, og_image_url, output_path, config,
         favicon_url=favicon_url,
     )
+
+
+def compose_thumbnail(
+    base_image_path: Path,
+    headline: str,
+    output_path: Path,
+    config: ThumbnailConfig,
+    *,
+    banner_text: str,
+    accent_color: str = "#D7263D",
+) -> Path:
+    """AI生成のベース画像に目立つタイポグラフィを合成する.
+
+    構成（ニュース解説チャンネル風）:
+    - 左側に可読性用の暗いグラデーションスクリム
+    - 左上にアクセント色の帯バナー（煽りフレーズ/カテゴリラベル、白抜き）
+    - 特大の見出し（白・極太黒縁取り、最終行はゴールドで2トーン）
+    文字はすべて Pillow 描画のため、AI 画像特有の文字化けが起きない。
+    """
+    width, height = config.width, config.height
+    with Image.open(base_image_path) as base_src:
+        base = base_src.convert("RGB")
+        if base.size != (width, height):
+            base = base.resize((width, height), Image.LANCZOS)
+
+    # 左側スクリム（x=0 で α170 → 62% 幅で 0 に減衰）
+    scrim = Image.new("L", (width, 1), 0)
+    fade_end = int(width * 0.62)
+    for x in range(fade_end):
+        scrim.putpixel((x, 0), round(170 * (1 - x / fade_end)))
+    scrim = scrim.resize((width, height))
+    black = Image.new("RGB", (width, height), (0, 0, 0))
+    base = Image.composite(black, base, scrim)
+    draw = ImageDraw.Draw(base)
+
+    font_name = config.font_name
+    margin = 44
+
+    # 帯バナー
+    banner_font = _load_font(font_name, 52)
+    bbox = draw.textbbox((0, 0), banner_text, font=banner_font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    pad_x, pad_y = 22, 14
+    bx0, by0 = margin, 40
+    bx1 = bx0 + text_w + pad_x * 2
+    by1 = by0 + text_h + pad_y * 2
+    draw.rectangle((bx0, by0, bx1, by1), fill=_hex_to_rgb(accent_color))
+    draw.text(
+        (bx0 + pad_x - bbox[0], by0 + pad_y - bbox[1]),
+        banner_text, font=banner_font, fill="#FFFFFF",
+    )
+
+    # 見出し: 右側の被写体（顔）と重ならないよう左側の安全域に pixel 単位で
+    # 折り返し、行数と高さに収まる最大フォントサイズを探す
+    max_text_w = int(width * 0.58) - margin
+    top = by1 + 30
+    max_block_h = height - top - 40
+    size = 116
+    lines: list[str] = [headline]
+    line_h = size
+    while size > 40:
+        font = _load_font(font_name, size)
+        line_h = round(size * 1.16)
+        lines = _wrap_text_phrases(headline, font, max_text_w)
+        widths = [font.getbbox(line)[2] - font.getbbox(line)[0] for line in lines]
+        if (
+            len(lines) <= 5
+            and line_h * len(lines) <= max_block_h
+            and max(widths) <= max_text_w
+        ):
+            break
+        size -= 4
+    stroke = max(4, round(size * 0.10))
+    y = top
+    for i, line in enumerate(lines):
+        fill = "#FFD24A" if i == len(lines) - 1 and len(lines) > 1 else "#FFFFFF"
+        draw.text(
+            (margin, y), line, font=font, fill=fill,
+            stroke_width=stroke, stroke_fill="#000000",
+        )
+        y += line_h
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    base.save(str(output_path), "PNG")
+    logger.info("Thumbnail composed: {}", output_path)
+    return output_path

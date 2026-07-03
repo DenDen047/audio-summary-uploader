@@ -44,24 +44,28 @@ _STYLES: dict[str, ThumbnailStyle] = {
         palette="deep navy to violet gradient with subtle academic grid lines",
         motif="a glowing neural network and abstract 3D geometry on the right",
         text_color="vivid gold (#FFD24A)",
+        accent="#5B4BE0",
     ),
     NEWS: ThumbnailStyle(
         name=NEWS,
         palette="dark charcoal background with a bold crimson accent band",
         motif="an abstract broadcast/newspaper motif with motion streaks on the right",
         text_color="bright white (#FFFFFF)",
+        accent="#D7263D",
     ),
     ENGINEERING: ThumbnailStyle(
         name=ENGINEERING,
         palette="dark teal to deep green gradient with faint code/terminal glyphs",
         motif="glowing circuit traces and a stylized terminal window on the right",
         text_color="cyan-tinted white (#E8FFFF)",
+        accent="#0E8A6D",
     ),
     BUSINESS: ThumbnailStyle(
         name=BUSINESS,
         palette="black to dark gold gradient with a premium look",
         motif="an upward glowing growth chart on the right",
         text_color="vivid gold (#FFD24A)",
+        accent="#C9971C",
     ),
 }
 

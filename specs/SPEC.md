@@ -52,12 +52,13 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
 │  4. カテゴリ判定＋サムネイル生成                  │
-│     └─ AI画像生成(Nano Banana)で見出し入り        │
-│        サムネ生成（OGP流用は廃止/失敗時は         │
-│        グラデーションへフォールバック）           │
+│     └─ AI画像生成(Nano Banana)で文字なしベース    │
+│        画像 → Pillow でバナー帯＋見出しを合成     │
+│        （失敗時はグラデーションへフォールバック） │
 │                                                 │
 │  5. 動画変換                                     │
-│     └─ FFmpeg: 静止画 + mp3 → mp4（メタ除去）   │
+│     └─ FFmpeg: 画像 + mp3 → mp4                 │
+│        （FFT EQ・背景ローテーション・メタ除去）  │
 │                                                 │
 │  6. YouTube アップロード                          │
 │     ├─ YouTube Data API v3 (videos.insert)       │
@@ -410,19 +411,40 @@ OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を�
   確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
 - カテゴリは (1) サムネの配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）の両方に使う。
 
-**AIサムネ生成（`image_gen.py`, 方式A）:**
-- cookie 源 = NotebookLM と同一アカウントの `~/.notebooklm/profiles/default/storage_state.json` の
+**AIサムネ生成（`image_gen.py` + `thumbnail.compose_thumbnail`, 方式A2 = ベース画像＋文字合成）:**
+- cookie 源 = **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定は
+  settings.yaml で `imagegen`）の `~/.notebooklm/profiles/<profile>/storage_state.json` の
   `__Secure-1PSID` / `__Secure-1PSIDTS`（`.google.com`）。値はログに出さない。
-- `gemini-webapi`（非公式）で「16:9・カテゴリ別配色＋日本語見出しをそのまま描画」を指示して生成し、
-  生成画像（約 2752×1536）を 1280×720 へ中央クロップして PNG 保存。見出しは焼き込み前に
-  `sanitize_public_text` で個人情報を除去する（画像は公開面で唯一の非サニタイズ面のため）。
+  **本体（default プロファイル）とセッションを分離する理由**: notebooklm-py は実行中に
+  storage_state.json を書き換え、`notebooklm login` は新しいセッションを作るため、同一セッションを
+  共有すると画像側の cookie チェーン（ローテーション延命）が無効化される事故が起きる。
+  初回セットアップ: `uv run notebooklm login --profile imagegen`（NotebookLM と同じアカウント）。
+- **AI には文字を一切描かせない**。`gemini-webapi`（非公式）で「話題に関連した文字なしの
+  ドラマチックなベース画像（`build_thumbnail_base_prompt`）」を生成する: 架空の人物の顔か
+  話題の象徴的被写体を右側に大きく配置（実在人物は権利・ポリシー上禁止）、左 55% は文字用に
+  暗く空ける、カテゴリ別配色。生成画像（約 2752×1536）を 1280×720 へ中央クロップして
+  `{slug}_base.png` に保存。
+- **文字は Pillow で合成**（`compose_thumbnail`）: 左側に可読性スクリム → 左上にカテゴリ別
+  アクセント色（`ThumbnailStyle.accent`）の帯バナー（白抜き）→ 特大見出し
+  （NotoSansJP-Bold、白・極太黒縁取り、最終行ゴールドの2トーン）。見出しは**右側の
+  被写体（顔）と重ならないよう左側の安全域（幅の約58%）に pixel 単位で折り返し**、
+  行数・高さに収まる最大フォントサイズを自動選択する。AI 描画由来の文字化け・重複が
+  構造的に起きない。
+- **サムネの文字はタイトル全文ではなく短いキャッチーな言い換え**を使う。NotebookLM chat
+  （`_THUMB_TEXT_QUESTION`）が JSON で `banner`（超短い煽り、全角8字以内）と `headline`
+  （キャッチーな見出し、全角12字以内）を1回で生成する。失敗・不正時のフォールバックは
+  banner→カテゴリラベル（論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、
+  headline→動画タイトル全文。見出しの改行は budoux の文節境界で行い、語中改行を避ける。
+  見出し・バナーは合成前に `sanitize_public_text` で個人情報を除去する。
 - **失敗時は `None` を返しフォールバックへ**（cookie 失効・地域/アカウント制限・画像未返却など）。
   非公式 API のため例外は握りつぶし、パイプラインは止めない。
-- **cookie 鮮度の制約**: `__Secure-1PSIDTS` は短時間で値がローテーションし、storage_state.json の
-  コピーは `notebooklm login`（ブラウザ）でしか更新されない。古くなると `UNAUTHENTICATED` となり
-  画像が返らずフォールバックする（理由は応答テキストとして WARN ログに残す）。確実に AI サムネを
-  出すには直前に `uv run notebooklm login` で cookie を更新する（将来 browser-cookie3 等での自動
-  鮮度確保を検討）。
+- **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間で値がローテーションし、
+  storage_state.json のコピーは `notebooklm login`（ブラウザ）でしか更新されない。対策として、
+  init 後に `account_status` を確認し、認証済みなら **1PSIDTS を即時ローテートして永続キャッシュ
+  （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存**する。以降の init は
+  storage_state.json が失効していてもキャッシュ側 cookie で認証できるため、生成を定期的に実行して
+  いる限り cookie が延命される。長期間実行が無くキャッシュも失効した場合は `UNAUTHENTICATED` を
+  検知して生成前に WARN（`uv run notebooklm login` を案内）→フォールバックする。
 
 **フォールバック（`thumbnail.py`, 方式B）:**
 - ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を
@@ -432,23 +454,45 @@ OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を�
 
 ### 3.7 動画変換 (`video.py`)
 
-YouTube は音声のみのアップロードに対応していないため、静止画+音声で動画ファイルを作成する。
+YouTube は音声のみのアップロードに対応していないため、画像+音声で動画ファイルを作成する。
+静止画のままでは動きが無く視聴維持に不利なため、以下の2つの演出を付ける:
 
-**FFmpeg コマンド:**
+1. **FFT イコライザ（常時・VU メーター風）**: `showfreqs` を白・低解像度（48×12, mode=bar,
+   fscale=log, ascale=sqrt, 可視化専用に +14dB）で描画し、音声帯域が集中する下半分（24列）へ
+   クロップ → neighbor 拡大 → 透明グリッド（`drawgrid` replace）で LED ブロック風に分割。
+   その白バーのアルファを `alphaextract`/`alphamerge` で縦グラデーション画像
+   （下=緑 `0x2BFF88` / 中=ゴールド `0xFFD24A` / 上=赤 `0xFF5E5E`、Pillow で動的生成）に
+   マスク合成し、**音量が大きいほどバー先端が赤くなる**。α0.85 で画面下部（1280×216）に
+   オーバーレイする。
+2. **背景ローテーション（AI背景が生成できた場合のみ）**: タイトル入りサムネ(20s)を先頭に
+   1回だけ表示し、残り時間を各AI背景で等分する ffconcat スライドショー。
+   **同じ画像は動画を通して1回しか出さない**。背景は `generate_background_image`
+   （`{slug}_bg{i}.png`）で**動画の話題（日本語タイトル）に関連した内容**をテキストなしで
+   生成し、構図ヒントを1枚ごとに変えて絵の重複を避ける。枚数は音声長から自動決定
+   （45秒/枚目安、上限6枚）。1枚も生成できなければ従来どおり静止背景に縮退する。
+
+**FFmpeg 構成（概略）:**
 ```bash
-ffmpeg -loop 1 -i thumbnail.png -i audio.mp3 \
+# 背景あり: -f concat -safe 0 -i slides.txt / 背景なし: -loop 1 -i thumbnail.png
+# 入力2 = EQ 用縦グラデーション PNG（Pillow で一時生成、変換後に削除）
+ffmpeg <背景入力> -i audio.mp3 -loop 1 -i eqgrad.png \
   -map_metadata -1 \
-  -c:v libx264 -tune stillimage -c:a aac -b:a 192k \
-  -pix_fmt yuv420p -shortest -movflags +faststart \
-  output.mp4
+  -filter_complex "[0:v]fps=24,scale=1280:720,setsar=1[bg];\
+    [1:a]volume=14dB,showfreqs=...,alphaextract[mask];\
+    [2:v]format=rgba[grad];[grad][mask]alphamerge,...[eq];\
+    [bg][eq]overlay=0:H-h[v]" \
+  -map "[v]" -map 1:a \
+  -c:v libx264 -preset veryfast -crf 23 -r 24 -c:a aac -b:a 192k \
+  -pix_fmt yuv420p -shortest -movflags +faststart output.mp4
 ```
 
-**実装:** `subprocess` で FFmpeg を呼び出し
+**実装:** `subprocess` で FFmpeg を呼び出し。音声長は `ffprobe` で取得し、
+スライド列（`build_slideshow_entries`）を音声長分だけ並べる。
 
 **要件:**
-- 入力: サムネイル画像 (PNG) + 音声ファイル (MP3)
-- 出力: MP4 (H.264 + AAC)
-- 音声ビットレート: 192kbps
+- 入力: サムネイル画像 (PNG) + 音声ファイル (MP3) + 任意のAI背景画像 (PNG×N)
+- 出力: MP4 (H.264 + AAC, 1280×720, 24fps)
+- 音声ビットレート: 192kbps（EQ 用の volume ブーストは映像のみで出力音声に影響しない）
 - FFmpeg がインストールされていない場合はエラーメッセージを表示
 - **メタデータ除去（⑥）**: `-map_metadata -1` で入力（NotebookLM の mp3 等）のメタデータを引き継がず、
   出力 mp4 にローカルパス・個人情報・元タイトル等を残さない（自動テストで担保）
@@ -514,11 +558,12 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
   チャット（`ask`）から件名・送信元・日付を抽出し、説明文に「出典: {送信元}（{ドメイン}）- {日付}」を
   表示する（生 URL は state.json のみに保持）。抽出失敗時も生 URL は出さない。
 - **プレイリスト振り分け（③）**: カテゴリ→`youtube.playlists` で解決し、無ければ `playlist_id` にフォールバックする。
+  さらに `all_playlist_id` が設定されていれば全動画横断プレイリストとして常に追加する（重複 ID は除外）。
 
 **アップロード手順:**
 1. `videos.insert` で動画をアップロード（resumable upload）
 2. `thumbnails.set` でカスタムサムネイルを設定
-3. `playlist_id` が指定されている場合、`playlistItems.insert` で動画をプレイリストに追加
+3. `playlist_ids` の各 ID について `playlistItems.insert` で動画をプレイリストに追加
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
 5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
 6. アップロード後の YouTube URL を返却
