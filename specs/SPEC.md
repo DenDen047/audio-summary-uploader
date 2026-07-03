@@ -566,12 +566,21 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 3. `playlist_ids` の各 ID について `playlistItems.insert` で動画をプレイリストに追加
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
 5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
-6. アップロード後の YouTube URL を返却
+6. アップロード後、`UploadResult(youtube_url, thumbnail_set)` を返却（`thumbnail_set=false` は要再適用）
 7. NotebookLM のノートブックは collect フェーズの動画変換完了時点で削除済み（`run-single` のみアップロード完了後に削除）
 
 手順 2〜3（サムネイル設定・プレイリスト追加）の失敗は WARN ログに留め、ジョブは
 `uploaded` として扱う。動画本体は `videos.insert` で既にアップロード済みのため、
 ここで failed にするとリトライで同じ動画が重複アップロードされてしまう。
+
+**サムネ未適用の自己修復（`thumbnail_pending`）:**
+`thumbnails.set` は新規チャンネルで `429 uploadRateLimitExceeded`（一時的なサムネアップロード
+上限）を返すことがある。この場合サムネが貼られず、YouTube が動画フレームから自動サムネを選んで
+しまう。`upload_video` は `UploadResult(youtube_url, thumbnail_set)` を返し、サムネ未適用時は
+state の当該ジョブに `thumbnail_pending: true` を記録する。次回 `upload_videos` 実行時、先頭で
+`_reapply_pending_thumbnails` が `thumbnail_pending` のアップロード済みジョブへ `set_thumbnail`
+（`thumbnails.set` 単体）で再適用を試みる。成功で pending を下ろし、再び 429（クォータ）を受けたら
+残りを打ち切って次回に持ち越す（冪等）。これによりクォータ回復後に無人でサムネが自己修復される。
 
 **認証コンテキスト:**
 - CLI（対話可能）: トークンが無効な場合はブラウザ OAuth フローを開始する

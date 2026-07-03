@@ -48,7 +48,12 @@ from automator.report import ProcessResult
 from automator.thumbnail import compose_thumbnail, generate_thumbnail
 from automator.url_parser import UrlEntry, is_local_path
 from automator.video import convert_to_video, probe_duration
-from automator.youtube import YouTubeUploadParams, authenticate, upload_video
+from automator.youtube import (
+    YouTubeUploadParams,
+    authenticate,
+    set_thumbnail,
+    upload_video,
+)
 
 _NOTEBOOKLM_AUTH_ERROR_MSG = (
     "NotebookLM の認証が期限切れです。"
@@ -588,6 +593,7 @@ def _find_or_create_job(
         "thumbnail_path": None,
         "video_path": None,
         "youtube_url": None,
+        "thumbnail_pending": False,
         "error": None,
         "submitted_at": None,
         "collected_at": None,
@@ -1073,6 +1079,38 @@ async def collect_audio(
 # --- Phase 3: upload ---
 
 
+def _video_id_from_url(youtube_url: str) -> str:
+    """https://youtu.be/<id> から動画IDを取り出す."""
+    return youtube_url.rstrip("/").rsplit("/", 1)[-1]
+
+
+async def _reapply_pending_thumbnails(
+    state_path: Path, creds: Credentials, jobs: list[dict]
+) -> None:
+    """サムネ未適用（thumbnail_pending）のアップロード済み動画を自己修復する.
+
+    過去に 429（クォータ上限）でカスタムサムネが貼れなかった動画へ、後日クォータが
+    回復したタイミングで再適用する。再び 429 を受けたらクォータ枯渇とみなして
+    残りを打ち切る（次回のパイプライン実行でまた再開される・冪等）。
+    """
+    for job in jobs:
+        thumb = job.get("thumbnail_path")
+        if not thumb or not Path(thumb).exists():
+            logger.warning(
+                "サムネ再適用をスキップ（ファイル無し）: {}", job.get("youtube_url")
+            )
+            continue
+        video_id = _video_id_from_url(job["youtube_url"])
+        result = await set_thumbnail(creds, video_id, Path(thumb))
+        if result == "ok":
+            _update_job_state(state_path, job["url"], {"thumbnail_pending": False})
+            logger.info("サムネ再適用に成功: {}", job["youtube_url"])
+        elif result == "quota":
+            logger.warning("サムネ再適用: クォータ上限のため中断（次回リトライ）")
+            break
+        # "error": pending のまま残して次のジョブへ
+
+
 async def upload_videos(
     settings: Settings,
     allow_interactive_auth: bool = True,
@@ -1082,6 +1120,7 @@ async def upload_videos(
     allow_interactive_auth=False (Web サーバー等) では、対話 OAuth フローを
     開始せずに認証失敗を failed として記録する。同期的な認証処理で
     イベントループをブロックしないよう to_thread でラップする。
+    アップロード前に、過去にサムネ未適用のジョブを自己修復する。
     """
     state_path = Path(settings.general.state_file)
     state = _load_state(state_path)
@@ -1089,8 +1128,15 @@ async def upload_videos(
     ready_jobs = [
         job for job in state.get("jobs", []) if job.get("status") == "video_ready"
     ]
+    pending_thumb_jobs = [
+        job
+        for job in state.get("jobs", [])
+        if job.get("status") == "uploaded"
+        and job.get("thumbnail_pending")
+        and job.get("youtube_url")
+    ]
 
-    if not ready_jobs:
+    if not ready_jobs and not pending_thumb_jobs:
         logger.info("No video_ready jobs to upload")
         return []
 
@@ -1125,6 +1171,11 @@ async def upload_videos(
                 )
             )
         return results
+
+    # 自己修復: 過去にサムネ未適用（429等）のジョブを先に再適用する
+    if pending_thumb_jobs:
+        logger.info("サムネ未適用 {} 件を再適用します", len(pending_thumb_jobs))
+        await _reapply_pending_thumbnails(state_path, creds, pending_thumb_jobs)
 
     results: list[ProcessResult] = []
     daily_limit = settings.youtube.daily_upload_limit
@@ -1171,19 +1222,26 @@ async def upload_videos(
                 playlist_ids=playlist_ids,
             )
 
-            youtube_url = await upload_video(creds, params)
+            result = await upload_video(creds, params)
 
+            # サムネが 429 等で貼れなかった場合は thumbnail_pending を立て、
+            # 次回のアップロード時に _reapply_pending_thumbnails で自己修復する
             _update_job_state(state_path, url, {
                 "status": "uploaded",
-                "youtube_url": youtube_url,
+                "youtube_url": result.youtube_url,
+                "thumbnail_pending": not result.thumbnail_set,
                 "uploaded_at": _now_iso(),
             })
+            if not result.thumbnail_set:
+                logger.warning(
+                    "サムネ未適用のまま公開（次回再適用予定）: {}", result.youtube_url
+                )
 
             results.append(
                 ProcessResult(
                     url=url,
                     title=metadata.title,
-                    youtube_url=youtube_url,
+                    youtube_url=result.youtube_url,
                     status="uploaded",
                     phase="upload",
                 )
@@ -1329,7 +1387,7 @@ async def process_single_url(
         ),
     )
 
-    youtube_url = await upload_video(creds, params)
+    result = await upload_video(creds, params)
 
     # 11. NotebookLM ノートブック削除
     await backend.delete_notebook(notebook_id)
@@ -1337,7 +1395,7 @@ async def process_single_url(
     return ProcessResult(
         url=entry.url,
         title=metadata.title,
-        youtube_url=youtube_url,
+        youtube_url=result.youtube_url,
         status="success",
     )
 

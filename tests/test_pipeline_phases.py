@@ -24,6 +24,7 @@ from automator.pipeline import (
     upload_videos,
 )
 from automator.url_parser import UrlEntry
+from automator.youtube import UploadResult
 
 
 @pytest.fixture()
@@ -311,7 +312,9 @@ async def test_full_pipeline_phase_transitions(
         mock_thumb_fn.return_value = thumb_path
         mock_video_fn.return_value = video_path
         mock_auth.return_value = MagicMock()
-        mock_upload.return_value = "https://youtube.com/watch?v=test123"
+        mock_upload.return_value = UploadResult(
+            youtube_url="https://youtube.com/watch?v=test123", thumbnail_set=True
+        )
 
         await run_pipeline(entries, settings)
 
@@ -709,6 +712,58 @@ async def test_upload_auth_failure_interactive_raises(
         pytest.raises(RuntimeError, match="auth failed"),
     ):
         await upload_videos(settings, allow_interactive_auth=True)
+
+
+@pytest.mark.asyncio()
+async def test_upload_reapplies_pending_thumbnail(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """サムネ未適用(thumbnail_pending)の既存動画に再適用し pending を下ろす."""
+    state_path = Path(settings.general.state_file)
+    thumb = tmp_path / "t.png"
+    thumb.write_bytes(b"png")
+    _write_state(state_path, [_make_job(
+        status="uploaded", thumbnail_pending=True,
+        youtube_url="https://youtu.be/vid123", thumbnail_path=str(thumb),
+    )])
+
+    with (
+        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch(
+            "automator.pipeline.set_thumbnail", new=AsyncMock(return_value="ok")
+        ) as mock_set,
+    ):
+        await upload_videos(settings, allow_interactive_auth=False)
+
+    # 動画IDが youtu.be URL から正しく抽出され再適用される
+    assert mock_set.await_args.args[1] == "vid123"
+    job = _load_state(state_path)["jobs"][0]
+    assert job["thumbnail_pending"] is False
+
+
+@pytest.mark.asyncio()
+async def test_upload_pending_thumbnail_quota_stays_pending(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """再適用が 429(quota) なら pending を維持し次回に持ち越す."""
+    state_path = Path(settings.general.state_file)
+    thumb = tmp_path / "t.png"
+    thumb.write_bytes(b"png")
+    _write_state(state_path, [_make_job(
+        status="uploaded", thumbnail_pending=True,
+        youtube_url="https://youtu.be/vid123", thumbnail_path=str(thumb),
+    )])
+
+    with (
+        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch(
+            "automator.pipeline.set_thumbnail", new=AsyncMock(return_value="quota")
+        ),
+    ):
+        await upload_videos(settings, allow_interactive_auth=False)
+
+    job = _load_state(state_path)["jobs"][0]
+    assert job["thumbnail_pending"] is True
 
 
 @pytest.mark.asyncio()
