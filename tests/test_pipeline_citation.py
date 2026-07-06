@@ -155,8 +155,8 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
     with (
         patch("automator.pipeline._create_backend", return_value=backend),
         patch(
-            "automator.pipeline._generate_ai_thumbnail",
-            return_value=None,
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
         ),
         patch(
             "automator.pipeline.generate_thumbnail",
@@ -170,7 +170,8 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "video_ready"
-    assert backend.ask.await_count == 2
+    # 従来の2回に加え、サムネ3層コピー生成の chat 呼び出しが1回増える
+    assert backend.ask.await_count == 3
 
     job = _load_state(state_path)["jobs"][0]
     # ② が件名を上書きして日本語タイトルになる
@@ -220,7 +221,10 @@ async def test_collect_honors_user_title(tmp_path: Path) -> None:
 
     with (
         patch("automator.pipeline._create_backend", return_value=backend),
-        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
         patch(
             "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
         ),
@@ -231,6 +235,7 @@ async def test_collect_honors_user_title(tmp_path: Path) -> None:
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "video_ready"
-    backend.ask.assert_not_called()
+    # user 指定タイトルは尊重され chat 生成しない。ask はサムネ3層コピー生成の1回のみ
+    assert backend.ask.await_count == 1
     job = _load_state(state_path)["jobs"][0]
     assert job["metadata"]["title"] == "今週のAIニュースまとめ"

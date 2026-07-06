@@ -71,6 +71,10 @@ class GeneralConfig:
     state_file: str = "./data/state.json"
     max_retries: int = 3
     retry_backoff_base: int = 2
+    # 簡易動画モード: AIサムネ/AI背景の生成をスキップし、グラデーション静止背景の
+    # 動画を高速に作る。カスタムサムネ(thumbnails.set)も設定しない（サムネ上限
+    # 回復中に 429 を叩かないため）。自分用に素早く動画を作りたいとき用の一時モード。
+    simple_video_mode: bool = False
 
 
 @dataclass

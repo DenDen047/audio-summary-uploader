@@ -52,9 +52,9 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
 │  4. カテゴリ判定＋サムネイル生成                  │
-│     └─ AI画像生成(Nano Banana)で文字なしベース    │
-│        画像 → Pillow でバナー帯＋見出しを合成     │
-│        （失敗時はグラデーションへフォールバック） │
+│     └─ 固定マスコット素材＋3層テキストを Pillow   │
+│        で合成（AI画像生成に依存せず常に成功）     │
+│        （本編背景のみ Nano Banana で AI 生成）    │
 │                                                 │
 │  5. 動画変換                                     │
 │     └─ FFmpeg: 画像 + mp3 → mp4                 │
@@ -95,9 +95,9 @@ audio-summary-uploader/
 │       ├── notebooklm_py_backend.py  # notebooklm-py による実装
 │       ├── notebooklm_playwright_backend.py  # Playwright による実装（Phase 2）
 │       ├── citation.py           # 出典抽出・公開テキストのサニタイズ
-│       ├── category.py           # カテゴリ判定→サムネ配色/プレイリスト解決
-│       ├── image_gen.py          # AIサムネ生成 (gemini-webapi / Nano Banana)
-│       ├── thumbnail.py          # サムネイル生成 フォールバック (Pillow)
+│       ├── category.py           # カテゴリ判定→背景配色/プレイリスト解決
+│       ├── image_gen.py          # AI背景生成 (gemini-webapi / Nano Banana)
+│       ├── thumbnail.py          # サムネ合成 固定マスコット+3層テキスト (Pillow)
 │       ├── video.py              # FFmpeg による動画変換
 │       ├── youtube.py            # YouTube API 操作
 │       ├── report.py             # 結果レポート生成
@@ -396,11 +396,12 @@ class NotebookLMBackend(ABC):
 - タイムアウトや一時的なネットワークエラーの場合は terminal 扱いにせず `generating` を維持し、次回の collect で再試行する（生成自体は継続中の可能性があるため。ノートブックも残す）
 - ステータスが `failed`（terminal）の場合は `failed` に遷移し、ノートブックを削除する。`not_found` は作成直後の一時的な lag の可能性があるため単発では terminal とみなさず、ポーリング側の連続判定（notebooklm-py: 5 回連続 + 10 秒）に委ねる
 
-### 3.6 サムネイル生成（`image_gen.py` 主 / `thumbnail.py` フォールバック / `category.py`）
+### 3.6 サムネイル生成（`thumbnail.py` 主 / `category.py` / AI背景は `image_gen.py`）
 
-YouTube サムネ（1280×720px）は **AI 画像生成（Nano Banana）で日本語見出し入りを毎回生成**する（④）。
-OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を回避）。AI 生成に失敗した場合のみ Pillow の
-グラデーション背景＋日本語見出しにフォールバックする。
+YouTube サムネ（1280×720px）は **固定マスコット素材の上に高密度3層テキストを Pillow で毎回合成**する（④）。
+AI 画像生成には依存しないため常に生成でき、cookie 失効による品質劣化（退屈なグラデ量産）が起きない。
+伸びている日本語 AI 解説チャンネル（mikimiki / 本気AI 等）の「型」を TTP した設計で、設計根拠と
+比較検証は `docs/2026-07-06_thumbnail-marketing-ttp.html`。素材が無い場合のみグラデーションに縮退する。
 
 **カテゴリ判定（`category.py`, ③）:**
 - まず URL のドメイン/拡張子のルールで判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
@@ -409,48 +410,47 @@ OGP 画像の流用は廃止（他者サムネの著作権・体裁の問題を�
   NotebookLM chat に内容を 5 カテゴリから1語で選ばせて再判定**（C）。例: AI 研究の YouTube 動画は
   `business` ではなく `paper`/`engineering` に補正され、ハッシュタグの的外れ（#副業 等）を防ぐ。
   確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
-- カテゴリは (1) サムネの配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）の両方に使う。
+- カテゴリは (1) 動画本編背景の配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）、
+  (3) サムネ3層コピーの `top` フォールバックラベルに使う（サムネの見た目はマスコット固定でブランド統一）。
 
-**AIサムネ生成（`image_gen.py` + `thumbnail.compose_thumbnail`, 方式A2 = ベース画像＋文字合成）:**
-- cookie 源 = **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定は
-  settings.yaml で `imagegen`）の `~/.notebooklm/profiles/<profile>/storage_state.json` の
-  `__Secure-1PSID` / `__Secure-1PSIDTS`（`.google.com`）。値はログに出さない。
-  **本体（default プロファイル）とセッションを分離する理由**: notebooklm-py は実行中に
-  storage_state.json を書き換え、`notebooklm login` は新しいセッションを作るため、同一セッションを
-  共有すると画像側の cookie チェーン（ローテーション延命）が無効化される事故が起きる。
-  初回セットアップ: `uv run notebooklm login --profile imagegen`（NotebookLM と同じアカウント）。
-- **AI には文字を一切描かせない**。`gemini-webapi`（非公式）で「話題に関連した文字なしの
-  ドラマチックなベース画像（`build_thumbnail_base_prompt`）」を生成する: 架空の人物の顔か
-  話題の象徴的被写体を右側に大きく配置（実在人物は権利・ポリシー上禁止）、左 55% は文字用に
-  暗く空ける、カテゴリ別配色。生成画像（約 2752×1536）を 1280×720 へ中央クロップして
-  `{slug}_base.png` に保存。
-- **文字は Pillow で合成**（`compose_thumbnail`）: 左側に可読性スクリム → 左上にカテゴリ別
-  アクセント色（`ThumbnailStyle.accent`）の帯バナー（白抜き）→ 特大見出し
-  （NotoSansJP-Bold、白・極太黒縁取り、最終行ゴールドの2トーン）。見出しは**右側の
-  被写体（顔）と重ならないよう左側の安全域（幅の約58%）に pixel 単位で折り返し**、
-  行数・高さに収まる最大フォントサイズを自動選択する。AI 描画由来の文字化け・重複が
-  構造的に起きない。
-- **サムネの文字はタイトル全文ではなく短いキャッチーな言い換え**を使う。NotebookLM chat
-  （`_THUMB_TEXT_QUESTION`）が JSON で `banner`（超短い煽り、全角8字以内）と `headline`
-  （キャッチーな見出し、全角12字以内）を1回で生成する。失敗・不正時のフォールバックは
-  banner→カテゴリラベル（論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、
-  headline→動画タイトル全文。見出しの改行は budoux の文節境界で行い、語中改行を避ける。
-  見出し・バナーは合成前に `sanitize_public_text` で個人情報を除去する。
-- **失敗時は `None` を返しフォールバックへ**（cookie 失効・地域/アカウント制限・画像未返却など）。
-  非公式 API のため例外は握りつぶし、パイプラインは止めない。
-- **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間で値がローテーションし、
-  storage_state.json のコピーは `notebooklm login`（ブラウザ）でしか更新されない。対策として、
-  init 後に `account_status` を確認し、認証済みなら **1PSIDTS を即時ローテートして永続キャッシュ
-  （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存**する。以降の init は
-  storage_state.json が失効していてもキャッシュ側 cookie で認証できるため、生成を定期的に実行して
-  いる限り cookie が延命される。長期間実行が無くキャッシュも失効した場合は `UNAUTHENTICATED` を
-  検知して生成前に WARN（`uv run notebooklm login` を案内）→フォールバックする。
+**マスコット素材（固定・ブランド共通）:**
+- `assets/thumbnails/mascot_default.png`（1280×720、文字なし）。全動画で共通利用しブランドの一貫性を出す。
+  差し替え可（AI 生成した1枚を置くだけ）。生成プロンプトの型は `image_gen.build_thumbnail_base_prompt`。
 
-**フォールバック（`thumbnail.py`, 方式B）:**
-- ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を
-  中央に描画。中央アイコン（favicon）は見出しと重なるため使わない。OGP も使わない。
+**3層テキスト合成（`thumbnail.compose_thumbnail`, `ThumbCopy`）:**
+- レイアウト（勝ちサムネの型）: 左に可読性スクリム。上段=製品名・中段=説明はマスコットの顔を避けて
+  左に収め（`text_w`/`mid_w`）、下段=ベネフィットは広く使う（`bottom_w`）。3行は行間を詰めて下から積み
+  （下段フックを下端に接地＝マスコットの目にかからず胴体側に重なる）、フォントは幅とゾーン高さの両方を
+  埋める最大サイズを自動選択（縮小しても読める）。中段は原則1行で大きく表示する。
+- 派手な装飾（参考チャンネル準拠）: 下段は**3重袋文字＋グラデ塗り＋ドロップシャドウ**（影→黒の外縁→
+  白の中縁→金グラデ本体）。強調キーワード1語だけ青グラデにして2トーン。上段/中段は白の袋文字＋影。
+  数字＋助数詞（例「10選」）は改行で割らない。改行は budoux の文節境界で行い語中改行を避ける。
+  文字はすべて Pillow 描画のため文字化けが起きない。フォント実行高を実測して見切れを防ぐ。
+- **3層コピーは NotebookLM chat で生成**（`_THUMB_COPY_QUESTION` → `_generate_thumb_copy`）: JSON で
+  `top`（主役ワード、全角7字以内・一般語）、`mid`（補足、全角9字以内＝縮小しても読める）、`bottom`（ベネフィット、全角8字
+  以内・数字可）、`highlight`（bottom 内の強調1語）を1回で生成。失敗・不正時は top→カテゴリラベル
+  （論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、bottom→動画タイトル（先頭を切り詰め）に
+  フォールバック。合成前に `sanitize_public_text` で個人情報を除去する。
 
-**実装:** `gemini-webapi`（AI生成）/ `Pillow`（フォールバック）
+**動画本編背景の AI 生成（`image_gen.py`, best-effort。サムネとは独立）:**
+- 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する
+  （`generate_background_image`）。失敗時は静止背景に縮退。サムネはマスコット固定なので背景生成の成否とは
+  独立に試みる。簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
+- cookie 源 = **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定 `imagegen`）の
+  `~/.notebooklm/profiles/<profile>/storage_state.json` の `__Secure-1PSID` / `__Secure-1PSIDTS`
+  （`.google.com`）。値はログに出さない。本体（default）とセッションを分離する（同一セッション共有は
+  cookie チェーンを壊す）。初回: `uv run notebooklm login --profile imagegen`（NotebookLM と同アカウント）。
+- **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間でローテーションする。init 後に
+  `account_status` を確認し、認証済みなら 1PSIDTS を即時ローテートして永続キャッシュ
+  （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存。以降 storage_state.json が
+  失効してもキャッシュ側で認証できる。長期未実行でキャッシュも失効した場合は `UNAUTHENTICATED` を検知して
+  WARN（`uv run notebooklm login` を案内）→静止背景に縮退。
+
+**フォールバック（`thumbnail.generate_thumbnail`, 方式B）:**
+- マスコット素材が見つからない場合のみ、ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、
+  長さに応じた自動サイズ・影つき）を中央に描画。中央アイコン（favicon）・OGP は使わない。
+
+**実装:** `Pillow`（サムネ合成＋フォールバック）/ `gemini-webapi`（本編背景の AI 生成）
 
 ### 3.7 動画変換 (`video.py`)
 
@@ -811,7 +811,14 @@ general:
   state_file: "./data/state.json"
   max_retries: 3
   retry_backoff_base: 2          # 指数バックオフの底（秒）
+  simple_video_mode: false       # 簡易動画モード（下記）
 ```
+
+**簡易動画モード（`general.simple_video_mode`）:**
+`true` にすると、AIサムネ・AI背景の生成をスキップしてグラデーション静止背景の動画を高速に作り、
+さらにアップロード時に `thumbnails.set`（カスタムサムネ設定）を行わない（`thumbnail_path=None`）。
+サムネアップロード上限（429）の回復中に 429 を叩いて24hローリングをリセットしないための一時モード。
+自分用に素早く動画を作りたいとき用。通常運用に戻すときは `false`。
 
 ### 4.2 認証情報パス
 

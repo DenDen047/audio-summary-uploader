@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from automator.config import ThumbnailConfig
-from automator.thumbnail import _wrap_text_phrases, compose_thumbnail
+from automator.thumbnail import ThumbCopy, _wrap_text_phrases, compose_thumbnail
 
 
 def _make_base(path: Path, size: tuple[int, int] = (1280, 720)) -> Path:
@@ -20,10 +20,12 @@ class TestComposeThumbnail:
         out = tmp_path / "thumb.png"
         result = compose_thumbnail(
             base,
-            "AIの次の学習パラダイム：継続的学習と自己シミュレーションによる進化",
+            ThumbCopy(
+                top="AIニュース", mid="継続的学習で自己進化",
+                bottom="神ツール5選", highlight="5選",
+            ),
             out,
             ThumbnailConfig(),
-            banner_text="AIニュース",
         )
         assert result == out
         with Image.open(out) as img:
@@ -33,7 +35,7 @@ class TestComposeThumbnail:
         base = _make_base(tmp_path / "base.png", size=(640, 360))
         out = tmp_path / "thumb.png"
         compose_thumbnail(
-            base, "短いタイトル", out, ThumbnailConfig(), banner_text="論文解説"
+            base, ThumbCopy(top="論文解説", bottom="短い結論"), out, ThumbnailConfig()
         )
         with Image.open(out) as img:
             assert img.size == (1280, 720)
@@ -43,7 +45,8 @@ class TestComposeThumbnail:
         base = _make_base(tmp_path / "base.png")
         out = tmp_path / "thumb.png"
         compose_thumbnail(
-            base, "見出しテキスト", out, ThumbnailConfig(), banner_text="速報"
+            base, ThumbCopy(top="速報", mid="業界が一変", bottom="何が変わる"),
+            out, ThumbnailConfig(),
         )
         with Image.open(out) as img:
             colors = img.getcolors(maxcolors=100000)

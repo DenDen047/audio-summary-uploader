@@ -166,7 +166,10 @@ async def test_collect_transitions_to_video_ready(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -233,7 +236,10 @@ async def test_collect_still_generating(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -294,7 +300,10 @@ async def test_full_pipeline_phase_transitions(
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
         patch("automator.pipeline.fetch_metadata") as mock_meta,
-        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb_fn,
         patch("automator.pipeline.convert_to_video") as mock_video_fn,
         patch("automator.pipeline.authenticate") as mock_auth,
@@ -437,7 +446,10 @@ async def test_collect_handles_lowercase_completed(
 
     with (
         patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline._generate_ai_thumbnail", return_value=None),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -764,6 +776,62 @@ async def test_upload_pending_thumbnail_quota_stays_pending(
 
     job = _load_state(state_path)["jobs"][0]
     assert job["thumbnail_pending"] is True
+
+
+@pytest.mark.asyncio()
+async def test_simple_mode_collect_skips_ai_backgrounds(
+    settings: Settings, mock_backend: AsyncMock, tmp_path: Path
+) -> None:
+    """簡易動画モードは collect で AI背景生成を呼ばない（サムネはマスコット合成）."""
+    settings.general.simple_video_mode = True
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+    mock_backend.download_audio.return_value = tmp_path / "a.mp3"
+
+    with (
+        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("automator.pipeline._generate_backgrounds") as mock_bg,
+        patch(
+            "automator.pipeline.compose_thumbnail",
+            return_value=tmp_path / "t.png",
+        ) as mock_compose,
+        patch(
+            "automator.pipeline.convert_to_video",
+            new=AsyncMock(return_value=tmp_path / "v.mp4"),
+        ),
+    ):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "video_ready"
+    mock_bg.assert_not_called()
+    mock_compose.assert_called_once()
+
+
+@pytest.mark.asyncio()
+async def test_simple_mode_upload_skips_custom_thumbnail(
+    settings: Settings,
+) -> None:
+    """簡易動画モードは upload でカスタムサムネ(thumbnail_path)を渡さない(429回避)."""
+    settings.general.simple_video_mode = True
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job(
+        status="video_ready", video_path="/tmp/v.mp4",
+        thumbnail_path="/tmp/t.png",
+    )])
+
+    with (
+        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch(
+            "automator.pipeline.upload_video",
+            new=AsyncMock(return_value=UploadResult(
+                youtube_url="https://youtu.be/x", thumbnail_set=True
+            )),
+        ) as mock_upload,
+    ):
+        await upload_videos(settings, allow_interactive_auth=False)
+
+    params = mock_upload.await_args.args[1]
+    assert params.thumbnail_path is None
 
 
 @pytest.mark.asyncio()

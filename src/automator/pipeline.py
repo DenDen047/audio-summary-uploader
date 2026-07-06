@@ -38,14 +38,13 @@ from automator.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     generate_background_image,
-    generate_thumbnail_image,
     storage_state_for_profile,
 )
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
 from automator.notebooklm import NotebookLMBackend
 from automator.notebooklm_py_backend import NotebookLMPyBackend
 from automator.report import ProcessResult
-from automator.thumbnail import compose_thumbnail, generate_thumbnail
+from automator.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
 from automator.url_parser import UrlEntry, is_local_path
 from automator.video import convert_to_video, probe_duration
 from automator.youtube import (
@@ -81,12 +80,23 @@ _JP_TITLE_QUESTION = (
     "条件: 全角35字以内、内容に忠実、過度に煽らない、鉤括弧や引用符で全体を囲まない、"
     "絵文字や [1] のような注釈を付けない。タイトル本文のみを1行で出力してください。"
 )
-# サムネ用テキスト（バナー煽り＋短い見出し）生成に使う chat 質問
-_THUMB_TEXT_QUESTION = (
+# 固定マスコット素材（全動画共通のブランド被写体。文字はこの上に Pillow 合成する）
+_MASCOT_BASE = (
+    Path(__file__).resolve().parent.parent.parent
+    / "assets" / "thumbnails" / "mascot_default.png"
+)
+# サムネ用3層テキスト（上=製品名/導入・中=説明・下=ベネフィット）生成に使う chat 質問。
+# 伸びているAI解説チャンネルの「型」に合わせ、1秒で伝わるよう短く・専門用語を避ける。
+_THUMB_COPY_QUESTION = (
     "このソースの内容から、YouTube サムネイル用のテキストを JSON で返してください。"
-    "キー: banner（視聴者の目を引く超短い煽り文句。全角8字以内、体言止め）、"
-    "headline（内容を一言で表すキャッチーな見出し。全角12字以内。"
-    "タイトルの要約ではなく、興味を引く言い換え）。"
+    "伸びているAI解説チャンネル風に、パッと見て1秒で伝わる短い言葉にしてください。"
+    "キー: "
+    "top（動画の主役ワード。製品名・技術名・トピックを全角7字以内。専門用語より一般に通じる語）、"
+    "mid（補足の一言。全角9字以内。短いほど大きく表示され読みやすい）、"
+    "bottom（思わずクリックしたくなるベネフィット/煽り。全角8字以内・体言止め。"
+    "可能なら数字を入れる。例:『神ツール10選』『衝撃の実力』）、"
+    "highlight（bottom の中で最も強調したい1語。bottom に含まれる文字列にする）。"
+    "タイトルの丸写しは避け、興味を引く言い換えにする。"
     "引用符・絵文字・注釈は付けない。JSONのみ出力。"
 )
 # サムネテキストが生成できない時のバナー用フォールバックラベル
@@ -96,9 +106,10 @@ _CATEGORY_BANNER: dict[str, str] = {
     "engineering": "AI開発",
     "business": "ビジネス",
 }
-_DEFAULT_BANNER = "AI要約"
-_BANNER_MAX_LEN = 12
-_THUMB_HEADLINE_MAX_LEN = 18
+_DEFAULT_BANNER = "AI要約"        # top のフォールバック（カテゴリ不明時）
+_THUMB_TOP_MAX_LEN = 9
+_THUMB_MID_MAX_LEN = 10
+_THUMB_BOTTOM_MAX_LEN = 11
 
 # カテゴリ内容判定に使う chat 質問（曖昧カテゴリのみ）
 _CATEGORY_QUESTION = (
@@ -329,29 +340,45 @@ def _clean_thumb_text(value: object, max_len: int) -> str | None:
     return text
 
 
-async def _generate_thumb_text(
-    backend: NotebookLMBackend, notebook_id: str
-) -> tuple[str | None, str | None]:
-    """サムネ用の (banner, headline) を chat で生成する（各項目は失敗時 None）."""
+async def _generate_thumb_copy(
+    backend: NotebookLMBackend,
+    notebook_id: str,
+    category: str | None,
+    headline: str,
+) -> ThumbCopy:
+    """サムネ用の3層コピー(top/mid/bottom/highlight)を chat で生成する.
+
+    生成できない項目は妥当なフォールバックで埋める（top=カテゴリラベル、bottom=見出し）。
+    """
+    fallback = ThumbCopy(
+        top=_CATEGORY_BANNER.get(category or "", _DEFAULT_BANNER),
+        bottom=headline[:_THUMB_BOTTOM_MAX_LEN],
+    )
     try:
-        answer = await backend.ask(notebook_id, _THUMB_TEXT_QUESTION)
+        answer = await backend.ask(notebook_id, _THUMB_COPY_QUESTION)
     except Exception as exc:
-        logger.warning("サムネテキスト生成に失敗: {}", exc)
-        return None, None
+        logger.warning("サムネコピー生成に失敗: {}", exc)
+        return fallback
     if not isinstance(answer, str):
-        return None, None
+        return fallback
     start, end = answer.find("{"), answer.rfind("}")
     if start == -1 or end <= start:
-        logger.warning("サムネテキストの JSON が見つからない: {!r}", answer[:80])
-        return None, None
+        logger.warning("サムネコピーの JSON が見つからない: {!r}", answer[:80])
+        return fallback
     try:
         data = json.loads(answer[start : end + 1])
     except json.JSONDecodeError as exc:
-        logger.warning("サムネテキストの JSON 解析に失敗: {}", exc)
-        return None, None
-    banner = _clean_thumb_text(data.get("banner"), _BANNER_MAX_LEN)
-    headline = _clean_thumb_text(data.get("headline"), _THUMB_HEADLINE_MAX_LEN)
-    return banner, headline
+        logger.warning("サムネコピーの JSON 解析に失敗: {}", exc)
+        return fallback
+    top = _clean_thumb_text(data.get("top"), _THUMB_TOP_MAX_LEN) or fallback.top
+    mid = _clean_thumb_text(data.get("mid"), _THUMB_MID_MAX_LEN) or ""
+    bottom = (
+        _clean_thumb_text(data.get("bottom"), _THUMB_BOTTOM_MAX_LEN) or fallback.bottom
+    )
+    highlight = _clean_thumb_text(data.get("highlight"), _THUMB_BOTTOM_MAX_LEN) or ""
+    if highlight and highlight not in bottom:
+        highlight = ""
+    return ThumbCopy(top=top, mid=mid, bottom=bottom, highlight=highlight)
 
 
 async def _refine_category(
@@ -377,25 +404,6 @@ async def _refine_category(
     if refined != rule_category:
         logger.info("カテゴリ再判定: {} → {}", rule_category, refined)
     return refined
-
-
-async def _generate_ai_thumbnail(
-    headline: str,
-    output_path: Path,
-    settings: Settings,
-    style: ThumbnailStyle | None = None,
-) -> Path | None:
-    """Nano Banana で見出し入りAIサムネを生成する（失敗時 None でフォールバック）."""
-    return await generate_thumbnail_image(
-        headline,
-        output_path,
-        width=settings.thumbnail.width,
-        height=settings.thumbnail.height,
-        style=style or DEFAULT_STYLE,
-        storage_state_path=storage_state_for_profile(
-            settings.notebooklm.image_profile
-        ),
-    )
 
 
 # 背景ローテーション: 1枚あたりの目標表示秒数と生成枚数の上限。
@@ -950,43 +958,33 @@ async def _collect_single(
     category = await _refine_category(backend, notebook_id, classify_category(url))
     logger.info("カテゴリ判定: {} → {}", url, category)
 
-    # サムネイル生成: Nano Banana で文字なしベース画像（人物/象徴被写体）を生成し、
-    # バナー帯＋特大見出しを Pillow で合成する（AI に文字を描かせない＝文字化けゼロ）。
-    # 失敗時はグラデーション(Pillow)へフォールバックする。
+    # サムネイル生成: 固定マスコット素材の上に3層テキスト（上=製品名/導入・中=説明・
+    # 下=ベネフィット黄色特大＋数字）を Pillow 合成する。AIに文字を描かせず、
+    # AI画像生成に依存しないので文字化けせず常に生成できる（退屈フォールバック無し）。
     # 見出しは公開される面なので、ここでサニタイズする。
     headline = sanitize_public_text(metadata.title)
     style = style_for_category(category)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
-    base_path = tmp_dir / "thumbnails" / f"{slug}_base.png"
-    ai_thumb = await _generate_ai_thumbnail(
-        headline, base_path, settings, style=style
-    )
-    if ai_thumb is not None:
-        banner, thumb_headline = await _generate_thumb_text(backend, notebook_id)
+    thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
+    if _MASCOT_BASE.exists():
         thumbnail_path = compose_thumbnail(
-            ai_thumb,
-            thumb_headline or headline,
-            thumbnail_path,
-            settings.thumbnail,
-            banner_text=banner
-            or _CATEGORY_BANNER.get(category or "", _DEFAULT_BANNER),
-            accent_color=style.accent,
+            _MASCOT_BASE, thumb_copy, thumbnail_path, settings.thumbnail
         )
     else:
-        logger.info("AIサムネ生成失敗 → グラデーションにフォールバック")
+        logger.warning("マスコット素材が無い → グラデーションにフォールバック")
         thumbnail_path = await generate_thumbnail(
-            title=headline,
+            title=thumb_copy.bottom or headline,
             site_name=metadata.site_name,
-            og_image_url=None,  # OGP 流用は廃止（著作権・ごちゃつき回避）
+            og_image_url=None,
             output_path=thumbnail_path,
             config=settings.thumbnail,
-            favicon_url=None,  # 中央のアイコンが見出しと重なるため使わない
+            favicon_url=None,
         )
 
-    # 動画変換（AI背景があれば背景ローテーション、無ければ静止背景。EQ は常時）
-    # AIサムネが失敗した時（cookie 失効等）は背景生成も失敗するため試みない
+    # 動画背景は話題連動で AI 生成（best-effort、失敗時は静止背景に縮退）。
+    # サムネはマスコット固定なので背景生成の成否とは独立に試みる。
     background_paths: list[Path] = []
-    if ai_thumb is not None:
+    if not settings.general.simple_video_mode:
         background_paths = await _generate_backgrounds(
             slug, tmp_dir, settings, audio_path,
             topic=headline, style=style,
@@ -1211,6 +1209,13 @@ async def upload_videos(
                 settings.youtube.all_playlist_id,
             )
 
+            # 簡易動画モードではカスタムサムネを設定しない（429 でサムネ上限の
+            # 24h ローリングをリセットしないため。動画には静止背景が入る）
+            upload_thumb = (
+                None
+                if settings.general.simple_video_mode
+                else Path(job["thumbnail_path"])
+            )
             params = YouTubeUploadParams(
                 file_path=Path(job["video_path"]),
                 title=title,
@@ -1218,7 +1223,7 @@ async def upload_videos(
                 tags=settings.youtube.default_tags,
                 category_id=settings.youtube.category_id,
                 privacy_status=settings.youtube.privacy_status,
-                thumbnail_path=Path(job["thumbnail_path"]),
+                thumbnail_path=upload_thumb,
                 playlist_ids=playlist_ids,
             )
 
@@ -1322,40 +1327,31 @@ async def process_single_url(
         notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
     )
 
-    # 8. サムネイル生成（文字なしベース画像 + Pillow 合成。失敗時グラデーション）
+    # 8. サムネイル生成（固定マスコット素材 + 高密度3層テキストの Pillow 合成）
     headline = sanitize_public_text(metadata.title)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
-    base_path = tmp_dir / "thumbnails" / f"{slug}_base.png"
     category = classify_category(entry.url)
     style = style_for_category(category)
-    ai_thumb = await _generate_ai_thumbnail(
-        headline, base_path, settings, style=style
-    )
-    if ai_thumb is not None:
-        banner, thumb_headline = await _generate_thumb_text(backend, notebook_id)
+    thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
+    if _MASCOT_BASE.exists():
         thumbnail_path = compose_thumbnail(
-            ai_thumb,
-            thumb_headline or headline,
-            thumbnail_path,
-            settings.thumbnail,
-            banner_text=banner
-            or _CATEGORY_BANNER.get(category or "", _DEFAULT_BANNER),
-            accent_color=style.accent,
+            _MASCOT_BASE, thumb_copy, thumbnail_path, settings.thumbnail
         )
     else:
+        logger.warning("マスコット素材が無い → グラデーションにフォールバック")
         thumbnail_path = await generate_thumbnail(
-            title=headline,
+            title=thumb_copy.bottom or headline,
             site_name=metadata.site_name,
             og_image_url=None,
             output_path=thumbnail_path,
             config=settings.thumbnail,
-            favicon_url=None,  # 中央のアイコンが見出しと重なるため使わない
+            favicon_url=None,
         )
 
-    # 9. 動画変換（AI背景があれば背景ローテーション、無ければ静止背景。EQ は常時）
-    # AIサムネが失敗した時（cookie 失効等）は背景生成も失敗するため試みない
+    # 9. 動画変換（話題連動のAI背景があれば背景ローテーション、無ければ静止背景）。
+    # サムネはマスコット固定なので背景生成の成否とは独立に試みる。
     background_paths: list[Path] = []
-    if ai_thumb is not None:
+    if not settings.general.simple_video_mode:
         background_paths = await _generate_backgrounds(
             slug, tmp_dir, settings, audio_path,
             topic=headline, style=style,
@@ -1378,7 +1374,8 @@ async def process_single_url(
         tags=settings.youtube.default_tags,
         category_id=settings.youtube.category_id,
         privacy_status=settings.youtube.privacy_status,
-        thumbnail_path=thumbnail_path,
+        # 簡易動画モードはカスタムサムネを設定しない（429 回避）
+        thumbnail_path=None if settings.general.simple_video_mode else thumbnail_path,
         playlist_ids=resolve_playlist_ids(
             category,
             settings.youtube.playlists,
