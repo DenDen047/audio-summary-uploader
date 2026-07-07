@@ -52,9 +52,9 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
 │  4. カテゴリ判定＋サムネイル生成                  │
-│     └─ 固定マスコット素材＋3層テキストを Pillow   │
-│        で合成（AI画像生成に依存せず常に成功）     │
-│        （本編背景のみ Nano Banana で AI 生成）    │
+│     └─ 話題連動AIベース画像＋3層テキストを        │
+│        Pillow 合成（AI失敗時はマスコットに縮退）  │
+│        （サムネベース・本編背景とも AI 生成）     │
 │                                                 │
 │  5. 動画変換                                     │
 │     └─ FFmpeg: 画像 + mp3 → mp4                 │
@@ -96,8 +96,8 @@ audio-summary-uploader/
 │       ├── notebooklm_playwright_backend.py  # Playwright による実装（Phase 2）
 │       ├── citation.py           # 出典抽出・公開テキストのサニタイズ
 │       ├── category.py           # カテゴリ判定→背景配色/プレイリスト解決
-│       ├── image_gen.py          # AI背景生成 (gemini-webapi / Nano Banana)
-│       ├── thumbnail.py          # サムネ合成 固定マスコット+3層テキスト (Pillow)
+│       ├── image_gen.py          # AIサムネベース/背景生成 (gemini-webapi / Nano Banana)
+│       ├── thumbnail.py          # サムネ合成 3層テキスト装飾 (Pillow)
 │       ├── video.py              # FFmpeg による動画変換
 │       ├── youtube.py            # YouTube API 操作
 │       ├── report.py             # 結果レポート生成
@@ -398,10 +398,14 @@ class NotebookLMBackend(ABC):
 
 ### 3.6 サムネイル生成（`thumbnail.py` 主 / `category.py` / AI背景は `image_gen.py`）
 
-YouTube サムネ（1280×720px）は **固定マスコット素材の上に高密度3層テキストを Pillow で毎回合成**する（④）。
-AI 画像生成には依存しないため常に生成でき、cookie 失効による品質劣化（退屈なグラデ量産）が起きない。
+YouTube サムネ（1280×720px）は **固定マスコットを参照画像として毎回 AI 生成にかけ、キャラの同一性
+（大きな驚き顔）は保ちつつ、ポーズ・前景の大きな小道具・配色を話題ごとに変えたベース画像を作り、その上に
+高密度3層テキストを Pillow で合成**する（④）。キャラは同じでブランドを保ちながら、ポーズ・小物・色が話題
+ごとに変わるので**縮小時（一覧表示）でも各動画が見分けられる**。AI 生成が失敗（cookie 失効・地域制限等）
+した場合は**固定マスコット素材（静止）**に縮退し、それも無ければグラデーションに縮退する。マスコット縮退の
+おかげで、失敗時も「退屈なグラデ量産」にはならずブランド統一の見た目を保つ。
 伸びている日本語 AI 解説チャンネル（mikimiki / 本気AI 等）の「型」を TTP した設計で、設計根拠と
-比較検証は `docs/2026-07-06_thumbnail-marketing-ttp.html`。素材が無い場合のみグラデーションに縮退する。
+比較検証は `docs/2026-07-06_thumbnail-marketing-ttp.html`。
 
 **カテゴリ判定（`category.py`, ③）:**
 - まず URL のドメイン/拡張子のルールで判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
@@ -410,18 +414,33 @@ AI 画像生成には依存しないため常に生成でき、cookie 失効に�
   NotebookLM chat に内容を 5 カテゴリから1語で選ばせて再判定**（C）。例: AI 研究の YouTube 動画は
   `business` ではなく `paper`/`engineering` に補正され、ハッシュタグの的外れ（#副業 等）を防ぐ。
   確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
-- カテゴリは (1) 動画本編背景の配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）、
-  (3) サムネ3層コピーの `top` フォールバックラベルに使う（サムネの見た目はマスコット固定でブランド統一）。
+- カテゴリは (1) サムネベース画像／動画本編背景の配色スタイル、(2) プレイリスト振り分け
+  （`youtube.playlists`）、(3) サムネ3層コピーの `top` フォールバックラベルに使う。
 
-**マスコット素材（固定・ブランド共通）:**
-- `assets/thumbnails/mascot_default.png`（1280×720、文字なし）。全動画で共通利用しブランドの一貫性を出す。
-  差し替え可（AI 生成した1枚を置くだけ）。生成プロンプトの型は `image_gen.build_thumbnail_base_prompt`。
+**サムネ用ベース画像の AI 生成（`image_gen.generate_thumbnail_image`, 方式A2, best-effort）:**
+- **固定マスコットを参照画像として毎回 Nano Banana に渡し**（`generate_content(files=[mascot])`）、
+  キャラの同一性と「**大きな驚き顔**」を保ったまま、**ポーズ・前景の大きな小道具・配色を話題ごとに変える**
+  （`pipeline._generate_thumb_base` → `generate_thumbnail_image(reference_image=mascot, pose=…)`）。
+  ポーズを固定して背景だけ変えると縮小時に見分けが付かないため、ポーズ自体を散らすのが要点。
+- ポーズは `pipeline._THUMB_POSE_VARIATIONS`（両手を上げる／指さす／小物を抱える等）から **slug の
+  ハッシュで決定的に選ぶ**（動画ごとに絵柄が散り、リトライでは同じ絵になる）。
+- プロンプトの型は `image_gen.build_thumbnail_base_prompt`：マスコットと小物を右側 ~65% に大きく・驚き顔で
+  置き、話題を象徴する**大きな前景オブジェクト**（縮小しても分かる大きさ）を必ず入れ、配色は話題に合わせて
+  鮮やかに（カテゴリ配色はアクセント）、**左1/3は暗く空けて**テキスト用に確保（顔を左1/3に置かせない）。
+  文字は描かせず compose_thumbnail が Pillow で合成する（参照画像が無くても記述だけで近いキャラを描ける）。
+- cookie 源・鮮度の制約・自動延命は本編背景の AI 生成（下記）と共通。失敗時は None を返し、呼び出し側が
+  固定マスコット（静止）に縮退する。**簡易動画モード（`general.simple_video_mode`）では AI ベース生成を
+  行わず、固定マスコット（無ければグラデ）を使う**（429／cookie 失効の影響を受けない）。
+
+**固定マスコット素材（参照画像の元＋AI 生成失敗時のフォールバック／ブランド共通）:**
+- `assets/thumbnails/mascot_default.png`（1280×720、文字なし）。毎回の生成で**参照画像**として渡すキャラの
+  元であり、AI 生成が失敗したときは**そのまま静止サムネ**として使う。差し替えれば全動画のキャラが変わる。
 
 **3層テキスト合成（`thumbnail.compose_thumbnail`, `ThumbCopy`）:**
-- レイアウト（勝ちサムネの型）: 左に可読性スクリム。上段=製品名・中段=説明はマスコットの顔を避けて
-  左に収め（`text_w`/`mid_w`）、下段=ベネフィットは広く使う（`bottom_w`）。3行は行間を詰めて下から積み
-  （下段フックを下端に接地＝マスコットの目にかからず胴体側に重なる）、フォントは幅とゾーン高さの両方を
-  埋める最大サイズを自動選択（縮小しても読める）。中段は原則1行で大きく表示する。
+- レイアウト（勝ちサムネの型）: 左に可読性スクリム。ベース画像は被写体を右側に置き左を暗く空ける型なので、
+  上段=製品名・中段=説明はその左に収め（`text_w`/`mid_w`）、下段=ベネフィットは広く使う（`bottom_w`）。
+  3行は行間を詰めて下端から積み、フォントは幅とゾーン高さの両方を埋める最大サイズを自動選択（縮小しても
+  読める）。中段は原則1行で大きく表示する。
 - 派手な装飾（参考チャンネル準拠）: 下段は**3重袋文字＋グラデ塗り＋ドロップシャドウ**（影→黒の外縁→
   白の中縁→金グラデ本体）。強調キーワード1語だけ青グラデにして2トーン。上段/中段は白の袋文字＋影。
   数字＋助数詞（例「10選」）は改行で割らない。改行は budoux の文節境界で行い語中改行を避ける。
@@ -434,12 +453,13 @@ AI 画像生成には依存しないため常に生成でき、cookie 失効に�
 
 **動画本編背景の AI 生成（`image_gen.py`, best-effort。サムネとは独立）:**
 - 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する
-  （`generate_background_image`）。失敗時は静止背景に縮退。サムネはマスコット固定なので背景生成の成否とは
-  独立に試みる。簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
+  （`generate_background_image`）。失敗時は静止背景に縮退。サムネのベース生成とは独立に試みる。
+  簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
 - cookie 源 = **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定 `imagegen`）の
   `~/.notebooklm/profiles/<profile>/storage_state.json` の `__Secure-1PSID` / `__Secure-1PSIDTS`
   （`.google.com`）。値はログに出さない。本体（default）とセッションを分離する（同一セッション共有は
-  cookie チェーンを壊す）。初回: `uv run notebooklm login --profile imagegen`（NotebookLM と同アカウント）。
+  cookie チェーンを壊す）。初回: `uv run notebooklm -p imagegen login`（NotebookLM と同アカウント。
+  `-p/--profile` はサブコマンドの前に置くグローバルオプション）。
 - **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間でローテーションする。init 後に
   `account_status` を確認し、認証済みなら 1PSIDTS を即時ローテートして永続キャッシュ
   （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存。以降 storage_state.json が
@@ -447,8 +467,8 @@ AI 画像生成には依存しないため常に生成でき、cookie 失効に�
   WARN（`uv run notebooklm login` を案内）→静止背景に縮退。
 
 **フォールバック（`thumbnail.generate_thumbnail`, 方式B）:**
-- マスコット素材が見つからない場合のみ、ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、
-  長さに応じた自動サイズ・影つき）を中央に描画。中央アイコン（favicon）・OGP は使わない。
+- AI ベース画像もマスコット素材も無い場合のみ、ランダムなグラデーション背景＋日本語見出し
+  （NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を中央に描画。中央アイコン（favicon）・OGP は使わない。
 
 **実装:** `Pillow`（サムネ合成＋フォールバック）/ `gemini-webapi`（本編背景の AI 生成）
 

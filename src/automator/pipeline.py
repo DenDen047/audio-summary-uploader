@@ -38,6 +38,7 @@ from automator.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     generate_background_image,
+    generate_thumbnail_image,
     storage_state_for_profile,
 )
 from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
@@ -80,11 +81,21 @@ _JP_TITLE_QUESTION = (
     "条件: 全角35字以内、内容に忠実、過度に煽らない、鉤括弧や引用符で全体を囲まない、"
     "絵文字や [1] のような注釈を付けない。タイトル本文のみを1行で出力してください。"
 )
-# 固定マスコット素材（全動画共通のブランド被写体。文字はこの上に Pillow 合成する）
+# 固定マスコット素材（毎回の生成で参照画像として渡すキャラの元。文字はこの上に合成）
 _MASCOT_BASE = (
     Path(__file__).resolve().parent.parent.parent
     / "assets" / "thumbnails" / "mascot_default.png"
 )
+# サムネのマスコットのポーズ型。キャラは固定のまま動画ごとにこの型を回して、
+# 縮小時にも各動画が見分けられるよう絵柄を散らす（slug のハッシュで決定的に選択）。
+_THUMB_POSE_VARIATIONS = [
+    "throwing both arms up in the air in shock",
+    "pointing at the object with one arm, wide-eyed",
+    "gripping the object in both hands and leaning in, jaw dropped",
+    "peeking wide-eyed from the right with one hand raised near its face",
+    "one hand on its cheek and the other flung out toward the object",
+    "leaning back startled with both hands raised",
+]
 # サムネ用3層テキスト（上=製品名/導入・中=説明・下=ベネフィット）生成に使う chat 質問。
 # 伸びているAI解説チャンネルの「型」に合わせ、1秒で伝わるよう短く・専門用語を避ける。
 _THUMB_COPY_QUESTION = (
@@ -419,6 +430,79 @@ _BG_VARIATIONS = [
     "abstract macro detail of the subject",
     "aerial overview scene",
 ]
+
+
+async def _generate_thumb_base(
+    slug: str,
+    tmp_dir: Path,
+    settings: Settings,
+    topic: str,
+    style: ThumbnailStyle | None = None,
+) -> Path | None:
+    """サムネ用の話題連動・文字なしベース画像を AI 生成する(best-effort).
+
+    固定マスコットを参照画像として渡すことで、キャラの同一性と「大きな顔＋驚いた
+    表情」を保ったまま、背景/小物だけを話題に合わせて差し替える。文字は呼び出し側が
+    compose_thumbnail(Pillow) で合成するので画像には描かせない。生成失敗(cookie
+    失効・地域制限等)は None を返し、呼び出し側が固定マスコット(静止)に縮退する。
+    """
+    out = tmp_dir / "thumbnails" / f"{slug}_thumbbase.png"
+    # slug から決定的にポーズ型を選ぶ（動画ごとに絵柄を散らす／リトライで同じ絵になる）
+    pose_idx = int(hashlib.sha256(slug.encode()).hexdigest(), 16) % len(
+        _THUMB_POSE_VARIATIONS
+    )
+    return await generate_thumbnail_image(
+        topic,
+        out,
+        width=settings.thumbnail.width,
+        height=settings.thumbnail.height,
+        style=style or DEFAULT_STYLE,
+        # 固定マスコットを参照画像として渡し、キャラ同一性＋驚き顔を保ったまま
+        # ポーズ・小物・配色を話題ごとに変える。素材が無ければ記述だけで生成する。
+        reference_image=_MASCOT_BASE if _MASCOT_BASE.exists() else None,
+        pose=_THUMB_POSE_VARIATIONS[pose_idx],
+        storage_state_path=storage_state_for_profile(
+            settings.notebooklm.image_profile
+        ),
+    )
+
+
+async def _compose_topic_thumbnail(
+    slug: str,
+    tmp_dir: Path,
+    settings: Settings,
+    headline: str,
+    style: ThumbnailStyle,
+    thumb_copy: ThumbCopy,
+    thumbnail_path: Path,
+    site_name: str | None,
+) -> Path:
+    """話題連動ベース画像 → 固定マスコット → グラデーションの順に縮退しつつ、
+    3層テキストを合成したサムネの Path を返す.
+
+    簡易動画モードでは AI ベース生成を行わず固定マスコット(無ければ縮退)を使う
+    (429/cookie 失効の影響を受けない)。
+    """
+    base_image: Path | None = None
+    if not settings.general.simple_video_mode:
+        base_image = await _generate_thumb_base(
+            slug, tmp_dir, settings, topic=headline, style=style
+        )
+    if base_image is None and _MASCOT_BASE.exists():
+        base_image = _MASCOT_BASE
+    if base_image is not None:
+        return compose_thumbnail(
+            base_image, thumb_copy, thumbnail_path, settings.thumbnail
+        )
+    logger.warning("ベース画像が無い → グラデーションにフォールバック")
+    return await generate_thumbnail(
+        title=thumb_copy.bottom or headline,
+        site_name=site_name,
+        og_image_url=None,
+        output_path=thumbnail_path,
+        config=settings.thumbnail,
+        favicon_url=None,
+    )
 
 
 async def _generate_backgrounds(
@@ -958,31 +1042,22 @@ async def _collect_single(
     category = await _refine_category(backend, notebook_id, classify_category(url))
     logger.info("カテゴリ判定: {} → {}", url, category)
 
-    # サムネイル生成: 固定マスコット素材の上に3層テキスト（上=製品名/導入・中=説明・
-    # 下=ベネフィット黄色特大＋数字）を Pillow 合成する。AIに文字を描かせず、
-    # AI画像生成に依存しないので文字化けせず常に生成できる（退屈フォールバック無し）。
+    # サムネイル生成: 話題連動のベース画像を毎回 AI 生成し、その上に3層テキスト
+    # （上=製品名/導入・中=説明・下=ベネフィット黄色特大＋数字）を Pillow 合成する。
+    # AIには文字を描かせない（文字化け防止）。AI生成が失敗したら固定マスコット、
+    # それも無ければグラデーションに縮退する。
     # 見出しは公開される面なので、ここでサニタイズする。
     headline = sanitize_public_text(metadata.title)
     style = style_for_category(category)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
     thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
-    if _MASCOT_BASE.exists():
-        thumbnail_path = compose_thumbnail(
-            _MASCOT_BASE, thumb_copy, thumbnail_path, settings.thumbnail
-        )
-    else:
-        logger.warning("マスコット素材が無い → グラデーションにフォールバック")
-        thumbnail_path = await generate_thumbnail(
-            title=thumb_copy.bottom or headline,
-            site_name=metadata.site_name,
-            og_image_url=None,
-            output_path=thumbnail_path,
-            config=settings.thumbnail,
-            favicon_url=None,
-        )
+    thumbnail_path = await _compose_topic_thumbnail(
+        slug, tmp_dir, settings, headline, style, thumb_copy,
+        thumbnail_path, metadata.site_name,
+    )
 
-    # 動画背景は話題連動で AI 生成（best-effort、失敗時は静止背景に縮退）。
-    # サムネはマスコット固定なので背景生成の成否とは独立に試みる。
+    # 動画背景も話題連動で AI 生成（best-effort、失敗時は静止背景に縮退）。
+    # サムネのベース生成とは独立に試みる。
     background_paths: list[Path] = []
     if not settings.general.simple_video_mode:
         background_paths = await _generate_backgrounds(
@@ -1327,29 +1402,20 @@ async def process_single_url(
         notebook_id, output_path=tmp_dir / "audio" / f"{slug}.mp3"
     )
 
-    # 8. サムネイル生成（固定マスコット素材 + 高密度3層テキストの Pillow 合成）
+    # 8. サムネイル生成（話題連動AIベース画像 + 高密度3層テキストの Pillow 合成。
+    #    AI生成失敗時は固定マスコット→グラデーションに縮退）
     headline = sanitize_public_text(metadata.title)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
     category = classify_category(entry.url)
     style = style_for_category(category)
     thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
-    if _MASCOT_BASE.exists():
-        thumbnail_path = compose_thumbnail(
-            _MASCOT_BASE, thumb_copy, thumbnail_path, settings.thumbnail
-        )
-    else:
-        logger.warning("マスコット素材が無い → グラデーションにフォールバック")
-        thumbnail_path = await generate_thumbnail(
-            title=thumb_copy.bottom or headline,
-            site_name=metadata.site_name,
-            og_image_url=None,
-            output_path=thumbnail_path,
-            config=settings.thumbnail,
-            favicon_url=None,
-        )
+    thumbnail_path = await _compose_topic_thumbnail(
+        slug, tmp_dir, settings, headline, style, thumb_copy,
+        thumbnail_path, metadata.site_name,
+    )
 
     # 9. 動画変換（話題連動のAI背景があれば背景ローテーション、無ければ静止背景）。
-    # サムネはマスコット固定なので背景生成の成否とは独立に試みる。
+    # サムネのベース生成とは独立に試みる。
     background_paths: list[Path] = []
     if not settings.general.simple_video_mode:
         background_paths = await _generate_backgrounds(

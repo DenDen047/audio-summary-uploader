@@ -54,15 +54,25 @@ class TestBuildBasePrompt:
         assert DEFAULT_STYLE.palette in prompt
         assert "16:9" in prompt
 
-    def test_forbids_text_and_real_people(self) -> None:
+    def test_forbids_text_and_keeps_mascot(self) -> None:
         prompt = build_thumbnail_base_prompt("速報", DEFAULT_STYLE)
         assert "NO text" in prompt
-        assert "fictional" in prompt
+        # 固定マスコットを参照して同一キャラ＋驚き顔を維持する指示が入る
+        assert "mascot" in prompt.lower()
+        assert "SURPRISED" in prompt
 
     def test_uses_custom_style(self) -> None:
         style = ThumbnailStyle(name="news", palette="warm red", motif="newspaper")
         prompt = build_thumbnail_base_prompt("速報", style)
         assert "warm red" in prompt
+
+    def test_pose_hint_varies_pose(self) -> None:
+        prompt = build_thumbnail_base_prompt(
+            "速報", DEFAULT_STYLE, pose="throwing both arms up"
+        )
+        assert "throwing both arms up" in prompt
+        # 参照画像のポーズを踏襲しない指示（縮小時に絵柄が同じにならないため）
+        assert "do NOT copy the reference pose" in prompt
 
 
 class TestBuildBackgroundPrompt:

@@ -79,27 +79,43 @@ def load_google_cookies(
 
 
 def build_thumbnail_base_prompt(
-    topic: str, style: ThumbnailStyle = DEFAULT_STYLE
+    topic: str,
+    style: ThumbnailStyle = DEFAULT_STYLE,
+    pose: str | None = None,
 ) -> str:
-    """方式A2: サムネ用の文字なしベース画像プロンプトを作る.
+    """方式A2: 固定マスコットのキャラを保ちつつ、ポーズ・小物・色を話題ごとに変える.
 
-    文字（バナー・見出し）は Pillow 側で合成するため、画像には一切描かせない。
-    人の顔や象徴的な被写体を右側に大きく置き、左側は文字用に空けさせる。
-    実在人物の描写は権利・ポリシー上のリスクがあるため架空の人物を指定する。
+    マスコット画像を参照画像(files=)として渡す前提のプロンプト。キャラの同一性
+    （姿・色・画風）と「大きな驚き顔」は維持するが、**ポーズ・前景の大きな小道具・
+    配色は話題ごとに変える**（縮小時にも各動画が見分けられるようにする）。pose を
+    渡すとその動的ポーズを指定する（ローテーションで動画ごとに絵柄を散らす）。
+    マスコットは右側に大きく、左1/3は暗く空けて文字用に確保。文字は一切描かせない
+    （見出しは Pillow 側で合成）。参照画像が無い場合もキャラ特徴は本文に書いておく。
     """
+    pose_part = (
+        f"Give the mascot this NEW dynamic pose (do NOT copy the reference pose): "
+        f"{pose}. "
+        if pose
+        else "Give the mascot a NEW dynamic pose reacting to the topic "
+        "(do NOT copy the reference pose). "
+    )
     return (
-        "Create a dramatic, photorealistic 16:9 editorial image for a "
-        "Japanese tech news YouTube thumbnail. "
-        f"The imagery must clearly relate to this topic: 「{topic}」. "
-        "Feature ONE striking, expressive fictional person (NOT any real or "
-        "famous individual) or an iconic symbolic subject of the topic, "
-        "large on the RIGHT side, facing the viewer, with dramatic rim "
-        "lighting and strong emotion. "
-        f"Color mood: {style.palette}. "
-        "Keep the LEFT 55% dark, simple and uncluttered so large text can be "
-        "overlaid there later. "
+        "Use the attached cartoon robot mascot as the character reference. "
+        "Keep the SAME character identity: a glossy lavender-white robot with two "
+        "ball-tipped antennae, big glowing cyan circular eyes, an expressive "
+        "shocked face, bold comic art style. "
+        f"{pose_part}"
+        f"Scene topic: 「{topic}」. Include ONE big, bold, instantly-recognizable "
+        "object representing the topic in the FOREGROUND, large enough to read at "
+        "small thumbnail size. "
+        f"Use a vibrant, high-contrast color mood themed to the topic (you may use "
+        f"{style.palette} as an accent). "
+        "16:9 YouTube thumbnail: the mascot and its prop fill the RIGHT ~65% with "
+        "an exaggerated SURPRISED expression; keep the LEFT third darker and "
+        "simple for large text overlay — do NOT place the mascot's face in the "
+        "left third. Bold outlines, cartoon style. "
         "Absolutely NO text, NO letters, NO numbers, NO logos anywhere. "
-        "High contrast, cinematic, hyper-detailed. No watermark, no UI elements."
+        "No watermark, no UI elements."
     )
 
 
@@ -165,20 +181,26 @@ async def generate_thumbnail_image(
     width: int,
     height: int,
     style: ThumbnailStyle = DEFAULT_STYLE,
+    reference_image: Path | None = None,
+    pose: str | None = None,
     storage_state_path: Path | None = None,
     timeout: float = 360.0,
 ) -> Path | None:
     """Nano Banana でサムネ用の文字なしベース画像を生成し PNG 保存する.
 
+    reference_image（固定マスコット）を渡すと、そのキャラを保ったままポーズ・小物・
+    配色を話題に合わせて変える（キャラ同一性は Nano Banana の image editing に委ねる）。
+    pose を渡すと動的ポーズを指定する（動画ごとの絵柄の散らしに使う）。
     文字は呼び出し側が Pillow（`thumbnail.compose_thumbnail`）で合成する。
-    失敗時は None を返す（呼び出し側がグラデーションフォールバックに切替）。
+    失敗時は None を返す（呼び出し側がマスコット/グラデーションに縮退）。
     """
     logger.info("AIサムネベース生成中 (topic={!r})", topic)
     return await _generate_image(
-        build_thumbnail_base_prompt(topic, style),
+        build_thumbnail_base_prompt(topic, style, pose),
         output_path,
         width=width,
         height=height,
+        reference_image=reference_image,
         storage_state_path=storage_state_path,
         timeout=timeout,
         label=f"topic={topic!r}",
@@ -224,9 +246,11 @@ async def _generate_image(
     storage_state_path: Path | None,
     timeout: float,
     label: str,
+    reference_image: Path | None = None,
 ) -> Path | None:
     """Nano Banana でプロンプトから画像を生成し整形して保存する共通コア.
 
+    reference_image を渡すと参照画像(files=)として添付する（キャラ固定等）。
     プロセス内で直列化される（_GENERATION_LOCK）。
     """
     async with _GENERATION_LOCK:
@@ -238,6 +262,7 @@ async def _generate_image(
             storage_state_path=storage_state_path,
             timeout=timeout,
             label=label,
+            reference_image=reference_image,
         )
 
 
@@ -250,6 +275,7 @@ async def _generate_image_locked(
     storage_state_path: Path | None,
     timeout: float,
     label: str,
+    reference_image: Path | None = None,
 ) -> Path | None:
     try:
         psid, psidts = load_google_cookies(storage_state_path)
@@ -289,8 +315,11 @@ async def _generate_image_locked(
             await rotate_1psidts(client.client)
         except Exception as exc:  # noqa: BLE001 - ローテート失敗は生成継続に影響しない
             logger.warning("AI画像: cookie ローテートに失敗（生成は継続）: {}", exc)
+        files = None
+        if reference_image is not None and reference_image.exists():
+            files = [str(reference_image)]
         resp = await asyncio.wait_for(
-            client.generate_content(prompt), timeout=timeout
+            client.generate_content(prompt, files=files), timeout=timeout
         )
         images = list(getattr(resp, "images", None) or [])
         if not images:

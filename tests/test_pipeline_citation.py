@@ -159,6 +159,10 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
             new=AsyncMock(return_value=[]),
         ),
         patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
             "automator.pipeline.generate_thumbnail",
             return_value=tmp_path / "t.png",
         ),
@@ -224,6 +228,10 @@ async def test_collect_honors_user_title(tmp_path: Path) -> None:
         patch(
             "automator.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
         ),
         patch(
             "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"

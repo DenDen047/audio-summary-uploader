@@ -170,6 +170,10 @@ async def test_collect_transitions_to_video_ready(
             "automator.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -240,6 +244,10 @@ async def test_collect_still_generating(
             "automator.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
+        ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
     ):
@@ -303,6 +311,10 @@ async def test_full_pipeline_phase_transitions(
         patch(
             "automator.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
         ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb_fn,
         patch("automator.pipeline.convert_to_video") as mock_video_fn,
@@ -449,6 +461,10 @@ async def test_collect_handles_lowercase_completed(
         patch(
             "automator.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
         ),
         patch("automator.pipeline.generate_thumbnail") as mock_thumb,
         patch("automator.pipeline.convert_to_video") as mock_video,
@@ -918,3 +934,88 @@ async def test_resubmit_clears_stale_task_id(
     assert results[0].status == "failed"
     state = _load_state(state_path)
     assert state["jobs"][0]["task_id"] is None
+
+
+@pytest.mark.asyncio()
+async def test_compose_topic_thumbnail_uses_ai_base(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """AIベース生成が成功したら、そのベース画像で compose する."""
+    from automator.category import style_for_category
+    from automator.pipeline import _compose_topic_thumbnail
+    from automator.thumbnail import ThumbCopy
+
+    ai_base = tmp_path / "base.png"
+    with (
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=ai_base),
+        ),
+        patch(
+            "automator.pipeline.compose_thumbnail",
+            return_value=tmp_path / "out.png",
+        ) as mock_compose,
+    ):
+        out = await _compose_topic_thumbnail(
+            "slug", tmp_path, settings, "見出し",
+            style_for_category("default"), ThumbCopy(bottom="x"),
+            tmp_path / "out.png", "example.com",
+        )
+
+    assert out == tmp_path / "out.png"
+    assert mock_compose.call_args.args[0] == ai_base
+
+
+@pytest.mark.asyncio()
+async def test_compose_topic_thumbnail_falls_back_to_mascot(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """AIベース生成が失敗(None)したら固定マスコットで compose する."""
+    from automator.category import style_for_category
+    from automator.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from automator.thumbnail import ThumbCopy
+
+    with (
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "automator.pipeline.compose_thumbnail",
+            return_value=tmp_path / "out.png",
+        ) as mock_compose,
+    ):
+        await _compose_topic_thumbnail(
+            "slug", tmp_path, settings, "見出し",
+            style_for_category("default"), ThumbCopy(bottom="x"),
+            tmp_path / "out.png", "example.com",
+        )
+
+    assert mock_compose.call_args.args[0] == _MASCOT_BASE
+
+
+@pytest.mark.asyncio()
+async def test_compose_topic_thumbnail_simple_mode_skips_ai(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """簡易動画モードは AIベース生成を呼ばず固定マスコットで compose する."""
+    from automator.category import style_for_category
+    from automator.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from automator.thumbnail import ThumbCopy
+
+    settings.general.simple_video_mode = True
+    with (
+        patch("automator.pipeline._generate_thumb_base") as mock_base,
+        patch(
+            "automator.pipeline.compose_thumbnail",
+            return_value=tmp_path / "out.png",
+        ) as mock_compose,
+    ):
+        await _compose_topic_thumbnail(
+            "slug", tmp_path, settings, "見出し",
+            style_for_category("default"), ThumbCopy(bottom="x"),
+            tmp_path / "out.png", "example.com",
+        )
+
+    mock_base.assert_not_called()
+    assert mock_compose.call_args.args[0] == _MASCOT_BASE
