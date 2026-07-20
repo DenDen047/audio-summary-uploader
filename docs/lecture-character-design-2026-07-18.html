@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>講義動画キャラクターデザイン調査・候補設計</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #5e6b7c;
+      --paper: #fbfcff;
+      --panel: #ffffff;
+      --line: #dbe3ec;
+      --crimson: #8d2c3c;
+      --plum: #68405f;
+      --teal: #087f83;
+      --mustard: #d59b2a;
+      --bluegray: #667b9c;
+      --soft-blue: #eaf2ff;
+      --soft-gold: #fff5d9;
+      --soft-plum: #f5edf4;
+      --soft-teal: #e6f6f5;
+      --good: #1c7b52;
+      --warn: #9a6414;
+      --shadow: 0 18px 45px rgba(24, 42, 70, .10);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(213,155,42,.11), transparent 26rem),
+        radial-gradient(circle at 92% 5%, rgba(8,127,131,.10), transparent 28rem),
+        var(--paper);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+      line-height: 1.75;
+    }
+    a { color: #1c5f9e; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+    img { max-width: 100%; display: block; }
+    .wrap { width: min(1160px, calc(100% - 32px)); margin: 0 auto; }
+    .hero {
+      padding: 72px 0 54px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(255,255,255,.88), rgba(240,247,255,.74));
+    }
+    .eyebrow {
+      color: var(--teal);
+      font-weight: 800;
+      letter-spacing: .12em;
+      font-size: .78rem;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: .35rem 0 .8rem;
+      font-size: clamp(2rem, 5vw, 4.2rem);
+      line-height: 1.16;
+      letter-spacing: -.035em;
+      max-width: 16ch;
+    }
+    .lead { max-width: 760px; color: var(--muted); font-size: 1.08rem; }
+    .meta { margin-top: 1.2rem; color: var(--muted); font-size: .9rem; }
+    .nav {
+      margin-top: 1.7rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .55rem;
+    }
+    .nav a {
+      color: var(--ink);
+      text-decoration: none;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.85);
+      padding: .42rem .78rem;
+      border-radius: 999px;
+      font-size: .88rem;
+    }
+    main { padding: 32px 0 90px; }
+    section {
+      scroll-margin-top: 24px;
+      margin: 34px 0;
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255,255,255,.94);
+      box-shadow: var(--shadow);
+    }
+    h2 { margin: 0 0 1.1rem; font-size: clamp(1.45rem, 3vw, 2rem); line-height: 1.3; }
+    h3 { margin: 1.7rem 0 .55rem; font-size: 1.18rem; }
+    h4 { margin: 1.1rem 0 .35rem; }
+    p { margin: .6rem 0; }
+    ul, ol { padding-left: 1.35rem; }
+    li + li { margin-top: .35rem; }
+    .callout {
+      padding: 20px 22px;
+      border-left: 5px solid var(--crimson);
+      background: linear-gradient(90deg, #fff4f5, #fff);
+      border-radius: 0 16px 16px 0;
+      font-size: 1.05rem;
+    }
+    .safety {
+      padding: 18px 20px;
+      border: 1px solid #f0d2a8;
+      background: #fff9ed;
+      border-radius: 16px;
+    }
+    .grid-2, .grid-3, .cards {
+      display: grid;
+      gap: 18px;
+    }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mini, .candidate {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .mini { padding: 20px; }
+    .mini h3 { margin-top: 0; }
+    .candidate img {
+      width: 100%;
+      height: 560px;
+      object-fit: contain;
+      object-position: center;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    .candidate-body { padding: 20px; }
+    .candidate h3 { margin: 0 0 .2rem; font-size: 1.35rem; }
+    .tag {
+      display: inline-block;
+      margin: .15rem .25rem .15rem 0;
+      padding: .18rem .52rem;
+      border-radius: 999px;
+      font-size: .78rem;
+      font-weight: 700;
+      background: var(--soft-blue);
+      color: #315a86;
+    }
+    .A { border-top: 6px solid var(--crimson); }
+    .B { border-top: 6px solid var(--plum); }
+    .C { border-top: 6px solid var(--teal); }
+    .D { border-top: 6px solid var(--mustard); }
+    .dialogue {
+      margin: .8rem 0;
+      padding: .8rem 1rem;
+      background: #f7f9fc;
+      border-radius: 12px;
+      color: #344054;
+    }
+    .figure {
+      margin: 1.2rem 0 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #f7f9fc;
+    }
+    .figure img { border-radius: 12px; margin: auto; }
+    figcaption { color: var(--muted); font-size: .84rem; margin-top: .65rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: .72rem .62rem; text-align: left; vertical-align: top; }
+    th { background: #f4f7fb; font-size: .84rem; }
+    .score { font-weight: 800; text-align: center; }
+    .best { color: var(--good); }
+    .note { color: var(--muted); font-size: .88rem; }
+    .metric {
+      display: grid;
+      grid-template-columns: 9rem 1fr;
+      gap: 12px;
+      border-bottom: 1px dashed var(--line);
+      padding: .65rem 0;
+    }
+    .metric strong { color: #344054; }
+    .mermaid-wrap {
+      overflow-x: auto;
+      padding: 12px;
+      border-radius: 16px;
+      background: #f7f9fc;
+      border: 1px solid var(--line);
+    }
+    .refs { font-size: .92rem; }
+    .refs li { margin-bottom: .65rem; }
+    code {
+      background: #eef2f6;
+      border-radius: 5px;
+      padding: .1rem .35rem;
+      font-size: .9em;
+    }
+    details {
+      margin-top: 1rem;
+      padding: .85rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fafbfd;
+    }
+    summary { cursor: pointer; font-weight: 700; }
+    .small-thumb {
+      width: 240px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      margin: 1rem auto;
+    }
+    @media (max-width: 780px) {
+      .grid-2, .grid-3, .cards { grid-template-columns: 1fr; }
+      section { padding: 23px 18px; border-radius: 18px; }
+      .candidate img { height: auto; max-height: 640px; }
+      .metric { grid-template-columns: 1fr; gap: 2px; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+    }
+    @media print {
+      body { background: #fff; }
+      .nav { display: none; }
+      section { box-shadow: none; break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="eyebrow">Character Design Research / 2026-07-18</div>
+      <h1>「余裕のある先生」と「翻弄される少年」を、動画の顔にする</h1>
+      <p class="lead">確定済みの二人の見た目を壊さず、クロノITの実例とキャラクター認知・教育エージェント・対人関係の研究をつなぎ、4方向のキャラクターデザインと運用設定を作成した。</p>
+      <p class="meta">対象: audio-summary-uploader 講義動画プロトタイプ / 調査日: 2026年7月18日 / 画像は企画比較用</p>
+      <nav class="nav" aria-label="目次">
+        <a href="#tldr">要約</a>
+        <a href="#conclusion">結論</a>
+        <a href="#question">設計課題</a>
+        <a href="#map">設計マップ</a>
+        <a href="#analysis">分析と候補</a>
+        <a href="#gaps">未決事項</a>
+        <a href="#references">参照文献</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="tldr">
+      <h2>1. 要約</h2>
+      <div class="callout">
+        最も安定する完成形は、<strong>A「コード診療室」の視覚記号</strong>を土台に、<strong>B「保健室の取引屋」の掛け合い</strong>と、<strong>C「放課後デバッグ部」の少年の有能さ</strong>を組み合わせる案である。
+      </div>
+      <ul>
+        <li>先生の強い記号は「バーガンディの回路聴診器＋診断クリップボード」。少年は「マスタード色の小型メモ＋鉛筆」。</li>
+        <li>先生は答えを知る<strong>温かい上位者</strong>、少年は視聴者と同じ目線の<strong>素朴な疑問役</strong>。ただし少年にも「具体例」「違和感発見」「たまの核心」という固有の強みを持たせる。</li>
+        <li>毎回の型は「症状の申告 → 先生の切り分け → 少年が試す → 小さな反例 → 修正 → 無害なご褒美／追加課題」。</li>
+        <li>“翻弄”は、難題・追加実験・飴・雑用・言葉遊びの範囲に限定する。成人女性と小学生の関係を恋愛・誘惑として演出しない。</li>
+      </ul>
+      <figure class="figure">
+        <img src="assets/lecture-character-design-2026-07-18/character_design_comparison.png" alt="4つのキャラクターデザイン候補比較">
+        <figcaption>図1. 確定済みの顔・体格・基本衣装を維持した4案。画像生成は組み込み画像生成を使用し、各人の強い追加記号を最大2個に制限した。</figcaption>
+      </figure>
+    </section>
+
+    <section id="conclusion">
+      <h2>2. 結論</h2>
+
+      <h3>2.1 推奨するキャラクターの核</h3>
+      <div class="grid-2">
+        <article class="mini">
+          <h3>先生｜技術の「診断医」</h3>
+          <p><strong>外から見える性格:</strong> 穏やか、余裕がある、少し意地悪、結論を急がず相手に気づかせる。</p>
+          <p><strong>内側の弱点:</strong> 説明のつかない挙動や雑な一般化を放置できず、興が乗ると検証を増やしすぎる。</p>
+          <p><strong>能力:</strong> 情報を症状として整理し、原因候補を減らし、最小実験に落とす。</p>
+          <p><strong>画面上の記号:</strong> 回路聴診器、バーガンディ、低いサイドポニー、片眉と小さな笑み。</p>
+        </article>
+        <article class="mini">
+          <h3>少年｜視聴者の「違和感センサー」</h3>
+          <p><strong>外から見える性格:</strong> 純朴、気弱、褒められたい、頼まれると断りきれない。</p>
+          <p><strong>内側の強み:</strong> 専門用語を素通りせず、実際の利用者が困る一点を素直に拾う。</p>
+          <p><strong>能力:</strong> 具体例を出す、手を動かす、期待結果と実結果のズレに気づく。</p>
+          <p><strong>画面上の記号:</strong> 少し上向きの目線、青灰色の大きめスウェット、黄色いメモ、握った手。</p>
+        </article>
+      </div>
+
+      <h3>2.2 二人の関係を「一方的」にしない</h3>
+      <p>対人印象は大きく<strong>温かさ</strong>と<strong>能力</strong>で整理できるという研究があり、関係性では温かさは同調しやすく、支配性は服従性を呼びやすい。したがって「先生は温かく主導的、少年は温かく控えめ」は狙いに合う。反面、少年が毎回無能だと親しみより哀れさが勝つ。知識量は先生 70 : 少年 30でも、発見への寄与は 55 : 45程度にする。<a href="#ref-fiske">[8]</a><a href="#ref-complementarity">[9]</a></p>
+
+      <h3>2.3 推奨する反復フォーマット</h3>
+      <ol>
+        <li><strong>症状:</strong> 少年が素朴な疑問や失敗を持ち込む。</li>
+        <li><strong>問診:</strong> 先生が前提を2〜3個に切り分ける。</li>
+        <li><strong>取引:</strong> 「正解したら飴」「外したらもう一回検証」など、無害な賭けを置く。</li>
+        <li><strong>実験:</strong> 少年が実行し、先生が予測を示す。</li>
+        <li><strong>反例:</strong> 少年が小さな違和感に気づき、説明を一段深くする。</li>
+        <li><strong>診断:</strong> 先生が一文で結論。少年が視聴者向けの平易な言葉で言い直す。</li>
+      </ol>
+
+      <div class="safety">
+        <strong>演出上の境界:</strong> 先生のセクシーさは成人としての成熟・仕立て・声・余裕に置く。少年への色仕掛け、身体接触、胸元を強調する同一カット、恋愛を想起させる台詞は使わない。“誘惑に弱い”は飴・承認・好奇心・頼まれ事に限定する。
+      </div>
+    </section>
+
+    <section id="question">
+      <h2>3. 設計課題と調査方法</h2>
+      <p>問いは「確定したベース外見を保ちながら、動画の小さな表示でも識別でき、台本とアニメーションの双方で継続運用できる二人組にするには何を足すべきか」である。</p>
+
+      <div class="grid-3">
+        <div class="mini">
+          <h3>視覚</h3>
+          <p>シルエット、色、髪飾り、小道具、表情差。サムネイルや画面端でも残ること。</p>
+        </div>
+        <div class="mini">
+          <h3>役割</h3>
+          <p>先生が説明するだけでなく、少年の疑問が説明を前進させること。</p>
+        </div>
+        <div class="mini">
+          <h3>関係</h3>
+          <p>余裕と翻弄の魅力を保ちつつ、温かさと安全性を失わないこと。</p>
+        </div>
+      </div>
+
+      <h3>調査範囲</h3>
+      <ul>
+        <li><a href="https://www.youtube.com/@chronoit">クロノIT公式チャンネル</a>の直近サムネイル群、代表動画、公開自動字幕を観察した。</li>
+        <li>キャラクター可読性、知覚流暢性、温かさ／能力、対人補完性、教育エージェント、アニメーション、ユーモアの一次資料・公式資料を参照した。</li>
+        <li>確定済みの先生・少年を参照画像として固定し、4案を同条件で生成して縮小比較した。</li>
+      </ul>
+      <p class="note">ツール状況: ローカル知識ベースに該当資料なし。Zotero接続は停止中。Claude CLIは未ログインのため外部AIクロスチェックは実行できず、公式資料・査読論文・公式チャンネル実例の突合で補った。</p>
+    </section>
+
+    <section id="map">
+      <h2>4. 全体マップ：設定ではなく、4層の反復でキャラを立てる</h2>
+      <p>記憶されるキャラクターは、細かな来歴より先に、短時間で処理できる視覚と行動の反復を持つ。処理しやすい刺激ほど好意的に評価されやすいという知覚流暢性の知見とも整合する。<a href="#ref-fluency">[7]</a></p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart LR
+  A["1. サムネ識別<br/>輪郭・差し色・髪飾り"] --> B["2. 役割推論<br/>聴診器・メモ・姿勢"]
+  B --> C["3. 関係のリズム<br/>余裕 × 上目遣い<br/>主導 × 素朴な抵抗"]
+  C --> D["4. 毎回の儀式<br/>問診 → 実験 → 反例 → 診断"]
+  D -.反復で強化.-> A
+        </pre>
+      </div>
+
+      <h3>4層に対応する設計ルール</h3>
+      <div class="metric"><strong>輪郭</strong><span>先生は長い白衣＋サイドポニー、少年は丸い頭部＋大きめスウェット。形を増やしすぎない。</span></div>
+      <div class="metric"><strong>色</strong><span>先生はバーガンディ／プラム／ティールのどれか1系統、少年は青灰＋マスタード。高彩度色は10%前後。</span></div>
+      <div class="metric"><strong>小道具</strong><span>職能を示す物を先生に1つ、視聴者代理の行動を示す物を少年に1つ。常備品は入れ替えない。</span></div>
+      <div class="metric"><strong>表情</strong><span>先生は半歩先を知る小さな笑み、少年は一拍遅れて反応する上目遣い。誇張は重要箇所だけ。</span></div>
+      <div class="metric"><strong>台詞</strong><span>先生は問いで誘導し、少年は平易な言葉に言い直す。キャッチフレーズは結論ではなく手順に結びつける。</span></div>
+    </section>
+
+    <section id="analysis">
+      <h2>5. 理論・実例から作った4つの候補</h2>
+
+      <h3>5.1 クロノITから抽出した「仕組み」</h3>
+      <p>クロノITのサムネイルでは、同じ二人が題材をまたいで繰り返され、髪色・髪飾り・衣装の差し色・反応表情が小サイズでも残る。説明文が大きくてもキャラの位置と反応差が安定し、片方が落ち着き、片方が驚くという対比が一瞬で読める。これは特定の衣装を模倣するというより、<strong>少数の恒常記号＋大きな反応差</strong>を再利用する設計と捉えるべきである。</p>
+      <figure class="figure">
+        <img src="assets/lecture-character-design-2026-07-18/chronoit_contact_sheet.jpg" alt="クロノITのサムネイル比較用コンタクトシート">
+        <figcaption>図2. クロノIT公開サムネイルの比較調査用コンタクトシート。研究・分析のための引用であり、制作素材としては再利用しない。</figcaption>
+      </figure>
+
+      <h3>5.2 可読性と動かし方の理論</h3>
+      <p>Valveのキャラクターアートガイドは、固有シルエット、明暗パターン、色・彩度、細部と休ませる面の配分を重視する。Riotも、遠距離・小表示では細部が崩れるため、輪郭と色の一貫性が識別を支えるとしている。<a href="#ref-dota">[1]</a><a href="#ref-riot-clarity">[2]</a><a href="#ref-valorant">[4]</a></p>
+      <p>アニメーションでは、Microsoftの原則にある anticipation、staging、secondary action が有効だが、補助動作は主動作を奪ってはいけない。先生なら「先にクリップボードを見る → 顔を上げて一言」、少年なら「肩が少し上がる → 一拍置いて頷く」のように、意味のある予備動作へ限定する。<a href="#ref-animation">[5]</a></p>
+
+      <div class="cards">
+        <article class="candidate A">
+          <img src="assets/lecture-character-design-2026-07-18/A_code_clinic.png" alt="A コード診療室のキャラクターデザイン">
+          <div class="candidate-body">
+            <h3>A｜コード診療室</h3>
+            <span class="tag">最も安定</span><span class="tag">専門性</span><span class="tag">長期運用</span>
+            <p><strong>設定:</strong> 放課後の保健室に、端末やコードの「症状」が持ち込まれる。先生は問診と最小実験で原因を切り分け、少年は利用者として再現手順を試す。</p>
+            <p><strong>先生:</strong> 回路聴診器＋バーガンディの診断板。余裕は「もう原因候補を絞っている」ことから生まれる。</p>
+            <p><strong>少年:</strong> 黄色い症状メモ。専門用語は弱いが、何をしたら何が起きたかを正直に記録できる。</p>
+            <div class="dialogue">先生「では、症状を切り分けましょうか」<br>少年「ぼく、また検査する側ですよね……？」</div>
+            <p><strong>反復ギャグ:</strong> 先生が聴診器をPCやコードに当てようとし、少年が毎回「そこから音はしません」と止める。</p>
+            <p><strong>リスク:</strong> 何でも医療比喩にすると説明が遠回りになる。比喩は導入と結論だけにする。</p>
+          </div>
+        </article>
+
+        <article class="candidate B">
+          <img src="assets/lecture-character-design-2026-07-18/B_bargain_maker.png" alt="B 保健室の取引屋のキャラクターデザイン">
+          <div class="candidate-body">
+            <h3>B｜保健室の取引屋</h3>
+            <span class="tag">関係性が強い</span><span class="tag">掛け合い</span><span class="tag">ご褒美</span>
+            <p><strong>設定:</strong> 先生は質問にただ答えず、小さな検証や手伝いと引き換えにヒントを出す。少年は条件が少し不公平だと分かっていても、承認・飴・好奇心で受けてしまう。</p>
+            <p><strong>先生:</strong> プラムのリボン＋アンティーク調の飴缶。色気ではなく、相手の反応を読んでいる余裕を強調。</p>
+            <p><strong>少年:</strong> ご褒美トークンの小型ポーチ。増減でシリーズ内の小ネタを作れる。</p>
+            <div class="dialogue">先生「正解したら、飴を一つ」<br>少年「それで釣るの、ずるいです……でもやります」</div>
+            <p><strong>反復ギャグ:</strong> 条件交渉を始めるたび、先生が先回りして追加条項を出す。最終的に少年の素朴な一言が一番大事な条件になる。</p>
+            <p><strong>リスク:</strong> 成人女性が子どもを誘惑する印象に近づけない。取引物は菓子、スタンプ、読書時間、検証権など非恋愛的なものに固定する。</p>
+          </div>
+        </article>
+
+        <article class="candidate C">
+          <img src="assets/lecture-character-design-2026-07-18/C_debug_club.png" alt="C 放課後デバッグ部のキャラクターデザイン">
+          <div class="candidate-body">
+            <h3>C｜放課後デバッグ部</h3>
+            <span class="tag">教育効果</span><span class="tag">少年の主体性</span><span class="tag">実験</span>
+            <p><strong>設定:</strong> 保健室の一角が非公式のデバッグ部になっている。先生が仮説を立て、少年が壊れ方を再現し、二人で修正する。</p>
+            <p><strong>先生:</strong> ティールの六角ヘアピン＋ペン型テスター。観察と検証の人。</p>
+            <p><strong>少年:</strong> 黄色い付箋と小型ツールポーチ。毎回ひとつは自分で試し、時々先生の見落としを拾う。</p>
+            <div class="dialogue">先生「一回、壊して確かめましょうか」<br>少年「それ、ぼくが直すところまで含まれてますよね……？」</div>
+            <p><strong>反復ギャグ:</strong> 先生が「安全な失敗」と言うたび、少年がバックアップの有無を確認する。</p>
+            <p><strong>リスク:</strong> ツールバッグを大きくすると活発で垢抜けた少年に寄り、D3の気弱さが薄れる。実運用では手帳程度まで縮小する。</p>
+          </div>
+        </article>
+
+        <article class="candidate D">
+          <img src="assets/lecture-character-design-2026-07-18/D_infirmary_witch.png" alt="D 保健室の魔女のキャラクターデザイン">
+          <div class="candidate-body">
+            <h3>D｜保健室の魔女</h3>
+            <span class="tag">最も記号的</span><span class="tag">ミステリアス</span><span class="tag">サムネ向き</span>
+            <p><strong>設定:</strong> 先生は難しいコマンドを「おまじない」と呼び、少年は半信半疑で唱える。実際の説明は必ず再現可能な技術手順に戻す。</p>
+            <p><strong>先生:</strong> 三日月の髪飾り＋鍵のペンダント。白衣を崩さず、象徴だけで謎めきを加える。</p>
+            <p><strong>少年:</strong> コマンドタグ型の小さなノート。半分信じてしまう純真さが上目遣いと合う。</p>
+            <div class="dialogue">先生「おまじない、かけておきましょうか」<br>少年「それ、本当にコマンドですよね……？」</div>
+            <p><strong>反復ギャグ:</strong> 少年がコマンドの意味を尋ねると、先生が神秘的に濁し、直後に非常に実務的な説明を始める。</p>
+            <p><strong>リスク:</strong> 魔法エフェクトや衣装を足すと技術チャンネルの信頼性が落ちる。現在のアクセサリー2点より増やさない。</p>
+          </div>
+        </article>
+      </div>
+
+      <h3>5.3 比較評価</h3>
+      <p class="note">5点満点。ここでの点数は客観的真理ではなく、現状の動画企画に対する設計判断。</p>
+      <table>
+        <thead>
+          <tr><th>案</th><th>小表示の識別</th><th>二人の化学反応</th><th>教育役割</th><th>長期運用</th><th>安全な演出</th><th>合計</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>A コード診療室</strong></td><td class="score">5</td><td class="score">4</td><td class="score">5</td><td class="score">5</td><td class="score">5</td><td class="score best">24</td></tr>
+          <tr><td><strong>B 取引屋</strong></td><td class="score">4</td><td class="score">5</td><td class="score">3</td><td class="score">4</td><td class="score">3</td><td class="score">19</td></tr>
+          <tr><td><strong>C デバッグ部</strong></td><td class="score">4</td><td class="score">4</td><td class="score">5</td><td class="score">5</td><td class="score">5</td><td class="score">23</td></tr>
+          <tr><td><strong>D 保健室の魔女</strong></td><td class="score">5</td><td class="score">5</td><td class="score">3</td><td class="score">4</td><td class="score">4</td><td class="score">21</td></tr>
+        </tbody>
+      </table>
+
+      <h3>5.4 教育キャラとしての設計</h3>
+      <p>教育エージェント研究では、Expert、Motivator、Mentorのような役割を、外見・声・動き・台本まで一貫させることに意味がある。一方で、キャラクターを置くだけで学習が良くなるわけではなく、余計な動きや属性は外的認知負荷を増やしうる。<a href="#ref-baylor">[10]</a><a href="#ref-persona">[11]</a><a href="#ref-review">[12]</a><a href="#ref-counter">[13]</a></p>
+      <p>本案では先生を Expert 70%＋Mentor 30%、少年を Viewer proxy 60%＋Motivator 40%とする。先生の「正解」は短く、少年の「それって普通の言葉でいうと？」を挟むことで、装飾ではなく理解に寄与させる。</p>
+
+      <h3>5.5 台本とアニメーションのキャラクターバイブル</h3>
+      <table>
+        <thead><tr><th>要素</th><th>先生</th><th>少年</th></tr></thead>
+        <tbody>
+          <tr><td>基本テンポ</td><td>0.95倍程度。要点直前に短い間。</td><td>1.0倍。理解時に少し明るくなる。</td></tr>
+          <tr><td>口パク</td><td>小さめ。文節単位で閉口を挟む。</td><td>先生より少し大きいが、連続開閉を速くしすぎない。</td></tr>
+          <tr><td>主動作</td><td>クリップボードを見る、ペンで一点を示す、片眉。</td><td>上目遣い、肩が少し縮む、メモを取る、遅れて頷く。</td></tr>
+          <tr><td>補助動作</td><td>ポニーが一度だけ追従。常時揺らさない。</td><td>袖やメモが一度だけ追従。全身を上下させない。</td></tr>
+          <tr><td>禁止</td><td>常時の胸揺れ、少年へ身を寄せる、過剰なウインク。</td><td>毎回泣く、震え続ける、常に無知、過剰な赤面。</td></tr>
+          <tr><td>決め台詞</td><td>「では、症状を切り分けましょうか」</td><td>「つまり、ぼくでも試せる形にすると？」</td></tr>
+        </tbody>
+      </table>
+      <p>面白さは「規範違反だが無害」と同時に感じられると成立しやすいという benign violation の考え方が使える。先生の軽い意地悪は、少年が断れること、損害がないこと、最後に学びや小さな報酬があることを画面上で明示する。<a href="#ref-benign">[14]</a></p>
+
+      <details>
+        <summary>画像生成条件とプロンプト仕様</summary>
+        <p>全案で確定済みの先生とD3少年を参照し、顔・髪色・目の色・体格・基本衣装を固定した。白背景、全身、横並び、文字なし、強い追加記号は各人2個まで、成人女性と子どもの恋愛・性的相互作用なしを共通条件にした。各案の差分は <a href="lecture-character-design-prompts-2026-07-18.md">プロンプト仕様書</a>に保存している。</p>
+      </details>
+    </section>
+
+    <section id="gaps">
+      <h2>6. 残された空白と次の検証</h2>
+      <ol>
+        <li><strong>アクセサリーの決定:</strong> Aの回路聴診器を正式記号にするか、B/Dの髪飾りを併用するか。併用する場合も先生の恒常記号は2個まで。</li>
+        <li><strong>少年の小道具:</strong> Cのバッグは大きすぎる。黄色い小型メモだけに絞った状態で、D3の純朴さを保持できるか再生成する。</li>
+        <li><strong>表情セット:</strong> 各人5種（通常、説明、驚き、困り、決め）と、口形3種（閉・半開・開）を同一顔で作る。</li>
+        <li><strong>動画内縮小テスト:</strong> 1080p画面の左右端で高さ520〜620px、顔幅150px前後を基準に、髪飾り・小道具が残るか確認する。</li>
+        <li><strong>30秒の台本A/Bテスト:</strong> 同じ解説内容を A単独、A+B掛け合い、A+B+Cハイブリッドで作り、情報密度・好感・違和感を比較する。</li>
+        <li><strong>命名:</strong> 固有名は視覚と掛け合いが決まった後に行う。先に名前を固定すると設定に引っ張られるため、本報告では役割名に留めた。</li>
+      </ol>
+
+      <h3>採用を判断する簡易チェック</h3>
+      <ul>
+        <li>160px程度の顔表示でも、どちらか判別できるか。</li>
+        <li>小道具を見れば、その回で何をする人物か推測できるか。</li>
+        <li>少年がいなくても先生は魅力的で、先生がいなくても少年が疑問役として成立するか。</li>
+        <li>二人の掛け合いが、説明を遅くするのではなく、誤解を減らしているか。</li>
+        <li>“翻弄”の場面を音声なしで見ても、少年が嫌がっている／脅されているように見えないか。</li>
+      </ul>
+    </section>
+
+    <section id="references">
+      <h2>7. 参照文献・資料</h2>
+      <ol class="refs">
+        <li id="ref-dota"><a href="https://help.steampowered.com/en/faqs/view/0688-7692-4D5A-1935">Valve, Dota 2 Character Art Guide</a> — シルエット、明暗、色、細部の配分、文脈内評価。</li>
+        <li id="ref-riot-clarity"><a href="https://www.leagueoflegends.com/en-us/news/dev/ask-riot-let-s-talk-clarity/">Riot Games, Ask Riot: Let’s Talk Clarity</a> — キャラクターの輪郭と形状言語の一貫性。</li>
+        <li><a href="https://www.leagueoflegends.com/en-us/news/dev/preseason-item-shop-update/">Riot Games, Preseason Item Shop Update</a> — 小表示での固有輪郭・色・機能の伝達。</li>
+        <li id="ref-valorant"><a href="https://www.riotgames.com/en/news/valorant-shaders-and-gameplay-clarity">Riot Games, VALORANT Shaders and Gameplay Clarity</a> — 距離による細部の消失と輪郭可読性。</li>
+        <li id="ref-animation"><a href="https://learn.microsoft.com/en-us/windows/win32/lwef/animation-principles">Microsoft Learn, Animation Principles</a> — anticipation、timing、staging、secondary action、exaggeration。</li>
+        <li><a href="https://www.leagueoflegends.com/en-us/news/dev/champion-roadmap-september-2021/">Riot Games, Champion Roadmap: September 2021</a> — 一つの強いランドマークを残しつつ過剰さを抑える実例。</li>
+        <li id="ref-fluency"><a href="https://tiffaning.com/files/Reber%20et%20al_2004_Processing%20fluency%20and%20aesthetic%20pleasure.pdf">Reber, Schwarz &amp; Winkielman (2004), Processing Fluency and Aesthetic Pleasure</a> — 処理の容易さと肯定的な美的反応。</li>
+        <li id="ref-fiske"><a href="https://leeds-faculty.colorado.edu/dahe7472/Fiske-et-al-2002.pdf">Fiske et al. (2002), A Model of (Often Mixed) Stereotype Content</a> — 温かさと能力による社会的印象。</li>
+        <li id="ref-complementarity"><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC11233140/">Interpersonal complementarity in interactions</a> — 温かさの同調と、支配性・服従性の補完。</li>
+        <li id="ref-baylor"><a href="https://digitalcommons.usu.edu/itls_facpub/66/">Baylor &amp; Kim (2005), Simulating Instructional Roles through Pedagogical Agents</a> — Expert、Motivator、Mentorの役割設計。</li>
+        <li id="ref-persona"><a href="https://intellimedia.ncsu.edu/wp-content/uploads/sites/42/dap-chi-97.pdf">Lester et al. (1997), The Persona Effect</a> — エージェントが学習体験・励まし・明瞭性の知覚に与える影響。</li>
+        <li id="ref-review"><a href="https://www.sciencedirect.com/science/article/pii/S1877050922004264">Pedagogical Agent Persona Design Review (2022)</a> — 外見・表情・声・動きと外的認知負荷。</li>
+        <li id="ref-counter"><a href="https://pure.athabascau.ca/en/publications/animated-pedagogical-agents-the-effect-of-visual-information-on-a/">Animated pedagogical agents: the effect of visual information</a> — エージェントの効果が自動的ではない反例。</li>
+        <li id="ref-benign"><a href="https://pubmed.ncbi.nlm.nih.gov/20587696/">McGraw &amp; Warren (2010), Benign Violations</a> — 無害さと規範違反が同時に成立するユーモア。</li>
+        <li><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3260535/">Glocker et al. (2009), Baby schema in infant faces</a> — 丸い顔、大きな目、小さな鼻口が可愛さ・養護反応に与える影響。少年の丸顔を強めすぎない根拠にも使用。</li>
+        <li><a href="https://www.youtube.com/@chronoit">クロノIT公式YouTubeチャンネル</a>、<a href="https://www.youtube.com/watch?v=348DdatDa4A">チャンネル開設半年の振り返り動画</a> — 公開サムネイルと動画構成の実例観察。</li>
+      </ol>
+    </section>
+  </main>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#eaf2ff",
+        primaryTextColor: "#172033",
+        primaryBorderColor: "#667b9c",
+        lineColor: "#8d2c3c",
+        secondaryColor: "#fff5d9",
+        tertiaryColor: "#e6f6f5",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif'
+      },
+      flowchart: { curve: "basis" }
+    });
+  </script>
+</body>
+</html>

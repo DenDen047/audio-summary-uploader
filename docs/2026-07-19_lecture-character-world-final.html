@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>講義動画キャラクター＆世界観 — 最終設定</title>
+  <script>
+    const pageParams = new URLSearchParams(location.search);
+    const requestedTheme = pageParams.get("theme");
+    if (requestedTheme === "light" || requestedTheme === "dark") {
+      document.documentElement.dataset.theme = requestedTheme;
+    }
+  </script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8f7f5;
+      --surface: #ffffff;
+      --surface-2: #f1f3f6;
+      --ink: #25242a;
+      --muted: #6f7180;
+      --line: #dedee5;
+      --plum: #513446;
+      --plum-2: #755267;
+      --plum-soft: #f2e9ef;
+      --slate: #526078;
+      --slate-soft: #e8edf4;
+      --lime: #a6c94b;
+      --gold: #b68a43;
+      --ok: #31715d;
+      --warn: #9a5b45;
+      --shadow: 0 18px 50px rgba(44, 36, 43, .09);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #18171b;
+        --surface: #222126;
+        --surface-2: #2a292f;
+        --ink: #f2eef2;
+        --muted: #b5b0ba;
+        --line: #3b3941;
+        --plum: #d9a9c6;
+        --plum-2: #c68dad;
+        --plum-soft: #382a34;
+        --slate: #b8c7e0;
+        --slate-soft: #29303b;
+        --lime: #c5e563;
+        --gold: #dfb866;
+        --ok: #7fd1b4;
+        --warn: #e49a7c;
+        --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+      }
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #18171b;
+      --surface: #222126;
+      --surface-2: #2a292f;
+      --ink: #f2eef2;
+      --muted: #b5b0ba;
+      --line: #3b3941;
+      --plum: #d9a9c6;
+      --plum-2: #c68dad;
+      --plum-soft: #382a34;
+      --slate: #b8c7e0;
+      --slate-soft: #29303b;
+      --lime: #c5e563;
+      --gold: #dfb866;
+      --ok: #7fd1b4;
+      --warn: #e49a7c;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+    }
+    :root[data-theme="light"] { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 88% 4%, color-mix(in srgb, var(--plum-soft) 78%, transparent), transparent 31rem),
+        var(--bg);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
+      line-height: 1.75;
+    }
+    a { color: var(--plum-2); }
+    .layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 40px;
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 30px 0 90px;
+    }
+    .hero {
+      grid-column: 1 / -1;
+      position: relative;
+      overflow: hidden;
+      padding: 44px 48px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(130deg, var(--surface) 0 62%, var(--plum-soft));
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -120px;
+      width: 360px;
+      height: 360px;
+      border: 60px solid color-mix(in srgb, var(--lime) 18%, transparent);
+      border-radius: 50%;
+    }
+    .eyebrow {
+      color: var(--plum-2);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 800px;
+      margin: 10px 0 12px;
+      font-size: clamp(2rem, 5vw, 4rem);
+      line-height: 1.08;
+      letter-spacing: -.035em;
+    }
+    .hero .lead {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+    .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 20px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 10px;
+      border: 1px solid color-mix(in srgb, var(--plum) 40%, var(--line));
+      border-radius: 99px;
+      color: var(--plum);
+      background: color-mix(in srgb, var(--surface) 78%, transparent);
+      font-size: .78rem;
+      font-weight: 750;
+    }
+    nav {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      backdrop-filter: blur(12px);
+    }
+    nav strong { display: block; margin-bottom: 8px; font-size: .78rem; color: var(--muted); letter-spacing: .12em; }
+    nav a { display: block; padding: 7px 0; color: var(--ink); text-decoration: none; font-size: .88rem; }
+    nav a:hover { color: var(--plum-2); }
+    main { min-width: 0; }
+    section { margin: 0 0 56px; scroll-margin-top: 24px; }
+    h2 { margin: 0 0 16px; font-size: clamp(1.45rem, 3vw, 2rem); line-height: 1.25; }
+    h3 { margin: 0 0 7px; font-size: 1.05rem; }
+    p { margin: .45em 0 1em; }
+    .intro {
+      padding: 24px 26px;
+      border-left: 5px solid var(--plum-2);
+      border-radius: 0 16px 16px 0;
+      background: var(--plum-soft);
+      font-size: 1.08rem;
+    }
+    .callout {
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+    .callout strong { color: var(--plum-2); }
+    .cast-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+    .cast {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .portrait {
+      position: relative;
+      overflow: hidden;
+      height: 560px;
+      background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    }
+    .portrait img {
+      display: block;
+      position: absolute;
+      inset: 18px 20px 0;
+      width: calc(100% - 40px);
+      height: calc(100% - 18px);
+      object-fit: contain;
+      object-position: center bottom;
+    }
+    .asset-preview { display: grid; gap: 14px; margin-top: 16px; }
+    .asset-preview figure { overflow: hidden; margin: 0; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+    .asset-preview img { display: block; width: 100%; height: auto; }
+    .asset-preview figcaption { padding: 10px 14px 12px; color: var(--muted); font-size: .84rem; }
+    .cast-body { padding: 24px; }
+    .cast-kicker { color: var(--plum-2); font-size: .78rem; font-weight: 800; letter-spacing: .1em; }
+    .cast h3 { margin-top: 4px; font-size: 1.5rem; }
+    .cast h3 small { color: var(--muted); font-size: .78rem; font-weight: 500; }
+    dl { display: grid; grid-template-columns: 5.5em 1fr; gap: 8px 13px; margin: 16px 0 0; font-size: .91rem; }
+    dt { color: var(--muted); font-weight: 700; }
+    dd { margin: 0; }
+    .palette { display: flex; gap: 8px; margin: 16px 0 2px; }
+    .swatch { width: 34px; height: 34px; border: 3px solid var(--surface); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .pillar { padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+    .num { color: var(--plum-2); font-size: .75rem; font-weight: 900; letter-spacing: .12em; }
+    .world-map {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 20px 0;
+    }
+    .world-step {
+      position: relative;
+      min-height: 138px;
+      padding: 18px;
+      border-radius: 16px;
+      background: var(--slate-soft);
+    }
+    .world-step:not(:last-child)::after {
+      content: "→";
+      position: absolute;
+      right: -11px;
+      top: 50%;
+      z-index: 2;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--surface);
+      color: var(--plum-2);
+      text-align: center;
+      line-height: 20px;
+      font-weight: 900;
+    }
+    .world-step p { margin: 6px 0 0; color: var(--muted); font-size: .86rem; line-height: 1.55; }
+    .tech {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      padding: 24px;
+      border: 1px solid color-mix(in srgb, var(--lime) 45%, var(--line));
+      border-radius: 22px;
+      background: linear-gradient(135deg, var(--surface), color-mix(in srgb, var(--lime) 8%, var(--surface)));
+    }
+    .status-light {
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: var(--lime);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--lime) 20%, transparent);
+    }
+    .rules { margin: 0; padding-left: 1.2em; }
+    .rules li { margin: .4em 0; }
+    .relationship {
+      display: grid;
+      grid-template-columns: 1fr 90px 1fr;
+      align-items: center;
+      gap: 16px;
+    }
+    .rel-card { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+    .rel-mid {
+      display: grid;
+      place-items: center;
+      width: 86px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      color: white;
+      background: linear-gradient(135deg, var(--plum-2), var(--slate));
+      font-size: .75rem;
+      font-weight: 850;
+      text-align: center;
+      line-height: 1.35;
+      box-shadow: var(--shadow);
+    }
+    .dialogue { padding: 22px; border-radius: 18px; background: var(--surface-2); }
+    .line { display: grid; grid-template-columns: 4.5em 1fr; gap: 10px; margin: 10px 0; }
+    .speaker { color: var(--plum-2); font-weight: 800; }
+    .line.boy .speaker { color: var(--slate); }
+    table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); background: var(--surface); font-size: .9rem; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); background: var(--surface-2); font-size: .78rem; letter-spacing: .05em; }
+    .rails { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .rail { padding: 20px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); }
+    .rail.ok { border-top: 4px solid var(--ok); }
+    .rail.no { border-top: 4px solid var(--warn); }
+    .rail ul { margin-bottom: 0; padding-left: 1.2em; }
+    .foot { color: var(--muted); font-size: .84rem; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; gap: 24px; }
+      nav { position: static; }
+      nav a { display: inline-block; margin-right: 12px; }
+      .grid-3 { grid-template-columns: 1fr 1fr; }
+      .world-map { grid-template-columns: 1fr 1fr; }
+      .world-step:nth-child(2)::after { display: none; }
+    }
+    @media (max-width: 640px) {
+      .layout { width: min(100% - 24px, 1180px); padding-top: 12px; }
+      .hero { padding: 30px 24px; border-radius: 20px; }
+      .cast-grid, .grid-3, .tech, .rails { grid-template-columns: 1fr; }
+      .portrait { height: 500px; }
+      .world-map { grid-template-columns: 1fr; }
+      .world-step:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -11px; transform: translateX(50%); }
+      .world-step:nth-child(2)::after { display: block; }
+      .relationship { grid-template-columns: 1fr; }
+      .rel-mid { margin: 0 auto; }
+      dl { grid-template-columns: 4.8em 1fr; }
+      th, td { padding: 10px; }
+      table { display: block; overflow-x: auto; white-space: normal; }
+    }
+    @media print {
+      :root { color-scheme: light; --bg: white; --surface: white; --surface-2: #f4f4f6; --ink: #16151a; --muted: #595b66; --line: #d6d6dc; }
+      body { background: white; font-size: 10.5pt; }
+      .layout { display: block; width: 100%; padding: 0; }
+      nav { display: none; }
+      .hero, .cast { box-shadow: none; }
+      section, .cast, .pillar, .tech { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header class="hero">
+      <div class="eyebrow">Lecture Video Project / Character Bible</div>
+      <h1>キャラクター＆世界観<br>最終設定</h1>
+      <p class="lead">現代社会を舞台に、少しだけ都合のよい技術と逆転の余白を足す。魅力的な年上女性たちに囲まれた、押しに弱い少年系青年。その中心にいる澪との掛け合いで、ITを「自分にも使えそうな力」として見せる。</p>
+      <div class="meta">
+        <span class="tag">v2.0 Final</span>
+        <span class="tag">2026-07-19</span>
+        <span class="tag">主人公は成人（19歳）</span>
+        <span class="tag">公開動画は健全</span>
+      </div>
+    </header>
+
+    <nav aria-label="目次">
+      <strong>CONTENTS</strong>
+      <a href="#summary">01 コンセプト</a>
+      <a href="#cast">02 キャラクター</a>
+      <a href="#world">03 世界観</a>
+      <a href="#tech">04 催眠相当技術</a>
+      <a href="#relationship">05 二人の関係</a>
+      <a href="#engine">06 動画の物語エンジン</a>
+      <a href="#rails">07 表現レール</a>
+      <a href="#visual">08 ビジュアル運用</a>
+    </nav>
+
+    <main>
+      <section id="summary">
+        <h2>01. 一文コンセプト</h2>
+        <div class="intro"><strong>「先生に翻弄されながら、初心者の視点で専門家を救う。」</strong><br>色気は入口、ITの理解と小さな成功体験が出口。毎話、透が弱さをさらし、澪が包み込み、最後は透の素朴な疑問が解決の鍵になる。</div>
+        <p>世界はファンタジーではなく、現在の日本から半歩だけ進んだ都市生活。魅力的な大人、誘惑めいた偶然、催眠に近い装置、無名の人間にも突然チャンスが巡る配信経済が、現実より少し高い密度で存在する。いわゆる成人向け漫画の「何かが起きそう」という空気だけを借り、公開動画では知的コメディへ着地させる。</p>
+      </section>
+
+      <section id="cast">
+        <h2>02. メインキャラクター</h2>
+        <div class="cast-grid">
+          <article class="cast">
+            <div class="portrait"><img src="assets/lecture-characters/masters/mio_master_fullbody.png" alt="スモーキーバイオレットの髪とローズ色のニットをまとった紫ノ宮澪の最終全身立ち絵"></div>
+            <div class="cast-body">
+              <div class="cast-kicker">ADULT MENTOR / TEACHER</div>
+              <h3>紫ノ宮 澪 <small>しのみや・みお</small></h3>
+              <div class="meta"><span class="tag">30歳</span><span class="tag">包容力</span><span class="tag">完璧な実務家</span></div>
+              <dl>
+                <dt>肩書</dt><dd>地域のデジタル健康支援室「リフレーム・ラボ」の認定保健師兼、情報教育コーディネーター。動画では解説役。</dd>
+                <dt>性格</dt><dd>有能、誠実、観察力が高く、感情的にならない。相手を急かさず、失敗を恥にしない大人の包容力を持つ。一方で場を重くしない茶目っ気があり、透の純粋な照れに気づくと、答えを言い切らず反応を一歩だけ待って楽しむ。</dd>
+                <dt>色気</dt><dd>豊かな体型、落ち着いた視線、低い声、距離の詰め方で表現。深いVネックのラップニットと白衣を端正に着こなし、着崩しに頼らず本人の自信を見せる。</dd>
+                <dt>からかい</dt><dd>透の視線や動揺を見抜き、ときどき一言だけ揺さぶる。透が赤くなったら追い詰めず、何事もなかったように説明へ戻る。その余裕と切り替えの速さが、かえって透を意識させる。ただし逃げ道を残し、仕事・評価・治療を人質にしない。</dd>
+                <dt>人間味</dt><dd>他人の不安にはすぐ気づくのに、自分の疲れは後回しにしがち。透だけが先に気づくことがある。</dd>
+                <dt>言葉</dt><dd>固定の口癖は持たない。解説は明快だが、透をからかう時は主語や結論をあえて置かず、短い間と視線で続きを考えさせる。「『説明が』、でしょう？」「透くんが、そう思いたいなら」のように、二重の意味を残してから自然に授業へ戻る。</dd>
+              </dl>
+              <div class="palette" aria-label="澪のカラーパレット">
+                <span class="swatch" style="background:#4e304f"></span><span class="swatch" style="background:#ca6f8d"></span><span class="swatch" style="background:#f8f4f5"></span><span class="swatch" style="background:#2b1a32"></span><span class="swatch" style="background:#b7a43a"></span>
+              </div>
+            </div>
+          </article>
+
+          <article class="cast">
+            <div class="portrait"><img src="assets/lecture-characters/masters/toru_master_fullbody_v4_report.png" alt="原本D3に近い丸顔と自然な約5頭身を持つ、ハニーイエローのパーカーを着た麦野透の最終全身立ち絵"></div>
+            <div class="cast-body">
+              <div class="cast-kicker">YOUNG ADULT / BEGINNER VIEWPOINT</div>
+              <h3>麦野 透 <small>むぎの・とおる</small></h3>
+              <div class="meta"><span class="tag">19歳</span><span class="tag">少年系青年</span><span class="tag">初心者判定役</span></div>
+              <dl>
+                <dt>立場</dt><dd>IT系専門学校の一年生。リフレーム・ラボで動画制作と初心者テストを手伝う有給アシスタント。</dd>
+                <dt>性格</dt><dd>素直で善良だが、自信がなく、断るのが苦手。格好よく決めたいのに、褒められるとすぐ表情に出る。</dd>
+                <dt>恋愛観</dt><dd>知識がないのではなく経験が少ない。澪への尊敬・恋・身体的な惹かれを、自分の中でまだうまく分類できない。</dd>
+                <dt>弱さ</dt><dd>魅力的な相手に期待されると流されやすい。「自分なんか」と先回りして諦める癖がある。</dd>
+                <dt>強さ</dt><dd>理解できない説明を、分かったふりで通さない。初心者が再現できない限り「完成」と認めない。</dd>
+                <dt>成長</dt><dd>一発逆転を夢見るだけの側から、小さな検証を積み上げてチャンスを掴む側へ変わる。</dd>
+              </dl>
+              <div class="palette" aria-label="透のカラーパレット">
+                <span class="swatch" style="background:#25252a"></span><span class="swatch" style="background:#e6c45f"></span><span class="swatch" style="background:#f5f0e6"></span><span class="swatch" style="background:#302f46"></span><span class="swatch" style="background:#f0c4aa"></span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="world">
+        <h2>03. 世界観 — 「半歩先の現在」</h2>
+        <div class="grid-3">
+          <article class="pillar"><div class="num">01 / MODERN</div><h3>見慣れた日常</h3><p>学校、職場、動画配信、コンビニ、スマートフォンが生活の中心。魔法、異世界、超能力は存在しない。</p></article>
+          <article class="pillar"><div class="num">02 / HEIGHTENED</div><h3>年上女性に囲まれる日常</h3><p>透の生活圏で名前と役割を持つ大人は、全員20歳以上の魅力的な女性。誰もが有能で、自分の目的と生活を持つ。</p></article>
+          <article class="pillar"><div class="num">03 / REVERSAL</div><h3>逆転の余白</h3><p>肩書より実演が評価される公開課題と配信経済が発達。無名でも、ひとつの成果で仕事と注目を得られる。</p></article>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>周囲の大人ルール:</strong> 澪だけでなく、専門学校の講師、ラボの所長、依頼人、管理人、医師、SYNC監査官など、透の日常へ継続的に関わる大人は全員、魅力的な成人女性とする。優雅、快活、冷静、母性的、威圧的など魅力の型は分け、全員が透へ恋愛感情を持つわけではない。透は頻繁に目を奪われるが、彼女たちは攻略対象ではなく、それぞれの職能と意志で物語を動かす。</div>
+        <div class="world-map" aria-label="逆転が起きる世界の流れ">
+          <div class="world-step"><strong>社会的に埋もれる</strong><p>自信、学歴、人脈が足りず、透のような若者は入口で立ち止まりやすい。</p></div>
+          <div class="world-step"><strong>小さな道具を得る</strong><p>AI、公開データ、学習支援、認知インターフェースが能力差を一時的に縮める。</p></div>
+          <div class="world-step"><strong>公開の場で実演する</strong><p>ラボの動画や公開課題で、肩書ではなく再現可能な成果を見せる。</p></div>
+          <div class="world-step"><strong>一発逆転の入口</strong><p>仕事、協力者、視聴者が一気に集まる。ただし定着には継続と誠実さが必要。</p></div>
+        </div>
+        <div class="callout"><strong>世界の欲望設計:</strong> 透の周りには魅力的な年上女性しかいない。しかし「誰かに選ばれれば救われる」のではなく、誘惑の多い環境でも、弱い立場の成人が道具と公開機会を使って自分で逆転の入口を作れる世界とする。恋愛は成果の賞品ではなく、成長の横で揺れる感情として扱う。</div>
+      </section>
+
+      <section id="tech">
+        <h2>04. 催眠相当技術 — 誘導同期端末〈SYNC〉</h2>
+        <div class="tech">
+          <div>
+            <h3><span class="status-light"></span>できること</h3>
+            <p>視線誘導、音声、微弱な触覚刺激、呼吸計測を組み合わせ、本人が許可した範囲で集中・安心・暗示への反応性を一時的に高める。俗に「催眠端末」と呼ばれるが、実態は臨床と学習支援から生まれた認知インターフェース。</p>
+            <p>学習への集中、恐怖反応の緩和、習慣づくり、娯楽イベントの没入演出に使われる。強い機種なら、同意した成人を短時間「言葉に流されやすい状態」にできる。</p>
+          </div>
+          <div>
+            <h3>物語上の安全ロック</h3>
+            <ul class="rules">
+              <li>成人本人の生体認証と、目的別の明示同意が必要。</li>
+              <li>稼働中は黄緑のリングが点灯し、全セッションを自動記録。</li>
+              <li>性的同意、契約、送金、犯罪、医療判断は暗示の対象外。</li>
+              <li>停止語・15分上限・第三者監査が標準。澪は認定管理者。</li>
+              <li>違法改造品は事件の背景にだけ登場し、主人公側は使わない。</li>
+            </ul>
+          </div>
+        </div>
+        <p class="foot">立ち絵には端末を持たせない。通常回ではデスク上の設備や画面UIとしてのみ登場させ、キャラクター固有の謎アイテムにはしない。</p>
+      </section>
+
+      <section id="relationship">
+        <h2>05. 二人の関係 — 余裕と動揺、専門と初心者</h2>
+        <div class="relationship">
+          <div class="rel-card"><h3>澪が与えるもの</h3><p>安心、専門知識、適切な挑戦、失敗しても戻れる場所。透の憧れと欲を見抜くが、利用せず、軽いからかいで自覚させる。「自立しても会いに来ていい」という余白を渡し、教師と生徒だけではない感情を少しずつ育てる。</p></div>
+          <div class="rel-mid">成人同士の<br>信頼と緊張</div>
+          <div class="rel-card"><h3>透が返すもの</h3><p>初心者の違和感、率直な質問、予想外の観察。澪の完璧な説明が「分かる人向け」になった時、唯一止められる。</p></div>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>関係の土台:</strong> 澪は透の担当医でも成績評価者でもない。透は有給アシスタントで、拒否・退室・担当変更ができる。だからこそ、年上の余裕と若者の動揺を安心してコメディにできる。</div>
+        <h3 style="margin-top:26px">会話の温度</h3>
+        <div class="dialogue">
+          <div class="line"><span class="speaker">澪</span><span>「そんなに見つめても、答えは出ないわよ」</span></div>
+          <div class="line boy"><span class="speaker">透</span><span>「み、見てません。画面の反射を……」</span></div>
+          <div class="line"><span class="speaker">澪</span><span>「そう？　じゃあ……こっちを見ても、平気よね」</span></div>
+          <div class="line boy"><span class="speaker">透</span><span>「……この手順、初心者には再現できません」</span></div>
+          <div class="line"><span class="speaker">澪</span><span>「そこ、見落としてたわ。じゃあ最初から——付き合ってくれる？」</span></div>
+          <div class="line boy"><span class="speaker">透</span><span>「えっ」</span></div>
+          <div class="line"><span class="speaker">澪</span><span>「手順の確認よ。……何を想像したの？」</span></div>
+        </div>
+      </section>
+
+      <section id="engine">
+        <h2>06. 動画の物語エンジン</h2>
+        <div class="world-map">
+          <div class="world-step"><strong>誘惑／困りごと</strong><p>便利すぎるAI、魅力的な依頼人、怪しい端末など「使いたくなるもの」が現れる。</p></div>
+          <div class="world-step"><strong>透が流される</strong><p>期待、承認、近い距離に弱く、少し先走る。視聴者の素朴な欲を代弁する。</p></div>
+          <div class="world-step"><strong>澪が分解する</strong><p>仕組み・危険・正しい使い方を、包容力と軽いからかいで説明する。</p></div>
+          <div class="world-step"><strong>初心者が逆転</strong><p>透の疑問が専門家の盲点を突き、再現可能な手順に直して小さく勝つ。</p></div>
+        </div>
+        <table>
+          <thead><tr><th>エピソード種</th><th>色気／誘惑の入口</th><th>IT解説の本体</th><th>透の逆転点</th></tr></thead>
+          <tbody>
+            <tr><td>AIエージェント</td><td>「何でも言うことを聞く秘書」という広告</td><td>権限、プロンプトインジェクション、監査ログ</td><td>初心者の一言で危険な自動実行を止める</td></tr>
+            <tr><td>SYNC体験</td><td>澪の声に合わせる公開デモ</td><td>同意UI、停止条件、センサーデータ</td><td>同意文が難しすぎると指摘し設計を直す</td></tr>
+            <tr><td>おすすめ機能</td><td>好みを見透かすほど当たる推薦</td><td>行動履歴、フィルターバブル、オプトアウト</td><td>「当たる」と「望む」は違うと気づく</td></tr>
+            <tr><td>音声合成</td><td>理想の声で褒め続けるアプリ</td><td>音声クローン、権利、ウォーターマーク</td><td>本人確認より先に用途確認が必要と見抜く</td></tr>
+            <tr><td>公開課題</td><td>一夜で人生が変わる高額案件</td><td>再現性、評価指標、詐欺の兆候</td><td>派手さより検証ログで本物を証明する</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="rails">
+        <h2>07. 「少しエロ漫画的」でも健全に見せる表現レール</h2>
+        <div class="rails">
+          <div class="rail ok"><h3>使ってよい</h3><ul><li>成人同士の視線、間、赤面、近い距離</li><li>二重の意味に聞こえるが、解説へ戻る台詞</li><li>澪が透の憧れを見抜く軽いからかい</li><li>体型の魅力が分かる、上品で整った服</li><li>「何か起きそう」で止める導入とサムネ</li><li>同意済みのSYNCデモと、即時停止できるUI</li></ul></div>
+          <div class="rail no"><h3>使わない</h3><ul><li>未成年を性的・恋愛的な掛け合いに置くこと</li><li>催眠中の性的行為、契約、告白、金銭判断</li><li>立場や評価を使って断れなくする展開</li><li>覗き、盗撮、身体接触を成功報酬にする構図</li><li>女性を「勝者へ与えられる賞品」にする結末</li><li>装置の違法改造を再現できる具体的手順</li></ul></div>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>公開版の原則:</strong> サムネでは色気と困惑で引き、冒頭30秒で「成人・同意・検証」の前提を示し、本編は実用的なIT知識へ着地する。裏設定が濃くても、一本の動画だけ見た視聴者に不健全な状況と誤読させない。</div>
+      </section>
+
+      <section id="visual">
+        <h2>08. ビジュアル運用メモ</h2>
+        <div class="grid-3">
+          <article class="pillar"><div class="num">COLOR</div><h3>二人を同じ画面に置く</h3><p>透の落ち着いたハニーイエローと澪のスモーキーバイオレットを補色寄りに対比させ、透の紫みのネイビーと澪のローズ色で両者を穏やかにつなぐ。黄緑は澪の瞳とSYNC稼働表示だけに限定し、肌の色温度と影色は共通化する。</p></article>
+          <article class="pillar"><div class="num">SILHOUETTE</div><h3>役割を一秒で読む</h3><p>澪は曲線・白衣・片手の説明ポーズ。透は大きめの服・内向きの手・わずかな上目遣い。謎の持ち物は足さない。</p></article>
+          <article class="pillar"><div class="num">MOTION</div><h3>掛け合いを動きで示す</h3><p>澪はゆっくりした瞬きと控えめな口パク、透は一拍遅い反応と小さな肩の動き。非発話者を暗くせず、話者だけを動かす。</p></article>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>最終立ち絵:</strong> 澪はスモーキーバイオレットの髪、光のある黄緑の瞳、ローズ色のVネックニット、白衣、黒紫のタイトスカートを採用。豊かな上半身と明確なくびれを残しつつ、ヒップは自然な幅へ調整した。透は素朴なパーカーとハーフパンツを維持し、服を落ち着いたハニーイエローと紫みのネイビーへ変更。体型は原本D3に近い約5頭身とし、横に丸い頬、大きな目、短い首、短めの胴と手足、狭いなで肩によって、成人びた青年顔ではない純朴さを戻した。二人を並べた時は黄と紫の対比で役割を一目で分ける。</div>
+        <div class="callout" style="margin-top:16px"><strong>動画素材の基準:</strong> 本番用リアクションは1400×1600 pxの背景透過PNGとする。二人とも640px高の同一カメラキャンバスへ変換し、左右の透明余白だけを除いて、頭頂位置を持つ縦余白は残す。透は全ポーズを外接高1325px・<code>y=275</code>へ統一し、縦横比や骨格を変えない。これにより顔は澪の約8〜9割、頭頂は澪より約70px低く見え、遠近法の破綻と不自然な長身化を避ける。同じ人物では全ポーズを同じ倍率・同じ内部縦位置で合成する。澪は画面左から中央を向き、透は画面右から中央を向く。非発話者は暗くせず、話者側の口パク・瞬き・小さな身体動作だけで発話を示す。正本と派生素材の一覧は<a href="assets/lecture-characters/README.md">素材README</a>を参照する。</div>
+        <div class="callout" style="margin-top:16px"><strong>恋愛感情の記号:</strong> 澪は瞳の小さなハート型キャッチライト、柔らかな目元、控えめな赤面で「分かっていて返す好意」を示す。透は大きなハート瞳、強い赤面、汗、手の動きで「隠せない動揺」を示す。ハート瞳はSYNCや催眠とは無関係な恋愛コメディの記号とし、常用せず、感情が大きく動いた一瞬だけ表示する。</div>
+        <div class="asset-preview">
+          <figure><img src="assets/lecture-characters/contact-sheets/mio_reactions_v2_normalized.png" alt="見かけの身長を統一した澪の説明、要点、からかい、注意のリアクション一覧"><figcaption>澪：説明／要点／からかい／注意。カメラ距離と見かけの身長を全ポーズで統一した。</figcaption></figure>
+          <figure><img src="assets/lecture-characters/contact-sheets/toru_reactions_v5_youthful.png" alt="原本D3に近い約5頭身を維持して再生成した透の7種類の動画用リアクション一覧"><figcaption>透：通常4種＋恋愛3種。丸い頬、短い首、短い手足を維持し、全ポーズを外接高1325px・y=275へ統一した。</figcaption></figure>
+          <figure><img src="assets/lecture-characters/contact-sheets/video_layout_preview_v6_youthful_same_camera.png" alt="同じ640ピクセルのカメラキャンバスで澪と約5頭身の透を置いた1920×1080配置例"><figcaption>実装値による1920×1080配置例。透の骨格を伸ばさず、素材内の縦余白で自然な身長差を表している。</figcaption></figure>
+          <figure><img src="assets/lecture-characters/contact-sheets/mio_romance_reactions_v1.png" alt="澪の好意、ウインク、照れを表す恋愛コメディ用リアクション"><figcaption>澪：好意／ウインク／照れ。余裕を基本にしながら、透の真剣な言葉には珍しく動揺する。</figcaption></figure>
+          <figure><img src="assets/lecture-characters/contact-sheets/romance_pair_scenes_v4_youthful.png" alt="約5頭身の純朴な少年体型を維持した感情リアクションを三組の掛け合いとして配置した例"><figcaption>推奨3組：説明を聞く／からかわれて動揺／感情が大きく動く瞬間。同じカメラキャンバスと太もも上のフレーミングで並べる。</figcaption></figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>参考資料・改訂</h2>
+        <ul>
+          <li><a href="lecture-character-design-v2-2026-07-18.html">R2基準のキャラクターデザイン調査</a></li>
+          <li><code>assets/lecture-characters/masters/mio_master_fullbody.png</code> — 澪の最終立ち絵（配色マスター）</li>
+          <li><code>assets/lecture-characters/masters/mio_master_fullbody_transparent.png</code> — 澪の配色マスター背景透過版</li>
+          <li><code>assets/lecture-characters/masters/toru_master_fullbody_v4.png</code> — 透の原本D3に近い約5頭身版最終立ち絵（マスター）</li>
+          <li><code>assets/lecture-characters/reactions/toru-v4/</code> — 外接高1325px・y=275へ統一した透の本番用リアクション</li>
+        </ul>
+        <p class="foot"><strong>v2.2（2026-07-20）:</strong> 澪の指差し説明ポーズを、マスターの胸郭・バスト・腰・ヒップ比率へ戻して再生成。掛け合いは、澪が透の照れを見抜いて一歩だけ踏み込み、追い詰めずに解説へ戻る構造へ改訂した。<br><strong>v2.1（2026-07-20）:</strong> 澪の配色を、深いスモーキープラム髪・ローズマゼンタのニット・黒紫のスカートへ統一。マスター、閉口・開口、説明・要点・褒め・視聴者向け・感情差分を同じ色参照から再制作し、一覧とレポート画像も更新した。開口差分は閉口画像へ口元だけを局所合成し、色や輪郭のちらつきを防いだ。</p>
+        <p class="foot"><strong>v2.0（2026-07-20）:</strong> v1.9版で透の顔が青年寄りになっていたため、原本D3の横に丸い頬、大きな目、短い首、狭いなで肩を基準に約5頭身で再生成。通常4種・感情3種を同じ比率で揃え、全ポーズを外接高1325px・y=275へ統一した。口パクは開口画像を丸ごと切り替えず、閉口画像へ口元だけを局所合成して全身の微振動を防いだ。</p>
+        <p class="foot"><strong>v1.9（2026-07-20）:</strong> 透の7頭身化を撤回し、約5.8頭身の自然な少年体型で全身とリアクション7種を画像生成から再制作。二人を別々の表示高へ縮小する方式をやめ、同じ640pxカメラキャンバスの縦余白で身長差を保持する方式へ変更した。動画用は骨格を変形せず太もも上へ寄り、口パク差分も新しい顔サイズに合わせて更新した。</p>
+        <p class="foot"><strong>v1.8（2026-07-19）:</strong> 透を約7頭身で画像生成から再設計し、通常4種・恋愛3種のリアクションも同じ体格で再生成。表示比を66%から92%へ変更し、二人の頭部サイズとカメラ距離を揃えた。口パク差分は口元だけを局所合成して、全身が点滅しない素材へ更新した。</p>
+        <p class="foot"><strong>v1.7（2026-07-19）:</strong> 恋愛コメディ用に澪3種・透3種の感情リアクションを追加。ハート瞳、赤面、汗、ウインクの強度を性格ごとに分け、推奨する3組の掛け合いを定義した。<br><strong>v1.6（2026-07-19）:</strong> 同一人物の全リアクションを固定スケールへ統一。1920×1080で澪980px、透650px（約66%）の表示高とし、透の頭頂が澪の胸付近へ来る身長差を確定した。<br><strong>v1.5（2026-07-19）:</strong> 二人の確定立ち絵をマスターフォルダへ集約。動画の左右配置、透過PNG、共通キャンバス、下端中央基準を定義し、澪4種・透4種の初期リアクションと1920×1080配置例を追加した。<br><strong>v1.4（2026-07-19）:</strong> 透の黄色を落ち着いたハニー色へ、ハーフパンツを紫みのネイビーへ調整。顔・素朴さ・ポーズを維持しながら、線の強弱、肌影、髪と布の描写密度を澪の最終立ち絵へ統一した。<br><strong>v1.3（2026-07-19）:</strong> 最終立ち絵を確定。澪はスモーキーバイオレット髪、ローズ色ニット、黄緑の瞳を採用し、塗り・手・パンプス・体型を本番品質へ調整。透は黄色パーカー版へ変更し、二人の黄紫対比と動画上の識別性を確定した。<br><strong>v1.2（2026-07-19）:</strong> 透の顔・体型・ポーズ・服の形を維持し、スウェットを明るいスカイブルーへ変更。素朴さを失わず、動画上で澪と並んでも埋もれない明度へ調整。<br><strong>v1.1（2026-07-19）:</strong> 澪の語り口を、説明し切らず相手に続きを想像させる自然な大人の会話へ修正。透の生活圏に登場する大人を、全員20歳以上の魅力的な女性とする世界ルールを追加。<br><strong>v1.0（2026-07-19）:</strong> 先生の「代価」設定を廃止し、完璧な実務能力と大人の包容力を中心へ再構成。主人公を19歳の成人として固定し、現代・誘導同期技術・成人向けコメディの空気・弱者逆転の物語エンジンを統合した。</p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

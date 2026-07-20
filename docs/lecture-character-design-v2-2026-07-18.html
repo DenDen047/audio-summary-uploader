@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>講義動画キャラクターデザイン — R2基準の再設計調査</title>
+  <style>
+    :root{
+      --ink:#222033;--muted:#686579;--line:#e5deea;--paper:#fffaf5;--panel:#fff;
+      --plum:#5c294f;--plum2:#8d4977;--mint:#a9d6c1;--gold:#dba64a;--rose:#fff0f4;
+      --blue:#316c99;--green:#24705f;--danger:#a13a4c;--shadow:0 20px 58px rgba(74,42,68,.10)
+    }
+    *{box-sizing:border-box}html{scroll-behavior:smooth}
+    body{margin:0;color:var(--ink);background:
+      radial-gradient(circle at 7% 1%,rgba(169,214,193,.30),transparent 28rem),
+      radial-gradient(circle at 92% 4%,rgba(219,166,74,.20),transparent 31rem),var(--paper);
+      font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic","Noto Sans JP",sans-serif;line-height:1.75}
+    a{color:var(--blue);text-underline-offset:3px}img{max-width:100%;display:block}
+    .wrap{width:min(1160px,calc(100% - 32px));margin:auto}
+    header{padding:68px 0 48px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.76)}
+    .eyebrow{font-size:.78rem;font-weight:850;letter-spacing:.13em;color:var(--plum2)}
+    h1{max-width:18ch;margin:.4rem 0 .9rem;font-size:clamp(2rem,5vw,4.25rem);line-height:1.12;letter-spacing:-.045em}
+    .lead{max-width:850px;color:var(--muted);font-size:1.08rem}.meta{font-size:.86rem;color:var(--muted)}
+    nav{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:1.2rem}
+    nav a{padding:.38rem .68rem;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);text-decoration:none;font-size:.83rem}
+    main{padding:28px 0 90px}section{margin:30px 0;padding:34px;border:1px solid var(--line);border-radius:24px;background:rgba(255,255,255,.96);box-shadow:var(--shadow)}
+    h2{margin:0 0 1rem;font-size:clamp(1.45rem,3vw,2.05rem);line-height:1.3}h3{margin:1.7rem 0 .5rem;font-size:1.18rem}h4{margin:1.1rem 0 .3rem}
+    p{margin:.58rem 0}ul,ol{padding-left:1.35rem}li+li{margin-top:.34rem}
+    .nugget,.counter{padding:19px 22px;border-radius:0 15px 15px 0}.nugget{border-left:6px solid var(--gold);background:#fff8df;font-size:1.08rem;font-weight:750}.counter{margin-top:12px;border-left:6px solid var(--danger);background:#fff1f3}
+    .grid2,.grid3,.case-grid{display:grid;gap:18px}.grid2,.case-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .box,.case,.character{padding:20px;border:1px solid var(--line);border-radius:17px;background:#fff}.box h3,.case h3,.character h3{margin-top:0}
+    .case{border-top:5px solid var(--plum2)}.case.safe{border-top-color:var(--green)}.case.adult{border-top-color:var(--plum2)}
+    .figure{margin:1.2rem 0;padding:14px;border:1px solid var(--line);border-radius:18px;background:#f9f6fa}.figure img{max-height:1000px;margin:auto;border-radius:12px;object-fit:contain}
+    figcaption{margin-top:.6rem;color:var(--muted);font-size:.84rem}
+    table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.91rem}th,td{padding:.7rem .62rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f7f2f7;font-size:.82rem}
+    .tag{display:inline-block;margin:.12rem .2rem .12rem 0;padding:.16rem .5rem;border-radius:999px;background:#f1e8ef;color:var(--plum);font-size:.77rem;font-weight:800}
+    .rule{padding:18px 20px;border:1px solid #ead49d;border-radius:15px;background:#fff9e9}.warning{padding:18px 20px;border:1px solid #efc8cf;border-radius:15px;background:#fff4f5}
+    .relationship{display:grid;grid-template-columns:11rem 1fr;gap:12px;padding:.72rem 0;border-bottom:1px dashed var(--line)}.relationship strong{color:var(--plum)}
+    .dialogue{padding:1rem 1.1rem;border-radius:13px;background:#f7f3f8;color:#40384a}.note{color:var(--muted);font-size:.86rem}
+    .mermaid{margin:1rem 0;padding:18px;border:1px solid var(--line);border-radius:16px;background:#fff;text-align:center;overflow:auto}
+    .gaps li{margin:.55rem 0;padding:.65rem .8rem;border-left:4px solid var(--mint);border-radius:0 8px 8px 0;background:#f1fbf7;list-style:none}
+    .references{font-size:.88rem}.references li{margin-bottom:.62rem}code{padding:.1rem .32rem;border-radius:5px;background:#f1edf2}
+    details{margin-top:1rem;padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:#fbf8fb}summary{cursor:pointer;font-weight:800}
+    @media(max-width:780px){.grid2,.grid3,.case-grid{grid-template-columns:1fr}section{padding:23px 18px;border-radius:18px}.relationship{grid-template-columns:1fr;gap:2px}table{display:block;overflow-x:auto;white-space:nowrap}}
+    @media print{nav{display:none}body{background:#fff}.wrap{width:100%}section{box-shadow:none;break-inside:avoid}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="eyebrow">CHARACTER DESIGN SURVEY / R2-BASED UPDATE</div>
+      <h1>「大きくする」だけでなく、一秒で役と関係を読ませる</h1>
+      <p class="lead">ユーザーが選んだ「保健室の取引屋」を基準に、髪の部分染めを廃止し、先生の誇張、少年の弱気さ、二人を動かす取引ルールを再設計した。VTuber成功例とYouTube公式方針を照合し、11歳維持版と成人版を分けて提案する。</p>
+      <p class="meta">audio-summary-uploader 講義動画プロトタイプ / 2026年7月18日更新 / 公式情報中心・公開Web調査 / 外部AIレビューは利用環境の未認証により未実施</p>
+      <nav aria-label="目次">
+        <a href="#glossary">用語</a><a href="#tldr">要旨</a><a href="#conclusion">結論</a><a href="#question">問い</a>
+        <a href="#map">全体マップ</a><a href="#analysis">分析</a><a href="#gaps">空白</a><a href="#references">参照文献</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section id="glossary">
+      <h2>用語</h2>
+      <table>
+        <thead><tr><th>用語</th><th>この文書での意味</th></tr></thead>
+        <tbody>
+          <tr><td><strong>保健室の取引屋</strong></td><td>従来候補R2。プラム色の先生、ミント色の少年、丸いトークンを核にした案。</td></tr>
+          <tr><td><strong>一秒記号</strong></td><td>縮小された画像でも一目で役割を伝える大きな形・色・小道具。<strong>この文書だけの便宜的な呼び方で、業界標準語ではない。</strong></td></tr>
+          <tr><td><strong>関係エンジン</strong></td><td>毎話の掛け合いを自然に発生させる約束事。<strong>この文書だけの便宜的な呼び方で、脚本上の反復ルールを短く示すために使う。</strong></td></tr>
+          <tr><td><strong>初心者判定</strong></td><td>少年が「初見でも分かる説明か」を判定できる固有の権限。</td></tr>
+          <tr><td><strong>健全な師弟版</strong></td><td>少年を11歳に保ち、憧れと承認を中心に据える公開設定。</td></tr>
+          <tr><td><strong>成人版</strong></td><td>少年らしい外見と未熟さを残しながら、年齢を19歳以上と明記する設定。</td></tr>
+          <tr><td><strong>広告適合</strong></td><td>YouTubeの広告掲載に向く表現範囲。コミュニティガイドラインを満たすだけでなく、広告主向け規則も考慮する。</td></tr>
+          <tr><td><strong>縮小テスト</strong></td><td>YouTube一覧に近い小さなサイズで、顔・色・役割が残るかを見る確認。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="tldr">
+      <h2>TL;DR</h2>
+      <p class="nugget">R2を強くする鍵は胸の大きさ単独ではなく、豊満な輪郭・保健医の大記号・取引ギャグを同じ一秒で読ませることにある。</p>
+      <p class="counter">ただし少年を11歳に保つなら、恋愛や性的なからかいは切り離し、承認をめぐる健全な師弟コメディに限る。</p>
+    </section>
+
+    <section id="conclusion">
+      <h2>結論: 結局、何をすればいいのか</h2>
+      <h3>前提となる気づき</h3>
+      <ol>
+        <li><strong>先生はもっと誇張してよい</strong>: 豊満な成人の体型を明確にしつつ、大きなリボン、曲線的な白衣、丸い缶を同時に強める。体型だけを強めると、保健医ではなく一般的な美人へ戻る。</li>
+        <li><strong>少年には弱点と権限を一つずつ持たせる</strong>: 褒められると頼みを断れない一方、「初心者には分からない」と言える判定権は譲らない。</li>
+        <li><strong>望む緊張感で年齢を決める</strong>: 健全な憧れなら11歳版、恋や身体的な惹かれまで扱うなら19歳以上版にする。</li>
+      </ol>
+
+      <h3>来週月曜から始める3個のこと</h3>
+      <h4>(1) 公開設定の年齢分岐を固定する</h4>
+      <ul>
+        <li><strong>何をするか</strong>: 11歳版と19歳版のどちらを本編に採用するか決め、プロフィールに年齢を明記する。</li>
+        <li><strong>なぜか</strong>: 同じ台詞でも、相手が未成年か成人かで意味とYouTube上の扱いが変わるため。</li>
+        <li><strong>最初の一歩</strong>: 恋愛的な駆け引きを残したいなら、19歳の専門学校生兼アルバイト助手として確定する。</li>
+        <li><strong>この推奨が崩れる前提</strong>: 恋愛要素を外し、親しみやすい学校向け解説へ振り切るなら11歳版が合う。</li>
+      </ul>
+      <h4>(2) R2の外見を三段階で生成する</h4>
+      <ul>
+        <li><strong>何をするか</strong>: 髪を単色プラムに固定し、「曲線強化」「記号強化」「サムネイル強化」の三案を同じ構図で比較する。</li>
+        <li><strong>なぜか</strong>: Riotの制作例は、完成前の小さなラフで複数案を比べ、人物の本質を一目で伝える形を選んでいる。<sup class="cite"><a href="#ref-1" title="Astra: From Sketch to Key Art">[1]</a></sup></li>
+        <li><strong>最初の一歩</strong>: 顔・髪型・目色を固定し、体型、リボン、白衣の裾だけを一段ずつ強める。</li>
+        <li><strong>この推奨が崩れる前提</strong>: 顔まで同時に変えると、R2の好みを保った比較にならない。</li>
+      </ul>
+      <h4>(3) 320×180で先に落とす</h4>
+      <ul>
+        <li><strong>何をするか</strong>: 各案を小さくし、顔、プラム、ミント、丸いトークンだけで二人を識別できるか確認する。</li>
+        <li><strong>なぜか</strong>: YouTube自身も一貫した色と見た目がチャンネルの記憶を助けるとしている。<sup class="cite"><a href="#ref-2" title="Channel banner and profile picture tips">[2]</a></sup></li>
+        <li><strong>最初の一歩</strong>: 文字なしの二人絵を三人に5秒だけ見せ、職業と関係を答えてもらう。</li>
+        <li><strong>この推奨が崩れる前提</strong>: 動画内だけの立ち絵でサムネイルに出さない場合は、縮小の優先度を下げられる。</li>
+      </ul>
+
+      <h3>その後の優先順位</h3>
+      <ul>
+        <li><strong>週4–5</strong>: 選んだ全身マスターから、通常・説明・からかい・困惑・逆転・照れの腰上素材を作る。</li>
+        <li><strong>週6–7</strong>: 「ヒント一つにつき検証一回」の取引ルールで30秒の掛け合いを三本作る。</li>
+        <li><strong>週8–9</strong>: 同じ題材でサムネイルを二案ずつ作り、クリック率だけでなく視聴維持も比べる。</li>
+      </ul>
+
+      <h3>やらないこと</h3>
+      <ul>
+        <li><strong>髪の一部だけ別色にする</strong>: R2では髪全体を深いプラム一色にし、差し色はリボンと金具に任せる。</li>
+        <li><strong>胸だけを画面の中心にする</strong>: YouTubeは胸部を長く強調する構図や、強く性的なサムネイルを制限・広告不適合の判断材料にする。挑発的なサムネイルは拒否や権限停止の対象にもなり得る。<sup class="cite"><a href="#ref-10" title="Add custom thumbnails on YouTube">[10]</a></sup><sup class="cite"><a href="#ref-12" title="Nudity and Sexual Content Policy">[12]</a></sup><sup class="cite"><a href="#ref-13" title="Advertiser-friendly content guidelines">[13]</a></sup><sup class="cite"><a href="#ref-14" title="Thumbnails policy">[14]</a></sup></li>
+        <li><strong>11歳の少年へ性的に揺さぶる台詞を向ける</strong>: YouTubeは18歳未満を未成年とし、未成年の性的対象化を禁じている。<sup class="cite"><a href="#ref-11" title="Child safety policy">[11]</a></sup></li>
+      </ul>
+
+      <h3>検証指標</h3>
+      <ul>
+        <li><strong>五秒理解</strong>: 初見10人中8人以上が「保健医」「弱気な助手」「何かを交換する二人」のうち二つ以上を答える。</li>
+        <li><strong>縮小識別</strong>: 320×180で、名前なしでも従来案と見分けられる回答が80%以上になる。</li>
+        <li><strong>掛け合いの記憶</strong>: 三本視聴後、半数以上が「代価はひとつ」「初心者判定」のどちらかを自発的に思い出す。</li>
+      </ul>
+    </section>
+
+    <section id="question">
+      <h2>問い</h2>
+      <p>R2の好まれた顔と雰囲気を保ちながら、YouTube一覧で埋もれない外見と、繰り返し見たくなる二人の関係をどう作るか。成功しているVTuberの設定から何を移植し、年齢による表現境界をどこに置くべきか。</p>
+      <p class="meta">読者: キャラクターと講義動画を制作する本人。目的は、次の画像生成と短尺試作に使える判断基準を作ること。</p>
+    </section>
+
+    <section id="map">
+      <h2>全体マップ</h2>
+      <div class="mermaid">
+flowchart LR
+  A[一秒で読める核] --> B[豊満な成人の輪郭]
+  A --> C[保健医の大記号]
+  A --> D[取引ギャグ]
+  B --> E[先生の余裕と主導]
+  C --> E
+  D --> F[少年の弱気と判定権]
+  E --> G{少年の年齢}
+  F --> G
+  G -->|11歳| H[承認をめぐる健全な師弟コメディ]
+  G -->|19歳以上| I[恋愛を含む駆け引き]
+  H --> J[幅広い視聴者と広告に合わせやすい]
+  I --> K[台詞とサムネイルは穏当さを保つ]
+      </div>
+      <p>見た目と設定は別々に作らない。先生の大きな曲線は「余裕」を、丸いトークンは「条件を出す癖」を、少年の大きな袖と斜めのバッジは「弱気だが役目がある」を伝える。年齢だけは途中で曖昧にせず、関係の出口を二つに分ける。</p>
+    </section>
+
+    <section id="analysis">
+      <h2>論点ごとの分析</h2>
+
+      <h3>1. 強いキャラは、形より先に「一文の矛盾」を持つ</h3>
+      <p>Riotの制作解説は、人物の態度・性格・固有特徴をラフ段階から意識し、写実性よりも人物を一目で理解できる面白い形を優先している。<sup class="cite"><a href="#ref-1" title="Astra: From Sketch to Key Art">[1]</a></sup> YouTubeも、ブランドを覚えてもらうには画像・雰囲気・声を一貫させることを勧めている。<sup class="cite"><a href="#ref-2" title="Channel banner and profile picture tips">[2]</a></sup></p>
+      <p>したがって、先生を単に巨乳にするのでは弱い。「完璧に見えるのに、人に頼む時は取引へ置き換えがちな保健医」と定義し、体型、白衣、トークン、台詞を同じ方向へ寄せる。少年は「押しに弱いのに、初心者判定だけは曲げない助手」とする。</p>
+
+      <h3>2. 成功例から移せるのは、体型ではなく“重ね方”</h3>
+      <table>
+        <thead><tr><th>参照例</th><th>公式設定で強い要素</th><th>今回へ移すもの</th><th>移さないもの</th></tr></thead>
+        <tbody>
+          <tr><td><strong>宝鐘マリン</strong></td><td>海賊志望、宝とお金、姉風、小悪魔的なからかいが一つの人格に重なる。公式は2024年に「YouTube登録者数日本一のVTuber」と紹介した。<sup class="cite"><a href="#ref-3" title="Houshou Marine official profile">[3]</a></sup><sup class="cite"><a href="#ref-4" title="Houshou Marine first album release">[4]</a></sup></td><td>成熟した外見、条件交渉、悪戯っぽい余裕を同じテーマへ束ねる。</td><td>海賊衣装、露出、未成年相手への性的な台詞。</td></tr>
+          <tr><td><strong>癒月ちょこ</strong></td><td>魔界学校の保健医で、生徒に人気だが机は菓子袋で散らかる。職業と小さな欠点が同居する。<sup class="cite"><a href="#ref-5" title="Yuzuki Choco official profile">[5]</a></sup></td><td>保健医の一秒理解と、「整って見えるが私生活は少し雑」という親しみ。</td><td>学校設定を恋愛の根拠にすること。</td></tr>
+          <tr><td><strong>白銀ノエル</strong></td><td>おっとりした外見と、筋力で解決する物騒な女騎士という反差がある。<sup class="cite"><a href="#ref-6" title="Shirogane Noel official profile">[6]</a></sup></td><td>豊満な体型に、別の強い職業記号と意外な行動癖を重ねる。</td><td>騎士・筋肉の表層的な模倣。</td></tr>
+          <tr><td><strong>葛葉</strong></td><td>吸血鬼の整った見た目に、我が儘、子供っぽさ、金への弱さを重ねる。2025年に登録者200万人を超えた。<sup class="cite"><a href="#ref-7" title="Kuzuha official profile">[7]</a></sup><sup class="cite"><a href="#ref-8" title="Kuzuha 2 million subscribers">[8]</a></sup></td><td>少年側に格好悪い欲と、毎回出せる悪癖を与える。</td><td>吸血鬼やニートの表層的な模倣。</td></tr>
+          <tr><td><strong>叶</strong></td><td>学生風の癒し系男子、柔らかい話し方、両手で抱える猫クッションが短いプロフィール内で結びつく。<sup class="cite"><a href="#ref-9" title="Kanae official profile">[9]</a></sup></td><td>少年の柔らかさを、手元の大きな持ち物と所作で補強する。</td><td>謎めいた万能感。今回の少年は少し不器用な方が二人組で生きる。</td></tr>
+        </tbody>
+      </table>
+      <p><strong>反例</strong>: 大きな胸や派手な色だけでも一枚絵は目立つ。しかし、複数話で記憶されるには、公式プロフィールのように職業、欲、欠点、口癖が一文で結びついている方が脚本へ展開しやすい。これは視覚比較からの推論であり、体型の効果を否定するものではない。</p>
+
+      <h3>3. R2の顔を残し、輪郭と小道具を一段やり過ぎる</h3>
+      <figure class="figure">
+        <img src="assets/lecture-character-design-v2-2026-07-18/R2_bargain_maker.png" alt="ユーザーが選んだ保健室の取引屋の全身デザイン">
+        <figcaption>基準案。顔、低いサイドポニー、プラムとミント、丸いトークンは保全する。変更対象は先生の輪郭、白衣、リボン、少年の役割記号。</figcaption>
+      </figure>
+      <div class="grid2">
+        <article class="character">
+          <h3>先生｜仮名: 紫ノ宮 澪</h3>
+          <span class="tag">成人30歳</span><span class="tag">保健医</span><span class="tag">取引屋</span>
+          <ul>
+            <li><strong>顔と髪</strong>: R2の優しい切れ長の目と低いサイドポニーを維持。髪は根元から毛先まで深いプラム一色。インナーカラー、前髪だけの別色、グラデーションは使わない。</li>
+            <li><strong>体型</strong>: 成人女性として明確に豊満。胸、くびれ、腰の曲線を現行より強めるが、露出ではなく高い襟のリブニットと曲線的な仕立てで見せる。</li>
+            <li><strong>一秒記号</strong>: 後頭部のプラム×金のリボンを約1.5倍。白衣は肩から腰へ絞り、裾を軽く広げて砂時計型を作る。手には顔ほどの丸いトークン缶。</li>
+            <li><strong>欠点</strong>: 親切を無償で示すのが照れくさく、「代価」を口実にしがち。机は菓子とケーブルで少し散らかっている。</li>
+            <li><strong>口癖</strong>: 「では、代価はひとつだけ」「私、ただでは甘やかさないの」</li>
+          </ul>
+        </article>
+        <article class="character">
+          <h3>少年／青年｜仮名: 麦野 透</h3>
+          <span class="tag">11歳版または19歳版</span><span class="tag">初心者判定役</span><span class="tag">褒められ弱い</span>
+          <ul>
+            <li><strong>顔と髪</strong>: 丸顔、少し上目遣い、垂れ気味の眉。栗色の髪は単色で、前髪は少し不揃い。美形に整えすぎない。</li>
+            <li><strong>一秒記号</strong>: くすみミントの大きな袖、胸元の少し曲がった金色の助手章、腰のトークン袋。手を袖へ半分隠す。</li>
+            <li><strong>格好悪い欲</strong>: 先生に褒められたい。頼られると必要以上に頑張り、後から「また乗せられた」と気づく。</li>
+            <li><strong>固有権限</strong>: 説明が難しければ初心者向け認定を押さない。ここだけは先生の笑顔にも譲らない。</li>
+            <li><strong>口癖</strong>: 「その『ひとつ』、前も三つに増えましたよね」「分からないものは、分からないです」</li>
+          </ul>
+        </article>
+      </div>
+      <h4>生成する三段階</h4>
+      <table>
+        <thead><tr><th>案</th><th>先生の変更</th><th>少年の変更</th><th>狙い</th></tr></thead>
+        <tbody>
+          <tr><td><strong>A 曲線強化</strong></td><td>胸・くびれ・腰を現行より一段強める。リボンは少し拡大。</td><td>助手章だけ大型化。</td><td>R2に最も近い安全な改良。</td></tr>
+          <tr><td><strong>B 記号強化・推奨</strong></td><td>豊満な輪郭、絞った白衣、大リボン、大トークン缶を同時に強める。</td><td>大きな袖、曲がった助手章、袋を強める。</td><td>見た目と設定の一致を優先。</td></tr>
+          <tr><td><strong>C サムネイル強化</strong></td><td>顔周辺のリボンと上半身の曲線をさらに誇張し、白衣の縁取りを太くする。</td><td>眉と上目遣い、袖の大きさを一段誇張。</td><td>小表示での限界を探る比較用。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4. 関係は年齢で二本に分ける</h3>
+      <div class="case-grid">
+        <article class="case safe">
+          <h3>11歳版｜憧れを見透かす先生</h3>
+          <p><strong>少年の気持ち</strong>: 先生を特別に感じ、良く見られたい。本人は初恋か尊敬か分からないが、物語は承認への憧れとして扱う。</p>
+          <p><strong>先生の理解</strong>: 背伸びしていることには気づくが、性的な意味づけはしない。褒め方と課題の出し方で成長を促す。</p>
+          <p><strong>からかい</strong>: 「褒めると、少しだけ背筋が伸びるのね」「今日は助手章が曲がっていないのね、えらいわ」</p>
+          <p><strong>境界</strong>: 身体への視線、性的な含み、密室や夜を恋愛演出に使わない。YouTubeは18歳未満を未成年として扱う。<sup class="cite"><a href="#ref-11" title="Child safety policy">[11]</a></sup></p>
+        </article>
+        <article class="case adult">
+          <h3>19歳版｜恋と欲を区別できない助手</h3>
+          <p><strong>青年の気持ち</strong>: 専門学校一年・19歳。尊敬、恋、身体的な惹かれを本人がまだ区別できず、先生の近くでは判断が鈍る。</p>
+          <p><strong>先生の理解</strong>: 気持ちを見抜いている。仕事の評価を人質にせず、言葉と距離感で軽く揺さぶる。</p>
+          <p><strong>からかい</strong>: 「そんなに見つめたら、診断を間違えるわよ」「代価は、今度コーヒーに付き合うこと」</p>
+          <p><strong>境界</strong>: 彼女は成績を付ける教員ではなく、学内医務室の職員兼動画制作の外部顧問。成人同士でも、サムネイルで胸だけを強調しない。<sup class="cite"><a href="#ref-13" title="Advertiser-friendly content guidelines">[13]</a></sup></p>
+        </article>
+      </div>
+      <div class="warning"><strong>推奨判断:</strong> ユーザーが希望する「恋なのか性欲なのか本人も分からない」「先生が見透かしてドキッとさせる」を残すなら、19歳版が設計上の本命になる。11歳版では、その要素を「尊敬か初恋か分からない」「褒め方を見透かされる」へ置き換える。</div>
+
+      <h3>5. 二人を毎話動かす設定</h3>
+      <div class="relationship"><strong>舞台</strong><span>保健室の奥にある小さな「トラブル診療台」。パソコン、スマートフォン、学習用サービスの困りごとを、症状として切り分ける。</span></div>
+      <div class="relationship"><strong>表向きの契約</strong><span>ヒント一つにつき、少年は検証を一つ手伝う。完了すると先生が丸いトークンを渡す。</span></div>
+      <div class="relationship"><strong>先生の本音</strong><span>人に頼るのが少し苦手。取引を口実にしないと、少年と一緒に何かをする理由を作れない。</span></div>
+      <div class="relationship"><strong>少年の本音</strong><span>必要とされることに弱い。自信はないが、「自分が分からないなら他の初心者も困る」と考える時だけ強くなる。</span></div>
+      <div class="relationship"><strong>逆転点</strong><span>先生は専門知識では勝つが、初心者のつまずきを予測できない。少年が認定を拒むと、説明をやり直すしかない。</span></div>
+      <div class="relationship"><strong>長期の変化</strong><span>少年は頼まれたから動く状態から、自分で問題を持ち込む状態へ進む。先生は取引を口実にせず「手伝って」と言えるようになる。</span></div>
+      <div class="dialogue">
+        先生「では、代価はひとつだけ」<br>
+        透「その『ひとつ』、前も三つに増えましたよね」<br>
+        先生「でも、あなたが初心者認定をくれないと完成しないの」<br>
+        透「……そう言われると、断れないじゃないですか」<br>
+        先生「知っているわ」
+      </div>
+
+      <details>
+        <summary>以前の4候補と縮小テストを開く</summary>
+        <figure class="figure"><img src="assets/lecture-character-design-v2-2026-07-18/redesign_v2_comparison.png" alt="以前のキャラクター4候補"><figcaption>以前の4候補。今回の調査では、ユーザーが選んだ「保健室の取引屋」を基準案として採用した。</figcaption></figure>
+        <figure class="figure"><img src="assets/lecture-character-design-v2-2026-07-18/thumbnail_pull_test.png" alt="以前の4候補の縮小テスト"><figcaption>以前の縮小テスト。細い装飾より、顔周辺の大きな形と服の広い色面が残った。</figcaption></figure>
+      </details>
+    </section>
+
+    <section id="gaps">
+      <h2>残された空白</h2>
+      <ul class="gaps">
+        <li><strong>実サムネイルでの比較</strong>: 今回は公式プロフィールと既存立ち絵を中心に分析した。次は同じ題材・同じ文字・同じ背景で三案を並べ、クリック率を比較する必要がある。</li>
+        <li><strong>視聴者の年齢受容</strong>: 11歳版と19歳版のどちらがチャンネルの技術解説に合うかは、想定視聴者への聞き取りが必要。</li>
+        <li><strong>外部AIの反証</strong>: Claude CLI、Zotero、GitHub認証が利用できず、別モデルによる横断レビューを実施できなかった。一次情報の照合と反例記載で補ったが、視座確認は一段弱い。</li>
+        <li><strong>表情アニメーション</strong>: 大リボンと豊満な上半身が口パク・上下動で不自然に揺れないかは、分割素材を作って動画上で確認する必要がある。</li>
+      </ul>
+    </section>
+
+    <section id="references">
+      <h2>参照文献</h2>
+      <ol class="references">
+        <li id="ref-1">Riot Games. <a href="https://playvalorant.com/en-us/news/dev/astra-from-sketch-to-key-art/">Astra: From Sketch to Key Art</a>. 2021.</li>
+        <li id="ref-2">YouTube Help. <a href="https://support.google.com/youtube/answer/12950272?hl=en">Channel banner &amp; profile picture tips</a>. 参照 2026-07-18.</li>
+        <li id="ref-3">hololive production. <a href="https://hololive.hololivepro.com/en/talents/houshou-marine/">Houshou Marine official profile</a>. 参照 2026-07-18.</li>
+        <li id="ref-4">hololive production. <a href="https://hololive.hololivepro.com/news/20240730-01-285/">「宝鐘マリン」初となる1stアルバムリリース決定</a>. 2024.</li>
+        <li id="ref-5">hololive production. <a href="https://hololive.hololivepro.com/talents/yuzuki-choco/">癒月ちょこ 公式プロフィール</a>. 参照 2026-07-18.</li>
+        <li id="ref-6">hololive production. <a href="https://hololive.hololivepro.com/talents/shirogane-noel/">白銀ノエル 公式プロフィール</a>. 参照 2026-07-18.</li>
+        <li id="ref-7">ANYCOLOR. <a href="https://www.nijisanji.jp/talents/l/kuzuha">葛葉 公式プロフィール</a>. 参照 2026-07-18.</li>
+        <li id="ref-8">ANYCOLOR. <a href="https://www.anycolor.co.jp/en/news/i438f7-p1">葛葉 YouTubeチャンネル登録者数200万人突破</a>. 2025.</li>
+        <li id="ref-9">ANYCOLOR. <a href="https://www.nijisanji.jp/en/talents/l/kanae">叶 公式プロフィール</a>. 参照 2026-07-18.</li>
+        <li id="ref-10">YouTube Help. <a href="https://support.google.com/youtube/answer/72431?hl=en">Add custom thumbnails on YouTube</a>. 参照 2026-07-18.</li>
+        <li id="ref-11">YouTube Help. <a href="https://support.google.com/youtube/answer/2801999">Child safety policy</a>. 参照 2026-07-18.</li>
+        <li id="ref-12">YouTube Help. <a href="https://support.google.com/youtube/answer/2802002?hl=en">Nudity &amp; Sexual Content Policy</a>. 参照 2026-07-18.</li>
+        <li id="ref-13">YouTube Help. <a href="https://support.google.com/youtube/answer/6162278?hl=en">Advertiser-friendly content guidelines</a>. 参照 2026-07-18.</li>
+        <li id="ref-14">YouTube Help. <a href="https://support.google.com/youtube/answer/9229980?hl=en">Thumbnails policy</a>. 参照 2026-07-18.</li>
+      </ol>
+      <p class="note">成功例の選定は、公式プロフィールで設定を確認でき、運営会社が登録者到達や代表的実績を公表している例を優先した。外見の評価は公式画像を見た上での本調査の推論であり、各社の公式見解ではない。</p>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose'});</script>
+</body>
+</html>
