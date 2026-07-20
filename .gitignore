@@ -238,6 +238,8 @@ AI_INSTRUCTIONS.md
 # Project-specific
 credentials/*.json
 !credentials/.gitkeep
+tmp/*
+!tmp/.gitkeep
 tmp/audio/
 tmp/thumbnails/
 tmp/videos/
