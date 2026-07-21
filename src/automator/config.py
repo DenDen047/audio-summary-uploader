@@ -57,6 +57,13 @@ class ThumbnailConfig:
     title_font_size_min: int = 44
     subtitle_font_size: int = 24
     text_color: str = "#FFFFFF"
+    background_mode: str = "codex-svg"
+
+    def __post_init__(self) -> None:
+        if self.background_mode not in {"codex-svg", "static"}:
+            raise ValueError(
+                "thumbnail.background_mode must be codex-svg or static"
+            )
 
 
 @dataclass
@@ -78,12 +85,31 @@ class GeneralConfig:
 
 
 @dataclass
+class LectureConfig:
+    script_model: str = "opus"
+    script_effort: str = "xhigh"
+    review_model: str = "gpt-5.6-sol"
+    review_effort: str = "xhigh"
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "script_model",
+            "script_effort",
+            "review_model",
+            "review_effort",
+        ):
+            if not getattr(self, field_name).strip():
+                raise ValueError(f"lecture.{field_name} must not be empty")
+
+
+@dataclass
 class Settings:
     notebooklm: NotebookLMConfig
     youtube: YouTubeConfig
     thumbnail: ThumbnailConfig
     credentials: CredentialsConfig
     general: GeneralConfig
+    lecture: LectureConfig = field(default_factory=LectureConfig)
 
 
 def load_settings(config_path: Path | None = None) -> Settings:
@@ -104,4 +130,5 @@ def load_settings(config_path: Path | None = None) -> Settings:
         thumbnail=ThumbnailConfig(**raw.get("thumbnail", {})),
         credentials=CredentialsConfig(**raw.get("credentials", {})),
         general=GeneralConfig(**raw.get("general", {})),
+        lecture=LectureConfig(**raw.get("lecture", {})),
     )

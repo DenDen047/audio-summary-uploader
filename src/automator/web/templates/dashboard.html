@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <header>
-  <h1>Audio Summary</h1>
+  <div>
+    <h1>動画解説スタジオ</h1>
+    <p class="header-subtitle">情報源から、澪と透の掛け合い動画を作成します</p>
+  </div>
   <div id="header-badge"
        hx-get="/partials/header-badge"
        hx-trigger="every 5s, refreshAll from:body">
@@ -15,13 +18,31 @@
         hx-swap="innerHTML"
         hx-on::after-request="if(event.detail.successful) this.reset()">
     <div class="url-input-row">
-      <input type="text" name="urls" placeholder="Enter URL" autofocus
-             required autocomplete="off">
-      <button type="submit">Add</button>
+      <textarea name="urls" placeholder="解説したい記事・論文・GitHubのURLを入力（1行に1つ）"
+                rows="3" autofocus required></textarea>
+      <button type="submit">動画を作成</button>
     </div>
     <div class="options-row">
       <label>
-        Prompt:
+        動画タイプ
+        <select name="mode">
+          <option value="lecture" selected>澪と透の解説動画</option>
+          <option value="notebooklm">NotebookLM 音声要約</option>
+        </select>
+      </label>
+      <label>
+        公開範囲
+        <select name="privacy_status">
+          <option value="unlisted" {% if default_privacy_status == "unlisted" %}selected{% endif %}>限定公開</option>
+          <option value="public" {% if default_privacy_status == "public" %}selected{% endif %}>一般公開</option>
+        </select>
+      </label>
+    </div>
+    <details class="legacy-options">
+      <summary>NotebookLM方式の詳細設定</summary>
+      <div class="options-row">
+      <label>
+        プロンプト
         <select name="prompt">
           {% for p in presets %}
           <option value="{{ p }}" {% if p == "default" %}selected{% endif %}>{{ p }}</option>
@@ -29,18 +50,19 @@
         </select>
       </label>
       <label>
-        Audio Length:
+        音声の長さ
         <select name="audio_length">
           <option value="short" selected>short</option>
           <option value="default">default</option>
         </select>
       </label>
-    </div>
+      </div>
+    </details>
   </form>
 </div>
 
 <section>
-  <h2>Processing</h2>
+  <h2>作成中</h2>
   <div id="processing-section"
        hx-get="/partials/processing"
        hx-trigger="every 5s, refreshAll from:body">
@@ -49,7 +71,7 @@
 </section>
 
 <section>
-  <h2>Completed</h2>
+  <h2>完了</h2>
   <div id="completed-section"
        hx-get="/partials/completed"
        hx-trigger="every 5s, refreshAll from:body">

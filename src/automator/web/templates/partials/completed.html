@@ -7,13 +7,13 @@
   <button hx-post="/api/clear-completed"
           hx-target="#completed-section"
           hx-swap="innerHTML"
-          class="secondary outline">Clear completed</button>
+          class="secondary outline">完了済みをクリア</button>
   {% endif %}
   {% if has_failed %}
   <button hx-post="/api/retry-all-failed"
           hx-target="#completed-section"
           hx-swap="innerHTML"
-          class="contrast outline">Retry failed</button>
+          class="contrast outline">失敗した処理を再試行</button>
   {% endif %}
 </div>
 {% endif %}
@@ -22,14 +22,67 @@
 <ul class="job-list">
   {% for job in completed_jobs | reverse %}
   {% set display = status_display(job.status) %}
-  <li class="job-item">
+  <li class="job-item completed-job">
     <span class="job-icon">{{ display.icon }}</span>
+    {% if job.mode == "lecture" and job.thumbnail_path %}
+    <a class="job-thumbnail" href="/api/jobs/{{ job.slug }}/artifacts/thumbnail" target="_blank">
+      <img src="/api/jobs/{{ job.slug }}/artifacts/thumbnail" alt="{{ job_title(job) }} のサムネイル">
+    </a>
+    {% endif %}
     <div class="job-info">
+      <span class="mode-chip">{{ job_mode_label(job) }}</span>
       <div class="job-title">
         <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job_title(job) }}</a>
       </div>
       {% if job.status == "failed" and job.error %}
       <div class="job-error">ERROR: {{ job.error }}</div>
+      {% endif %}
+      {% if job.video_path and job.thumbnail_path %}
+      <div class="artifact-links">
+        <a href="/api/jobs/{{ job.slug }}/artifacts/video" target="_blank">動画を見る</a>
+        <a href="/api/jobs/{{ job.slug }}/artifacts/thumbnail" target="_blank">サムネイル</a>
+        {% if job.thumbnail_background_path %}
+        <a href="/api/jobs/{{ job.slug }}/artifacts/thumbnail-background" target="_blank">背景</a>
+        {% endif %}
+        {% if job.thumbnail_background_prompt_path %}
+        <a href="/api/jobs/{{ job.slug }}/artifacts/thumbnail-prompt" target="_blank">背景プロンプト</a>
+        {% endif %}
+        {% if job.upload_metadata_path %}
+        <a href="/api/jobs/{{ job.slug }}/artifacts/upload-metadata" download>投稿情報JSON</a>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if job.upload_metadata %}
+      <details class="upload-info">
+        <summary>投稿情報</summary>
+        <div><strong>タイトル</strong><br>{{ job.upload_metadata.title }}</div>
+        {% if job.upload_metadata.thumbnail_text %}
+        <div><strong>サムネイルコピー</strong><br>{{ job.upload_metadata.thumbnail_text | join(" / ") }}</div>
+        {% endif %}
+        {% if job.upload_metadata.thumbnail_background %}
+        <div><strong>背景生成</strong><br>
+          {{ job.upload_metadata.thumbnail_background.provider }}
+          {% if job.upload_metadata.thumbnail_background.model %}
+          / {{ job.upload_metadata.thumbnail_background.model }}
+          {% endif %}
+          {% if job.upload_metadata.thumbnail_background.metered_api is sameas false %}
+          / 追加API費用なし
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if job.upload_metadata.script_generation %}
+        <div><strong>台本生成</strong><br>
+          {{ job.upload_metadata.script_generation.script_agent }}
+          / {{ job.upload_metadata.script_generation.script_models_used | join(", ")
+               or job.upload_metadata.script_generation.script_model_requested }}
+          {% if job.upload_metadata.script_generation.authentication == "chatgpt-subscription" %}
+          / ChatGPTサブスクリプション
+          {% endif %}
+        </div>
+        {% endif %}
+        <div><strong>タグ</strong><br>{{ job.upload_metadata.tags | join(", ") }}</div>
+        <div><strong>概要欄</strong><pre>{{ job.upload_metadata.description }}</pre></div>
+      </details>
       {% endif %}
     </div>
     <div class="job-actions">
@@ -51,5 +104,5 @@
   {% endfor %}
 </ul>
 {% else %}
-<div class="empty-state">No completed jobs.</div>
+<div class="empty-state">完了した動画はありません。</div>
 {% endif %}

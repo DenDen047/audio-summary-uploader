@@ -1,10 +1,12 @@
-# NotebookLM → YouTube 自動化パイプライン 仕様書
+# 情報源 → YouTube 動画解説 自動化パイプライン 仕様書
 
 ## 1. プロジェクト概要
 
 ### 1.1 目的
 
-ユーザーが URL リストを YAML ファイルに記載するだけで、以下が自動実行される CLI ツールを構築する。各 URL に音声の長さやプロンプトプリセットを個別指定することも可能。
+ユーザーが URL リストを YAML ファイルまたは Web UI に入力すると、生成方式に応じた
+動画一式を作成して YouTube へ投稿する。生成方式は澪・透の掛け合い講義動画
+（`lecture`）と、従来の NotebookLM 音声要約（`notebooklm`）から選択できる。
 
 1. NotebookLM でノートブックを作成し、URL をソースとして追加
 2. 日本語の Audio Overview（ポッドキャスト形式の音声要約）を生成
@@ -47,7 +49,7 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     ├─ ノートブック作成                           │
 │     ├─ 全ソース(1つ以上)を追加                    │
 │     ├─ Audio Overview 生成（日本語指定）          │
-│     ├─ chat で日本語タイトル/メール出典を抽出     │
+│     ├─ chat で日本語タイトル/メール出典/論文略称  │
 │     ├─ 音声ファイル (.mp3) ダウンロード           │
 │     └─ 動画変換完了後にノートブック削除           │
 │                                                 │
@@ -243,10 +245,12 @@ class Settings:
 @dataclass
 class UrlEntry:
     url: str                          # 代表URL（複数ソース時は先頭）またはローカルパス
+    mode: str = "notebooklm"          # "lecture" | "notebooklm"
     audio_length: str | None = None   # "short" or "default", None = settings.yaml のデフォルト
     prompt: str | None = None         # プリセット名, None = "default"
     title: str | None = None          # 複数ソース時の任意タイトル
     extra_urls: list[str] = field(default_factory=list)  # 2番目以降のソース
+    privacy_status: str | None = None # Webで選んだ公開範囲。NoneはYouTube設定値
 
     @property
     def sources(self) -> list[str]:   # [url, *extra_urls]
@@ -259,6 +263,7 @@ class UrlEntry:
 - ローカルパスのバリデーション（ファイル存在確認、PDF 拡張子チェック）
 - フォルダが指定された場合、中の `*.pdf` ファイルを個別エントリに展開
 - `audio_length` の値バリデーション（`"short"` / `"default"` / `None` のみ許可）
+- `mode` の値バリデーション（`"lecture"` / `"notebooklm"` のみ許可）
 - `prompt` の値バリデーション（`settings.yaml` の `prompt_presets` に定義されたキーのみ許可）
 - 重複 URL の除去
 - 処理済み URL のスキップ（状態ファイルとの照合）
@@ -450,6 +455,8 @@ YouTube サムネ（1280×720px）は **固定マスコットを参照画像と�
   以内・数字可）、`highlight`（bottom 内の強調1語）を1回で生成。失敗・不正時は top→カテゴリラベル
   （論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、bottom→動画タイトル（先頭を切り詰め）に
   フォールバック。合成前に `sanitize_public_text` で個人情報を除去する。
+- **論文の通称を主役ワードに固定**: 論文カテゴリで略称（SAM/YOLO 等、`_THUMB_TOP_MAX_LEN` 字以内）が
+  抽出できた場合、`top` を chat 生成値ではなくその略称で上書きする。縮小時も一目で「どの論文か」を判別できる。
 
 **動画本編背景の AI 生成（`image_gen.py`, best-effort。サムネとは独立）:**
 - 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する
@@ -545,6 +552,10 @@ class YouTubeUploadParams:
     contains_synthetic_media: bool = True  # AI生成コンテンツラベル
 ```
 
+Web UI から投入したジョブは `privacy_status` を state.json に保存し、アップロード時は
+ジョブの値を優先する。未指定の CLI/YAML ジョブと旧 state は
+`settings.youtube.privacy_status` にフォールバックする。
+
 **YouTube タイトルの形式:**
 ```
 {settings.youtube.title_prefix} {日本語タイトル（generated_title_max_length 全角字以内）}
@@ -553,6 +564,29 @@ class YouTubeUploadParams:
 - タイトルは **② で collect フェーズに NotebookLM チャット（`ask`）から日本語生成**する。引用マーカー
   （`[1]`）・全体を囲う引用符・先頭絵文字を除去し、全角 `generated_title_max_length` 字に丸める。
   chat 失敗時は元タイトル（メール系は抽出した件名）にフォールバックする。
+- **タイトルポリシー**（`_JP_TITLE_QUESTION` の生成条件に反映。タイトルとサムネが再生数のほぼ全てを
+  決めるため、伸びているチャンネルのタイトル術に合わせる。
+  出典: ゆる言語学ラジオのタイトル講座回 https://youtu.be/4PzlDRz5v4Q ）:
+  - **先頭 約20字に引きを集約**: スマホ表示ではタイトルが手前で切り詰められ、クリックを迷う視聴者は
+    最後まで読まない。最も引きのある情報（意外性・数字・視聴者の得）を先頭約20字以内に置く。
+  - **一般視聴者基準**: 「内容を何も知らない人がタップするか」を毎回の判断基準にする。学術用語・
+    研究分野名は再生にマイナスなので一般に通じる言葉へ言い換える（広く知られた製品名・サービス名は可）。
+    専門家向けの正確な情報（原題・URL）はタイトルに入れず概要欄が担う（概要欄を読むのは既存ファンのみ）。
+  - **短さ優先・重複禁止**: YouTube タイトルに字数を埋める価値は無く、長いほど評価が下がる。同義語が
+    あれば1文字でも短い方を選び（例:「〜より多い」→「〜以上」）、同じ意味の語を繰り返さない。
+  - **弱い定型で締めない**: 「〜を解説」「〜について」は元々関心がある人しか押さないため避け、
+    問いかけ・言い切りで好奇心を引く。問いの形にする場合、前提の置き方で反応する層が変わるため
+    （例:「正しいのか」は肯定・否定の両側を集め、「間違いなのか」は否定側しか集めない）、
+    より広い層が反応する前提を選ぶ。
+  - **忠実性の下限**: 引きを優先しつつも、ソースに無い誇張はしない（内容への忠実さは維持）。
+- **論文カテゴリの通称付与**: カテゴリが `paper` の場合、collect で NotebookLM チャット
+  （`_PAPER_SHORTNAME_QUESTION` → `_extract_paper_shortname`）から論文の通称・略称（SAM/YOLO/3DGS 等）を
+  抽出し、日本語タイトル先頭に `【略称】` を付与する（例: `【SAM】あらゆる物体を一発で切り抜く基盤モデル`）。
+  有名論文の解説を検索する学生・研究者に見つけてもらいやすくするため。略称は `clean_paper_shortname`
+  で検証（英数字始まり・英字を含む 1〜16 字、`none`/年号/フレーズは棄却）し、抽出できない論文はそのまま。
+  既にタイトルに略称が含まれている場合は二重付与しない（YouTube 検索は本文全体を索引するため、含まれて
+  いれば発見性は満たされる。先頭【】は略称が欠落しているときに付ける形式）。ユーザーがタイトルを明示
+  指定した場合（`user_title`）は尊重し、付与しない。
 - YouTube API が拒否する文字（`<`, `>`）は全角（`＜`, `＞`）に自動置換し、出力前に
   `sanitize_public_text` で個人情報を除去する。
 
@@ -562,7 +596,8 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 通勤や作業のお供にどうぞ。
 
 📄 元記事: {URL}            # 複数ソースは全URLを列挙
-📰 ソース: {サイト名}        # 単一・非メール時のみ
+📄 元資料: {ファイル名}      # ローカルPDF は絶対パスを出さずファイル名(stem)のみ
+📰 ソース: {サイト名}        # 単一・非メール・非ローカル時のみ
 
 #AI #論文解説 #機械学習      # カテゴリ別ハッシュタグ（3〜5）
 
@@ -571,7 +606,11 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 ```
 
 - **内部設定（プロンプト名・音声長）は公開面に出さない**（旧テンプレの「🔧 生成条件」は廃止）。
-- 説明文・タイトル・サムネ見出しは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL を除去）。
+- 説明文・タイトル・サムネ見出しは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL・
+  ローカル絶対パスを除去。`sanitize_public_text` が最後の砦）。
+- **ローカルファイルソース**: 絶対パス（ユーザー名・ディレクトリ構造）は公開面に出さない。出典は
+  ディレクトリと拡張子を落としたファイル名（stem）のみを「📄 元資料: {ファイル名}」として表示する
+  （Zotero 等の stem は「著者 - 年 - タイトル」形式で公開してよい論文メタデータ）。
 - **複数ソース（⑦）**: `extra_urls` を含む全ソースを列挙する。メール系（Spark 共有）が混じる場合は
   当該 URL を出さず「📰 ソース: メールニュースレター」を表示する。
 - **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面に出さない。collect で NotebookLM
@@ -621,8 +660,8 @@ state の当該ジョブに `thumbnail_pending: true` を記録する。次回 `
 
 パイプラインは3つの独立したフェーズに分離されている:
 
-1. **submit**: ノートブック作成＋音声生成開始（並列実行、完了を待たない）
-2. **collect**: 生成完了チェック＋音声DL＋サムネイル＋動画変換（並列実行）
+1. **submit**: `mode` ごとにジョブを開始（NotebookLM は音声生成開始、講義動画は生成待ちへ遷移）
+2. **collect**: NotebookLM 後処理、または講義動画・サムネ・投稿情報の一式生成
 3. **upload**: YouTube アップロード（順次実行、quota制限あり）
 
 ```
@@ -645,13 +684,14 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 - 一意性を担保しつつ、ファイル名として安全な文字列を生成
 
 **Phase 1: submit_urls(entries, settings, force, dry_run)**
-1. state.json をロード、生成中/処理済みのURLをスキップ（`--force`で上書き）
-2. 各URLに対して `asyncio.gather` で並列実行:
+1. state.json をロード、生成中/処理済みの `(URL, mode)` をスキップ（`--force`で上書き）
+2. `mode="lecture"` は外部AIをまだ起動せず `generating` に遷移し、Webワーカーへ制御を返す
+3. `mode="notebooklm"` は各URLに対して `asyncio.gather` で並列実行:
    - 既存ジョブに `notebook_id` が残っていれば best-effort で旧ノートブックを削除（リトライ・force 再実行時のリーク防止）
    - メタデータ取得 → ノートブック作成（作成直後に `notebook_id` を永続化）→ ソース追加 → `start_audio_generation()`
    - state に `status="generating"` + `task_id` + `metadata` を保存
-3. 各URLのエラーは個別にキャッチして `failed` として記録
-4. `--dry-run` は state.json に一切書き込まない（本実行のスキップ判定や collect を汚染しないため）
+4. 各URLのエラーは個別にキャッチして `failed` として記録
+5. `--dry-run` は state.json に一切書き込まない（本実行のスキップ判定や collect を汚染しないため）
 
 **state 書き込みの原則（全フェーズ共通）:**
 ジョブ更新は必ずディスク上の最新 state を読み直してから該当ジョブのみ更新して
@@ -661,17 +701,25 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 
 **Phase 2: collect_audio(settings, poll, timeout)**
 1. state.json から `status="generating"` のジョブを取得
-2. `notebook_id` / `task_id` が無いジョブ（submit 中断）は明示的なエラーで `failed` に遷移
-3. 各ジョブに対して並列で `check_audio_status()` を呼び出し
-4. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
-5. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`（`notebook_id` をクリア）
-6. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
-7. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
+2. `mode="lecture"` は `lecture.generate_lecture()` をワーカースレッドで直列実行し、
+   動画・サムネイル・台本・投稿JSONを同じジョブフォルダへ出力する。Spark共有URLは
+   SSR応答へ埋め込まれたメール本文を抽出し、公開台本から入力元URLとメールアドレスを
+   除去する（生URLは内部追跡情報にだけ保持する）
+3. `mode="notebooklm"` で `notebook_id` / `task_id` が無いジョブは明示的なエラーで `failed` に遷移
+4. NotebookLMジョブに対して並列で `check_audio_status()` を呼び出し
+5. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
+6. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`（`notebook_id` をクリア）
+7. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
+8. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
 **Phase 3: upload_videos(settings, allow_interactive_auth)**
 1. state.json から `status="video_ready"` のジョブを取得
 2. YouTube認証（1回、`asyncio.to_thread` でラップ）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
 3. `status="uploaded"` + `youtube_url` を記録
+
+講義モードの台本は Claude Max の Claude Code CLI（Opus、`effort=xhigh`）で初稿を作り、
+ChatGPT Pro の Codex CLI（Sol、`effort=xhigh`）で技術・編集審査する。従量課金APIへの
+フォールバックは行わない。詳細は `specs/LECTURE_SPEC.md` を正とする。
 
 **エラーハンドリング:**
 
@@ -698,8 +746,10 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
     {
       "url": "https://example.com/article-1",
       "slug": "a1b2c3d4e5f6",
+      "mode": "notebooklm",
       "audio_length": "default",
       "prompt": "default",
+      "privacy_status": "unlisted",
       "status": "uploaded",
       "notebook_id": "abc123",
       "task_id": "task_xyz",
@@ -734,6 +784,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 - 生成中・処理済み URL はスキップ（`--force` で上書き可能）
 - 失敗した URL は `--retry-failed` で再処理可能
 - 旧 `state.json`（`processed` キー）は初回ロード時に自動マイグレーション
+- Web UI で選んだ公開範囲はジョブ単位で保持し、再起動・再試行後も同じ値でアップロードする
 - 状態ファイルはアトミック書き込み（一時ファイル→rename）
 
 ### 3.11 結果レポート (`report.py`)
@@ -818,6 +869,7 @@ thumbnail:
   title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
+  background_mode: "codex-svg"  # 講義動画: "codex-svg" | "static"
   # OGP画像がない場合のフォールバックはランダム生成グラデーション (設定不要)
 
 # 認証情報パス
@@ -832,6 +884,12 @@ general:
   max_retries: 3
   retry_backoff_base: 2          # 指数バックオフの底（秒）
   simple_video_mode: false       # 簡易動画モード（下記）
+
+lecture:
+  script_model: "opus"
+  script_effort: "xhigh"
+  review_model: "gpt-5.6-sol"
+  review_effort: "xhigh"
 ```
 
 **簡易動画モード（`general.simple_video_mode`）:**

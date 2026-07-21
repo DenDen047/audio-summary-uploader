@@ -39,6 +39,25 @@ def test_parse_with_options(tmp_path: Path) -> None:
     )
 
 
+def test_parse_lecture_mode(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - url: https://example.com/article
+          mode: lecture
+    """)
+    entries = parse_url_file(path)
+    assert entries == [
+        UrlEntry(url="https://example.com/article", mode="lecture")
+    ]
+
+
+def test_skip_unknown_mode(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, """\
+        - url: https://example.com/article
+          mode: podcast
+    """)
+    assert parse_url_file(path) == []
+
+
 def test_skip_invalid_url(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, """\
         - url: not-a-url
@@ -87,6 +106,7 @@ def test_file_not_found() -> None:
 def test_parse_multi_source(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, """\
         - title: 今週のAIニュースまとめ
+          mode: lecture
           urls:
             - https://example.com/a
             - https://example.com/b
@@ -99,6 +119,7 @@ def test_parse_multi_source(tmp_path: Path) -> None:
     assert e.extra_urls == ["https://example.com/b"]
     assert e.sources == ["https://example.com/a", "https://example.com/b"]
     assert e.title == "今週のAIニュースまとめ"
+    assert e.mode == "lecture"
     assert e.prompt == "deep_dive"
 
 

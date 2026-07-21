@@ -60,6 +60,8 @@ thumbnail:
   title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
+  # 講義動画サムネの意味モチーフをローカルSVGで描画する（従量課金APIなし）。
+  background_mode: "codex-svg"  # "codex-svg" | "static"
 
 # 認証情報パス
 credentials:
@@ -76,3 +78,11 @@ general:
   # グラデーション静止背景の動画を高速生成する（サムネ上限 429 の回復中などに使う）。
   # 通常運用（顔＋文字サムネ・AI背景あり）は false。
   simple_video_mode: false
+
+# 澪・透の講義動画設定
+lecture:
+  # Claude Maxで初稿、ChatGPT Codexで技術・編集審査。どちらも最高品質設定。
+  script_model: "opus"
+  script_effort: "xhigh"
+  review_model: "gpt-5.6-sol"
+  review_effort: "xhigh"

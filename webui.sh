@@ -1,2 +1,5 @@
-#!/bin/bash
-uv run automator web --port 3000
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$repo_root/web.sh" "$@"

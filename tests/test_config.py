@@ -13,6 +13,11 @@ def test_load_settings_from_default() -> None:
     assert settings.notebooklm.audio_language == "ja"
     assert settings.youtube.category_id == "27"
     assert settings.thumbnail.width == 1280
+    assert settings.thumbnail.background_mode == "codex-svg"
+    assert settings.lecture.script_model == "opus"
+    assert settings.lecture.script_effort == "xhigh"
+    assert settings.lecture.review_model == "gpt-5.6-sol"
+    assert settings.lecture.review_effort == "xhigh"
     assert settings.general.max_retries == 3
 
 

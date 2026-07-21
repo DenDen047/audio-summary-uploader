@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>澪・透の解説動画 — End-to-End 処理レポート</title>
+  <style>
+    :root {
+      --bg: #fffaf7;
+      --surface: #ffffff;
+      --surface-2: #fff1f4;
+      --fg: #2f2430;
+      --muted: #766b74;
+      --border: #eadde2;
+      --pink: #d64274;
+      --pink-soft: #ffe2eb;
+      --plum: #4d274c;
+      --yellow: #f4bd3e;
+      --cyan: #26a9c4;
+      --green: #27875c;
+      --red: #c6454b;
+      --shadow: 0 14px 38px rgba(77, 39, 76, 0.10);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171118;
+        --surface: #211923;
+        --surface-2: #321d28;
+        --fg: #fff5f7;
+        --muted: #c6b5be;
+        --border: #493744;
+        --pink: #ff75a3;
+        --pink-soft: #4d2332;
+        --plum: #f4c5e8;
+        --yellow: #ffd56b;
+        --cyan: #65d4e7;
+        --green: #62d49c;
+        --red: #ff888d;
+        --shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--fg);
+      background:
+        radial-gradient(circle at 85% 0%, rgba(214, 66, 116, 0.11), transparent 34rem),
+        var(--bg);
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      line-height: 1.75;
+    }
+    a { color: var(--pink); }
+    code {
+      font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.1rem 0.38rem;
+      font-size: 0.9em;
+    }
+    pre {
+      overflow-x: auto;
+      margin: 0;
+      padding: 1rem 1.1rem;
+      color: #fff7fa;
+      background: #332334;
+      border-radius: 12px;
+      font-size: 0.84rem;
+      line-height: 1.65;
+    }
+    pre code { border: 0; padding: 0; color: inherit; background: transparent; }
+    .layout {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 42px;
+      width: min(1160px, 100%);
+      margin: 0 auto;
+      padding: 32px 24px 96px;
+    }
+    .doc-header {
+      grid-column: 1 / -1;
+      padding: 30px 34px;
+      color: #fff;
+      background: linear-gradient(125deg, #4d274c, #8c3569 58%, #d64274);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+    .eyebrow {
+      margin: 0 0 0.35rem;
+      color: #ffdbe8;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .doc-header h1 { margin: 0; font-size: clamp(1.7rem, 4vw, 2.65rem); line-height: 1.25; }
+    .doc-header .sub { margin-top: 0.65rem; color: #f8eaf1; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 1rem; }
+    .badge {
+      padding: 0.18rem 0.65rem;
+      color: #fff;
+      background: rgba(255,255,255,0.13);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .toc { position: sticky; top: 24px; align-self: start; }
+    .toc h2 { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.1em; }
+    .toc ol { margin: 0; padding: 0; list-style: none; }
+    .toc li { margin: 0.35rem 0; }
+    .toc a {
+      display: block;
+      padding: 0.28rem 0.65rem;
+      color: var(--fg);
+      border-left: 3px solid transparent;
+      text-decoration: none;
+      font-size: 0.88rem;
+    }
+    .toc a:hover { color: var(--pink); border-left-color: var(--pink); }
+    main { min-width: 0; }
+    section { margin: 0 0 54px; scroll-margin-top: 24px; }
+    section h2 {
+      margin: 0 0 1rem;
+      padding-bottom: 0.45rem;
+      font-size: 1.45rem;
+      border-bottom: 1px solid var(--border);
+    }
+    section h3 { margin: 1.5rem 0 0.65rem; color: var(--plum); font-size: 1rem; }
+    .lead {
+      margin: 0;
+      padding: 1.1rem 1.25rem;
+      background: var(--pink-soft);
+      border-left: 5px solid var(--pink);
+      border-radius: 0 14px 14px 0;
+      font-size: 1.08rem;
+    }
+    .callout {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .callout strong { color: var(--pink); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 1rem 0;
+    }
+    .flow-card {
+      position: relative;
+      min-height: 132px;
+      padding: 0.95rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 5px solid var(--pink);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+    .flow-card:nth-child(2n) { border-top-color: var(--yellow); }
+    .flow-card:nth-child(3n) { border-top-color: var(--cyan); }
+    .step {
+      display: inline-grid;
+      place-items: center;
+      width: 1.65rem;
+      height: 1.65rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+      background: var(--plum);
+      border-radius: 50%;
+      font-size: 0.76rem;
+      font-weight: 800;
+    }
+    .flow-card h3 { margin: 0 0 0.28rem; color: var(--fg); font-size: 0.98rem; }
+    .flow-card p { margin: 0; color: var(--muted); font-size: 0.82rem; line-height: 1.55; }
+    .state-flow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 1rem 0.2rem;
+    }
+    .state {
+      flex: 0 0 auto;
+      min-width: 122px;
+      padding: 0.72rem 0.8rem;
+      text-align: center;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 999px;
+      font-weight: 750;
+      font-size: 0.84rem;
+    }
+    .state.live { border-color: var(--yellow); }
+    .state.ready { border-color: var(--cyan); }
+    .state.done { border-color: var(--green); }
+    .state.failed { border-color: var(--red); }
+    .arrow { flex: 0 0 auto; color: var(--muted); font-size: 1.25rem; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .card {
+      padding: 1rem 1.05rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .card h3 { margin-top: 0; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    .pill {
+      display: inline-block;
+      padding: 0.08rem 0.52rem;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 800;
+    }
+    .p1 { color: var(--green); }
+    .p2 { color: var(--cyan); }
+    .p3 { color: var(--yellow); }
+    .model-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .model-card {
+      position: relative;
+      overflow: hidden;
+      padding: 1.05rem 1.1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .model-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: var(--pink);
+    }
+    .model-card.image::before { background: var(--cyan); }
+    .model-card.review::before { background: var(--green); }
+    .model-card.voice::before { background: var(--yellow); }
+    .model-card.legacy::before { background: var(--green); }
+    .model-card h3 { margin: 0 0 0.25rem; color: var(--fg); font-size: 1.05rem; }
+    .model-name { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.8rem; }
+    .model-card dl { display: grid; grid-template-columns: 5rem 1fr; gap: 0.4rem 0.7rem; margin: 0; font-size: 0.84rem; }
+    .model-card dt { color: var(--muted); font-weight: 750; }
+    .model-card dd { margin: 0; }
+    .boundary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
+      align-items: stretch;
+      gap: 12px;
+      margin: 1rem 0;
+    }
+    .boundary-side { padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; }
+    .boundary-side h3 { margin-top: 0; }
+    .boundary-gate { display: grid; place-items: center; color: var(--pink); font-size: 1.5rem; font-weight: 900; }
+    .lane { display: grid; gap: 9px; margin: 1rem 0; }
+    .lane-step {
+      display: grid;
+      grid-template-columns: 8.5rem minmax(0, 1fr);
+      gap: 1rem;
+      padding: 0.8rem 0.9rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .lane-step strong { color: var(--plum); }
+    .lane-step p { margin: 0; font-size: 0.86rem; }
+    .table-wrap { overflow-x: auto; border-radius: 12px; }
+    .preview { margin: 1rem 0; }
+    .preview img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+    .preview figcaption { margin-top: 0.5rem; color: var(--muted); font-size: 0.82rem; }
+    .signal { display: inline-block; width: 0.62rem; height: 0.62rem; margin-right: 0.35rem; border-radius: 50%; }
+    .signal.ai { background: var(--pink); }
+    .signal.fixed { background: var(--cyan); }
+    .signal.tts { background: var(--yellow); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { padding: 0.7rem 0.8rem; border: 1px solid var(--border); vertical-align: top; text-align: left; }
+    th { background: var(--surface-2); }
+    .file-tree { white-space: pre; }
+    .muted { color: var(--muted); }
+    footer { margin-top: 2rem; color: var(--muted); font-size: 0.82rem; }
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; gap: 24px; padding: 18px 14px 64px; }
+      .toc { position: static; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 560px) {
+      .doc-header { padding: 24px 20px; border-radius: 18px; }
+      .flow, .grid-2, .model-grid, .boundary { grid-template-columns: 1fr; }
+      .boundary-gate { min-height: 34px; transform: rotate(90deg); }
+      .lane-step { grid-template-columns: 1fr; gap: 0.2rem; }
+      .state { min-width: 108px; }
+    }
+    @media print {
+      :root { --bg: #fff; --surface: #fff; --surface-2: #f7f7f7; --fg: #111; --muted: #555; }
+      body { background: #fff; font-size: 10.5pt; }
+      .layout { display: block; max-width: none; padding: 0; }
+      .toc { display: none; }
+      .doc-header { color: #111; background: #fff; border: 2px solid #333; box-shadow: none; }
+      .doc-header .sub, .eyebrow { color: #333; }
+      .badge { color: #111; border-color: #333; }
+      section, .card, .flow-card { break-inside: avoid; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header class="doc-header">
+      <p class="eyebrow">System Design Report</p>
+      <h1>澪・透の解説動画<br>End-to-End 処理の原理</h1>
+      <div class="sub">URLから動画へ。どのAIを、なぜ、どの境界で使うのかまで図解する。</div>
+      <div class="meta">
+        <span class="badge">v4.0</span>
+        <span class="badge">2026-07-21</span>
+        <span class="badge">読了 約12分</span>
+        <span class="badge">従量課金API 0</span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="目次">
+      <h2>目次</h2>
+      <ol>
+        <li><a href="#tldr">TL;DR</a></li>
+        <li><a href="#principle">1. 根本原理</a></li>
+        <li><a href="#models">2. AIモデル配置</a></li>
+        <li><a href="#dataflow">3. データの流れ</a></li>
+        <li><a href="#states">4. ジョブ状態</a></li>
+        <li><a href="#generation">5. 動画生成</a></li>
+        <li><a href="#thumbnail">6. サムネイル</a></li>
+        <li><a href="#artifacts">7. 成果物と復旧</a></li>
+        <li><a href="#files">8. コード対応表</a></li>
+        <li><a href="#ops">9. 運用条件・出典</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <section id="tldr">
+        <h2>TL;DR</h2>
+        <p class="lead">
+          <strong><code>./web.sh</code>を起動してURLを入力するだけ</strong>で、Claude Maxの
+          最新Opusが台本初稿を作り、ChatGPT Proの最新Codex Solが技術／編集審査を行う。
+          VOICEVOXが澪・透の声を作り、
+          背景、キャラ、文字、配置、口パク、時間同期、動画合成はローカルコードで再現性を守る。
+        </p>
+        <div class="callout">
+          <strong>重要:</strong> これは「AIに動画を丸ごと作らせる」仕組みではない。
+          AIは意味判断と創造性が必要な狭い区間だけに置き、見た目が毎回一致すべき区間は
+          Python・Playwright・ffmpegで固定する<strong>ハイブリッド生成</strong>である。
+        </div>
+        <div class="callout">
+          <strong>費用の不変条件:</strong> AI処理は既存サブスクリプション内だけで行う。
+          OpenAI API、Anthropic API、Gemini APIなどの従量課金APIは本番経路から呼ばない。
+        </div>
+      </section>
+
+      <section id="principle">
+        <h2>1. 根本原理 — AIの自由度を境界で制御する</h2>
+        <div class="boundary">
+          <article class="boundary-side">
+            <h3><span class="signal ai"></span>生成AIに任せる</h3>
+            <ul>
+              <li>情報源の意味をどう噛み砕くか</li>
+              <li>澪と透にどう掛け合いさせるか</li>
+              <li>どのスライド表現が伝わるか</li>
+              <li>どんな背景モチーフなら目を引くか</li>
+            </ul>
+            <p class="muted">正解が一つではなく、文脈理解や発想が価値になる領域。</p>
+          </article>
+          <div class="boundary-gate" aria-label="検証ゲート">→</div>
+          <article class="boundary-side">
+            <h3><span class="signal fixed"></span>固定コードに任せる</h3>
+            <ul>
+              <li>キャラの顔・髪・服・見かけの身長</li>
+              <li>日本語文字とコード表記の正確さ</li>
+              <li>立ち絵座標、字幕、口パク差分</li>
+              <li>音声尺、場面転換、最終MP4</li>
+            </ul>
+            <p class="muted">同じ入力なら毎回同じ結果であることが価値になる領域。</p>
+          </article>
+        </div>
+        <div class="callout">
+          <strong>境界に置くゲート:</strong> Claude初稿とCodex審査結果をJSONスキーマで検証し、背景美術案は
+          許可済みの意味モチーフへ正規化してローカルSVGへ変換する。
+          AIの出力をそのまま動画へ流さず、検証可能な中間データへ変換してから使う。
+        </div>
+      </section>
+
+      <section id="models">
+        <h2>2. どのAIモデル／エージェントを、どこで使うか</h2>
+        <div class="model-grid">
+          <article class="model-card">
+            <h3>Claude Opus — 台本初稿</h3>
+            <p class="model-name">Claude Code CLI / Claude Max / <code>opus</code> alias</p>
+            <dl>
+              <dt>入力</dt><dd>抽出済み本文＋キャラ・動画構成の固定プロンプト</dd>
+              <dt>出力</dt><dd>会話、スライド、読み、ポーズ、投稿文、サムネイル美術案の初稿JSON</dd>
+              <dt>制約</dt><dd><code>--safe-mode --tools "" --no-session-persistence --json-schema</code></dd>
+              <dt>モデル</dt><dd><code>opus</code>、<code>effort=xhigh</code>。直前の実試験で解決された主モデルは<code>claude-opus-4-8</code></dd>
+              <dt>課金</dt><dd>Claude Max内。Anthropic APIキーは使わない</dd>
+            </dl>
+          </article>
+          <article class="model-card review">
+            <h3>Codex Sol — 技術／編集審査</h3>
+            <p class="model-name">Codex CLI / ChatGPT Pro / <code>codex exec</code></p>
+            <dl>
+              <dt>入力</dt><dd>元情報＋Claude初稿＋公開前の審査基準</dd>
+              <dt>出力</dt><dd>技術的断定、危険なコマンド、説明順、会話、スライドを直した最終JSON</dd>
+              <dt>制約</dt><dd><code>--ephemeral --ignore-user-config --sandbox read-only</code></dd>
+              <dt>モデル</dt><dd><code>gpt-5.6-sol</code>、<code>effort=xhigh</code></dd>
+              <dt>課金</dt><dd>ChatGPT Pro内。OpenAI APIキーは使わない</dd>
+            </dl>
+          </article>
+          <article class="model-card image">
+            <h3>審査済み美術案＋ローカルSVG — 自動背景</h3>
+            <p class="model-name"><code>codex-directed-local-svg</code> / 外部画像APIなし</p>
+            <dl>
+              <dt>入力</dt><dd>二段階AIで確定した意味モチーフ＋動画固有の短い美術案</dd>
+              <dt>出力</dt><dd>編集可能な16:9 SVGと、Chromiumで描画した1600×900 PNG</dd>
+              <dt>制約</dt><dd>人物、文字、ロゴなし。中央に見出し用の高コントラスト余白</dd>
+              <dt>再現性</dt><dd>タイトルと美術案からseedを固定し、同じ入力なら同じ図形</dd>
+              <dt>課金</dt><dd>ローカル描画のため追加費用なし</dd>
+            </dl>
+          </article>
+          <article class="model-card voice">
+            <h3>VOICEVOX — 話者別の音声合成</h3>
+            <p class="model-name">専用TTS。LLMでも自律エージェントでもない</p>
+            <dl>
+              <dt>澪</dt><dd>もち子さん（セクシー） / style_id 66</dd>
+              <dt>透</dt><dd>満別花丸（ノーマル） / style_id 69</dd>
+              <dt>入力</dt><dd>審査済み表示文とは別の、音声合成用<code>reading</code></dd>
+              <dt>出力</dt><dd>セリフ単位の24kHz mono WAV</dd>
+            </dl>
+          </article>
+          <article class="model-card legacy">
+            <h3>NotebookLM — 従来モードのみ</h3>
+            <p class="model-name"><code>mode=notebooklm</code>の音声要約経路</p>
+            <dl>
+              <dt>役割</dt><dd>ソース追加とAudio Overview生成</dd>
+              <dt>対象</dt><dd>既存YAMLとの後方互換。澪・透の講義モードでは使わない</dd>
+              <dt>合流点</dt><dd>完成動画を<code>video_ready</code>へ置いた後の投稿処理</dd>
+            </dl>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>最高品質の実機試験（2026-07-21）:</strong> Python <code>uv</code>の一次情報から、
+          Claude初稿は約11分34秒、最初のCodex審査は約7分03秒。最終結果は14シーン、
+          93セリフ、4,166字、最長80字で固定検証エラー0件だった。Claude CLIの
+          <code>modelUsage</code>には主モデル<code>claude-opus-4-8</code>に加えて内部補助の
+          <code>claude-haiku-4-5-20251001</code>も報告されたため、両方を監査情報へ保存する。
+        </div>
+
+        <div class="callout">
+          <strong>Codex imagegenも利用できる:</strong> Codexアプリ内の<code>$imagegen</code>は
+          <code>gpt-image-2</code>を使い、Codexの利用枠として専用サムネイル背景を生成できる。
+          今回も実際に16:9の<code>uv</code>専用背景を生成し、確定済みキャラと日本語コピーを
+          Pillowで後合成できた。ただし現環境では非対話の<code>codex exec</code>から画像を
+          保存できなかったため、人が選ぶ特別版に使う。無人Web経路はローカルSVGを維持する。
+        </div>
+
+        <h3>「AIエージェント」はどこにいるのか</h3>
+        <p>
+          初稿はツールなしのClaude Code CLI、審査は読み取り専用sandboxと承認禁止のCodex CLIで動かす。
+          本文は先に通常コードで抽出し、両者へ一括入力する。ここで必要なのは外部行動ではなく、
+          構成・表現・会話を考え、独立した第二視点で照合する推論能力である。全工程を進める「オーケストレーター」は
+          <code>automator</code>の固定コードであり、AIモデルではない。
+        </p>
+        <div class="callout">
+          <strong>モデル名の読み方:</strong> 設定は<code>script_model: opus</code>、
+          <code>script_effort: max</code>、<code>review_model: gpt-5.6-sol</code>、
+          <code>review_effort: max</code>。成果物には要求値だけでなく、CLIが報告した実使用モデル、
+          Claude Max／ChatGPT認証、各役割、<code>metered_api: false</code>を記録する。
+          2026-07-21の実試験では<code>claude-opus-4-8</code>と<code>gpt-5.6-sol</code>を確認した。
+        </div>
+      </section>
+
+      <section id="dataflow">
+        <h2>3. URLから動画までのデータ変換</h2>
+        <div class="lane">
+          <div class="lane-step"><strong>① 通常コード</strong><p>HTML / PDF / GitHub READMEから本文を抽出し、最大4万文字の<code>source.txt</code>にする。AI自身はWebを巡回しない。</p></div>
+          <div class="lane-step"><strong>② Claude初稿</strong><p>最新Opusが本文を意味単位へ整理し、澪・透の会話、スライド、読み、ポーズ、投稿文、背景モチーフの初稿を返す。</p></div>
+          <div class="lane-step"><strong>③ 初稿ゲート</strong><p>必須キー、80文字上限、話者、ポーズ、テンプレート別フィールド、段階表示を検証。不正なら指摘付きで1回だけ再生成する。</p></div>
+          <div class="lane-step"><strong>④ Codex審査</strong><p>最新Solが元情報と初稿を照合し、技術的断定、安全性、説明順、口調、読み、スライド同期を直す。</p></div>
+          <div class="lane-step"><strong>⑤ 最終ゲート</strong><p>同じ固定検証を再実行。不正なら具体的エラーを添えてCodex審査を1回だけやり直し、それでも駄目なら停止する。</p></div>
+          <div class="lane-step"><strong>⑥ 2経路へ分岐</strong><p><code>scenes</code>は動画本体へ、<code>thumbnail_text</code>と<code>thumbnail_visual_prompt</code>はサムネイルへ進む。</p></div>
+          <div class="lane-step"><strong>⑦ 固定合成</strong><p>VOICEVOX、Playwright、Pillow、ffmpegが、検証済みデータを音声・画像・動画へ変換する。</p></div>
+          <div class="lane-step"><strong>⑧ 成果物契約</strong><p><code>LectureArtifacts</code>が動画、サムネイル、背景、プロンプト、投稿JSON、モデル情報をWeb・YouTube側へ渡す。</p></div>
+        </div>
+
+        <h3>二段階AIが確定する主要データ</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>データ</th><th>用途</th><th>固定コードでの検証</th></tr></thead>
+            <tbody>
+              <tr><td><code>title / description / tags</code></td><td>YouTube投稿情報</td><td>必須・空文字禁止・VOICEVOX等のクレジットを後段で強制付与</td></tr>
+              <tr><td><code>thumbnail_text</code></td><td>サムネイルの疑問＋便益コピー</td><td>2行・各14文字以内</td></tr>
+              <tr><td><code>thumbnail_visual_prompt</code></td><td>ローカルSVG用の意味モチーフと美術案</td><td>240文字以内。許可済みモチーフへ正規化</td></tr>
+              <tr><td><code>scenes[].slide</code></td><td>タイトル、箇条書き、比較、コード、引用、まとめ</td><td>テンプレート別必須フィールド</td></tr>
+              <tr><td><code>text / reading</code></td><td>自然な字幕表記とVOICEVOX用読み分け</td><td>空文字・話者名・セリフ長</td></tr>
+              <tr><td><code>metan_pose / zunda_pose</code></td><td>会話に合う表情とポーズ</td><td>利用可能な素材名だけを許可</td></tr>
+              <tr><td><code>show_items</code></td><td>意味のある箇条書き段階表示</td><td>単調非減少・最後は全表示</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="states">
+        <h2>4. Web UIとジョブ状態</h2>
+        <div class="flow">
+          <article class="flow-card"><span class="step">1</span><h3><code>./web.sh</code></h3><p>uv環境でFastAPIを既定ポート3000へ起動し、ブラウザを開く。</p></article>
+          <article class="flow-card"><span class="step">2</span><h3>URLをキューへ</h3><p>URLと動画タイプを保存。既定は澪・透の<code>lecture</code>。</p></article>
+          <article class="flow-card"><span class="step">3</span><h3>単一ワーカー</h3><p>VOICEVOX・Playwright・ffmpegの競合を防ぐため動画を1件ずつ生成。</p></article>
+          <article class="flow-card"><span class="step">4</span><h3>3フェーズ</h3><p><code>submit → collect → upload</code>を回し、UIは状態を5秒ごとに更新。</p></article>
+        </div>
+        <div class="state-flow" aria-label="ジョブ状態遷移">
+          <div class="state">queued<br><small>準備中</small></div><span class="arrow">→</span>
+          <div class="state live">generating<br><small>生成中</small></div><span class="arrow">→</span>
+          <div class="state ready">video_ready<br><small>投稿待ち</small></div><span class="arrow">→</span>
+          <div class="state live">uploading<br><small>投稿中</small></div><span class="arrow">→</span>
+          <div class="state done">uploaded<br><small>完了</small></div>
+        </div>
+        <p class="muted">例外は<code>failed</code>へ記録し、原因と生成済み成果物をWeb画面に残す。</p>
+<pre><code class="language-bash">./web.sh
+PORT=8080 ./web.sh
+./web.sh --no-browser --config config/settings.yaml</code></pre>
+      </section>
+
+      <section id="generation">
+        <h2>5. 動画本体はどう作られるか</h2>
+        <div class="flow">
+          <article class="flow-card"><span class="step">1</span><h3>段階表示を計画</h3><p><code>show_items</code>から、各セリフ中に見える箇条書き項目数を確定。</p></article>
+          <article class="flow-card"><span class="step">2</span><h3>スライド描画</h3><p>固定Jinja2テンプレートをPlaywrightで3840×2160 PNGへ変換。</p></article>
+          <article class="flow-card"><span class="step">3</span><h3>キャラ素材</h3><p>確定済みの澪・透とポーズ差分を固定座標へ配置。AIで毎回描き直さない。</p></article>
+          <article class="flow-card"><span class="step">4</span><h3>音声合成</h3><p>VOICEVOXで読みをWAV化し、実測音声尺を次の工程へ渡す。</p></article>
+          <article class="flow-card"><span class="step">5</span><h3>局所口パク</h3><p>口以外を変えない専用パッチだけを発話中に切り替え、髪や輪郭の揺れを防ぐ。</p></article>
+          <article class="flow-card"><span class="step">6</span><h3>字幕と転換</h3><p>表示用文をASS字幕へし、章境界に別画像とOtoLogic効果音を挿入。</p></article>
+          <article class="flow-card"><span class="step">7</span><h3>ffmpeg合成</h3><p>スライド、キャラ、字幕、音声を30fps・1920×1080の1本へ統合。</p></article>
+          <article class="flow-card"><span class="step">8</span><h3>品質を固定</h3><p>ズームや無意味な上下運動を使わず、座標丸めによる揺れを避ける。</p></article>
+        </div>
+        <div class="callout">
+          <strong>動画生成AIを使わない理由:</strong> 数分の解説動画全体を生成モデルへ任せると、
+          キャラ同一性、文字、口パク、タイミングを再現しにくい。固定スライドと立ち絵を
+          音声尺に合わせて合成する方が、差分修正と品質管理に向いている。
+        </div>
+      </section>
+
+      <section id="thumbnail">
+        <h2>6. サムネイルは動画ごとに専用生成する</h2>
+        <div class="flow">
+          <article class="flow-card"><span class="step">1</span><h3>AI二段階で美術案を確定</h3><p>Claudeが内容を象徴する分類、物体、光、構図を提案し、Codexが内容との一致を審査する。</p></article>
+          <article class="flow-card"><span class="step">2</span><h3>ローカルでSVG背景</h3><p>モチーフをチャンネル共通の色・構図へ変換し、16:9の背景を決定論的に描画。</p></article>
+          <article class="flow-card"><span class="step">3</span><h3>Pillowで固定合成</h3><p>澪・透の確定素材、2行コピー、白縁、濃色パネル、チャンネル帯を1280×720へ合成。</p></article>
+          <article class="flow-card"><span class="step">4</span><h3>監査情報を保存</h3><p>SVG原本、PNG、モチーフ、seed、provider、AI実使用モデル、追加API費用なしの記録を残す。</p></article>
+        </div>
+        <div class="grid-2">
+          <article class="card">
+            <h3>生成AIで変えるもの</h3>
+            <ul>
+              <li>題材固有の物体と視覚メタファー</li>
+              <li>光、流線、奥行き、背景のアクセント</li>
+              <li>動画内容に沿う疑問＋便益の短いコピー案</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>毎回固定するもの</h3>
+            <ul>
+              <li>澪・透の顔、髪、服、体格、色</li>
+              <li>左右配置とサムネイル上の見かけの大きさ</li>
+              <li>日本語見出し、太い白縁、文字パネル</li>
+              <li>人物・文字・ロゴを背景へ入れない契約</li>
+            </ul>
+          </article>
+        </div>
+        <h3>背景方式の設定</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>設定</th><th>動作</th><th>用途</th></tr></thead>
+            <tbody>
+              <tr><td><code>codex-svg</code>（既定）</td><td>審査済み意味モチーフ＋ローカルSVG描画</td><td>通常運用。動画ごとに変化し、再現可能</td></tr>
+              <tr><td><code>static</code></td><td>常に固定背景</td><td>背景を完全固定した比較試験</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          <strong>最高品質の特別版:</strong> 投稿前に人が選ぶ回では、Codexアプリの
+          <code>$imagegen</code>で文字・人物なしの背景を生成し、同じPillow合成へ渡せる。
+          今回の<code>uv</code>試験では、パッケージ箱と依存関係が一本の光へ収束する背景を
+          <code>gpt-image-2</code>で生成し、確定済みの澪・透と正確な日本語コピーを合成した。
+          この経路は画像を人が確認して採用する運用であり、無人キューの必須工程ではない。
+        </div>
+        <figure class="preview">
+          <a href="assets/2026-07-21_uv-codex-imagegen-thumbnail.png">
+            <img src="assets/2026-07-21_uv-codex-imagegen-thumbnail.png"
+                 alt="Codex imagegenで背景を生成し、澪・透と日本語コピーを後合成したuv解説サムネイル">
+          </a>
+          <figcaption>実試験: <code>gpt-image-2</code>の専用背景＋確定済みキャラ＋Pillow日本語合成（1280×720）</figcaption>
+        </figure>
+        <div class="callout">
+          <strong>なぜ「背景だけ」なのか:</strong> キャラまで画像生成すると、顔・髪・服・体格が
+          わずかに変わり、チャンネルの認知と差分切替の安定性が落ちる。背景の創造性と、人物・
+          文字の再現性を分離することで、クリックを促す変化とブランドの一貫性を両立する。
+        </div>
+      </section>
+
+      <section id="artifacts">
+        <h2>7. 出力成果物、投稿、失敗復旧</h2>
+<pre class="file-tree"><code>tmp/lecture/&lt;job_id&gt;/
+├── source.txt                        抽出した本文
+├── script.json                       台本、投稿文、AI実使用モデル
+├── slides/                           段階表示ごとのスライドPNG
+├── audio/                            セリフ単位のVOICEVOX WAV
+├── thumbnail-background.svg          編集可能なベクター原本
+├── thumbnail-background.png          SVGをローカル描画した背景
+├── thumbnail-background-prompt.txt   美術案、モチーフ、seed、費用方針
+├── thumbnail.png                     YouTube用1280×720完成画像
+├── upload_metadata.json              投稿情報、モデル、provider、成果物パス
+├── voicevox-engine.log               自動起動時の診断ログ
+└── video.mp4                         投稿対象の完成動画</code></pre>
+        <p>Web画面から動画、完成サムネイル、背景、背景プロンプト、投稿JSONを確認できる。
+          モデル情報も表示されるため、「どのAIがどの成果物を作ったか」を後から追跡できる。</p>
+
+        <h3>保存するAI実行情報の概念例</h3>
+<pre><code class="language-json">{
+  "script_generation": {
+    "script_agent": "claude-code-cli+codex-cli",
+    "script_model_requested": "opus + gpt-5.6-sol",
+    "script_models_used": [
+      "claude-haiku-4-5-20251001",
+      "claude-opus-4-8",
+      "gpt-5.6-sol"
+    ],
+    "primary": {
+      "authentication": "claude-max-subscription",
+      "effort": "xhigh",
+      "role": "draft-and-character-writing"
+    },
+    "review": {
+      "authentication": "chatgpt-subscription",
+      "effort": "xhigh",
+      "role": "technical-and-editorial-review"
+    },
+    "metered_api": false,
+    "quality_mode": "xhigh"
+  },
+  "thumbnail_background": {
+    "provider": "codex-directed-local-svg",
+    "model": null,
+    "metered_api": false,
+    "fallback_reason": null
+  }
+}</code></pre>
+
+        <h3>再起動と失敗時</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>停止・失敗位置</th><th>再開方法</th><th>作り直すもの</th></tr></thead>
+            <tbody>
+              <tr><td><code>queued</code></td><td>同じURLをワーカーへ再投入</td><td>すべて</td></tr>
+              <tr><td><code>generating</code></td><td>同じ情報源から講義生成を再実行</td><td>動画一式</td></tr>
+              <tr><td>Claude / Codex未ログイン</td><td>Claude Max / ChatGPT Proでログイン後に再試行</td><td>動画一式</td></tr>
+              <tr><td>SVG描画失敗</td><td>Chromium環境を直して再試行</td><td>背景以降</td></tr>
+              <tr><td><code>video_ready</code></td><td>uploadスイープ</td><td>投稿だけ</td></tr>
+              <tr><td>uploadで<code>failed</code></td><td>既存動画とサムネイルを使って再試行</td><td>投稿だけ</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="files">
+        <h2>8. 原理とコードの対応表</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>責務</th><th>主要ファイル</th><th>AIか固定処理か</th></tr></thead>
+            <tbody>
+              <tr><td>起動</td><td><code>web.sh</code> / <code>src/automator/cli.py</code></td><td>固定</td></tr>
+              <tr><td>Web、キュー、再起動復旧</td><td><code>src/automator/web/app.py</code> / <code>routes.py</code></td><td>固定</td></tr>
+              <tr><td>3フェーズと成果物受け渡し</td><td><code>src/automator/pipeline.py</code></td><td>固定オーケストレーター</td></tr>
+              <tr><td>本文抽出</td><td><code>src/lecture/fetch.py</code></td><td>固定。AIのWebアクセスなし</td></tr>
+              <tr><td>台本初稿</td><td><code>src/lecture/script_gen.py</code> / <code>prompts/lecture_script.md</code></td><td>Claude Opus + 固定JSON検証</td></tr>
+              <tr><td>技術／編集審査</td><td><code>src/lecture/script_gen.py</code> / <code>prompts/lecture_script_review.md</code></td><td>Codex Sol + 固定JSON検証</td></tr>
+              <tr><td>サムネイル背景</td><td><code>src/lecture/thumbnail_backdrop.py</code></td><td>審査済み意味モチーフ＋固定SVG描画</td></tr>
+              <tr><td>段階表示とスライド</td><td><code>src/lecture/reveal.py</code> / <code>slides.py</code></td><td>固定</td></tr>
+              <tr><td>音声</td><td><code>src/lecture/tts.py</code></td><td>VOICEVOX専用TTS</td></tr>
+              <tr><td>キャラ、口パク、動画</td><td><code>characters.py</code> / <code>assemble.py</code></td><td>固定</td></tr>
+              <tr><td>講義成果物契約</td><td><code>src/lecture/pipeline.py</code></td><td>固定</td></tr>
+              <tr><td>YouTube投稿</td><td><code>src/automator/youtube.py</code></td><td>固定API操作</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="ops">
+        <h2>9. 運用条件と公式出典</h2>
+        <div class="grid-2">
+          <article class="card"><h3>ローカル前提</h3><p>VOICEVOX、Claude Maxログイン済みClaude Code、ChatGPT Proログイン済みCodex、Chromium、ffmpegを使うため、講義モードはmacOSローカル実行を前提とする。</p></article>
+          <article class="card"><h3>従量課金APIなし</h3><p>台本はClaude Max＋ChatGPT Pro、背景はローカルSVGで作る。APIキーは不要で、ジョブ数に比例するAI API請求を発生させない。</p></article>
+          <article class="card"><h3>外部更新</h3><p>YouTubeへの実投稿だけが公開側の状態を変更する。投稿前の動画・サムネイル・JSONはローカルへ残る。</p></article>
+          <article class="card"><h3>直列生成</h3><p>速度よりPlaywright・VOICEVOX・ffmpegの安定性を優先し、講義動画を1件ずつ処理する。</p></article>
+        </div>
+
+        <h3>公式情報</h3>
+        <ul>
+          <li><a href="https://learn.chatgpt.com/docs/non-interactive-mode#when-to-use-codex-exec">Codex non-interactive mode</a> — <code>codex exec</code>、構造化出力、パイプライン利用</li>
+          <li><a href="https://learn.chatgpt.com/docs/image-generation.md">Codex image generation</a> — <code>$imagegen</code>、<code>gpt-image-2</code>、Codex利用枠での手動画像生成</li>
+          <li><a href="https://developers.openai.com/api/docs/guides/image-generation">OpenAI image generation API</a> — APIキーと従量課金を伴うため、本番経路では採用しない比較対象</li>
+          <li><a href="https://voicevox.hiroshiba.jp/">VOICEVOX 公式</a> — 音声合成エンジンと利用情報</li>
+        </ul>
+        <footer>
+          <strong>改訂履歴:</strong> v4.1 — Claude OpusとCodex Solのeffortをともに<code>xhigh</code>へ統一。<br>
+          v4.0 — Claude Opusの初稿＋Codex Solの最終審査へ変更し、実生成試験とCodex imagegenの手動特別版を反映。<br>
+          v3.0 — AI費用を既存サブスクリプション内に限定し、台本をCodex CLI、背景をCodex指示＋ローカルSVGへ変更。<br>
+          v2.0 — AIモデル配置、エージェント境界、ハイブリッド生成原理、動画ごとの専用背景、実使用モデル記録を追加。<br>
+          v1.0 — Web UI統合、成果物契約、VOICEVOX管理、専用サムネイル、再起動復旧を反映。<br>
+          関連仕様: <a href="../specs/LECTURE_SPEC.md">LECTURE_SPEC.md</a> / <a href="../specs/GUI_SPEC.md">GUI_SPEC.md</a> / <a href="../specs/SPEC.md">SPEC.md</a>
+        </footer>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

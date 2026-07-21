@@ -1,7 +1,9 @@
-# urls.yaml — URL だけ書けばデフォルト設定で動作
+# urls.yaml — mode を省略すると従来の NotebookLM 方式
 - url: https://arxiv.org/abs/2401.12345
+  mode: lecture
 
 - url: https://example.com/article
+  mode: notebooklm
   audio_length: short
   prompt: paper_summary
 

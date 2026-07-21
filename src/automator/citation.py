@@ -18,8 +18,19 @@ _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _SPARK_SHARE_RE = re.compile(
     r"https?://[\w.-]*sparkmailapp\.com/web-share/\S+", re.IGNORECASE
 )
+# ローカル絶対パス（ユーザー名・ディレクトリ構造の漏洩防止の最後の砦）。
+# 行頭または空白の直後に来る個人ホーム配下の絶対パスだけを対象にし、
+# `https://host/Users/...` のような正規 URL のパス部を誤って巻き込まないようにする。
+_LOCAL_PATH_RE = re.compile(
+    r"(?:(?<=\s)|^)(?:/(?:Users|home|Volumes)/|[A-Za-z]:\\)[^\n]*",
+    re.MULTILINE,
+)
 # JSON オブジェクト本体（```json フェンスや前後テキストを許容して最初の {...} を拾う）
 _JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+# 論文の通称・略称として妥当な形（英数字始まり・英数字と .+- のみ・1〜16 字）。
+# 3DGS/3D-GS のような数字始まりも許すが、英字を1文字も含まない語（年号など）は
+# 別途弾く。日本語や長い語句、空白を含むフレーズもここで弾く（ハルシネーション対策）。
+_PAPER_SHORTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+\-]{0,15}$")
 
 _NULLISH = {"null", "none", "n/a", "unknown", "不明"}
 
@@ -94,7 +105,31 @@ def format_source_line(citation: EmailCitation) -> str:
 
 
 def sanitize_public_text(text: str) -> str:
-    """公開テキストから個人情報を除去する（メール・Spark 共有 URL、最後の砦）."""
+    """公開テキストの個人情報を除去する最後の砦（メール・Spark URL・ローカルパス）."""
     text = _SPARK_SHARE_RE.sub("[出典リンクは非公開]", text)
     text = _EMAIL_RE.sub("[メールアドレス非公開]", text)
+    text = _LOCAL_PATH_RE.sub("[ローカルパス非公開]", text)
+    return text
+
+
+def clean_paper_shortname(raw: object) -> str | None:
+    """chat が返した論文の通称・略称（SAM/YOLO 等）を検証する（妥当でなければ None）.
+
+    引用マーカー・囲み引用符を剥がし、``none``/``null``/``なし`` 等は None にする。
+    英字始まりの短い英数字トークン（略称の形）以外は弾き、誤抽出を公開面に出さない。
+    """
+    if not isinstance(raw, str):
+        return None
+    text = strip_citation_markers(raw).strip()
+    text = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    for open_q, close_q in (("「", "」"), ("『", "』"), ("“", "”"), ('"', '"')):
+        if len(text) >= 2 and text[0] == open_q and text[-1] == close_q:
+            text = text[1:-1].strip()
+            break
+    if text.lower() in _NULLISH or text in {"なし", "無し"}:
+        return None
+    if not _PAPER_SHORTNAME_RE.match(text):
+        return None
+    if not any(c.isascii() and c.isalpha() for c in text):
+        return None  # 年号など英字を含まない数字トークンは略称ではない
     return text

@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,7 @@ from automator.category import (
 )
 from automator.citation import (
     EmailCitation,
+    clean_paper_shortname,
     format_source_line,
     is_spark_share_url,
     parse_email_metadata,
@@ -54,6 +56,8 @@ from automator.youtube import (
     set_thumbnail,
     upload_video,
 )
+from lecture.pipeline import LectureArtifacts, generate_lecture
+from lecture.thumbnail_backdrop import ThumbnailBackdropOptions
 
 _NOTEBOOKLM_AUTH_ERROR_MSG = (
     "NotebookLM の認証が期限切れです。"
@@ -74,12 +78,32 @@ _EMAIL_META_QUESTION = (
     "JSONで返してください。キー: title, sender, domain, date。分からない項目はnull。"
     "受信者(宛先)の名前やアドレスは絶対に含めないでください。JSONのみ出力。"
 )
-# 日本語タイトル生成に使う chat 質問
+# 日本語タイトル生成に使う chat 質問。
+# タイトルポリシーの根拠は specs/SPEC.md「YouTube タイトルの形式」を参照。
 _JP_TITLE_QUESTION = (
     "このソースの内容にふさわしい日本語の YouTube 動画タイトルを"
     "1つだけ提案してください。"
-    "条件: 全角35字以内、内容に忠実、過度に煽らない、鉤括弧や引用符で全体を囲まない、"
-    "絵文字や [1] のような注釈を付けない。タイトル本文のみを1行で出力してください。"
+    "条件:"
+    "(1) 全角35字以内。スマホではタイトルが先頭約20字で切り詰められるため、"
+    "最も引きのある情報（意外性・数字・視聴者の得）を先頭20字以内に入れる。"
+    "(2) 内容を何も知らない一般視聴者がタップしたくなる言葉を選ぶ。"
+    "学術用語・研究分野名は一般に通じる言葉に言い換える"
+    "（広く知られた製品名・サービス名はそのまま使ってよい）。"
+    "(3) 同じ意味の言葉を繰り返さない。同義語があれば1文字でも短い方を選ぶ。"
+    "(4) 「〜を解説」「〜について」のような弱い表現で締めず、"
+    "問いかけや言い切りで好奇心を引く。問いの形にする場合は、"
+    "より多くの人が反応する前提の問いを選ぶ。"
+    "(5) 内容には忠実にし、ソースに無いことで煽らない。"
+    "(6) 鉤括弧や引用符で全体を囲まない。絵文字や [1] のような注釈を付けない。"
+    "タイトル本文のみを1行で出力してください。"
+)
+# 論文の通称・略称抽出に使う chat 質問（無ければ none）。有名論文の解説を探す
+# 学生・研究者向けに、SAM/YOLO 等の略称をタイトル・サムネに載せて検索性を上げる。
+_PAPER_SHORTNAME_QUESTION = (
+    "この論文（またはその提案手法・モデル）に、研究コミュニティで広く使われている"
+    "略称・通称はありますか？例: SAM, YOLO, BERT, NeRF, 3DGS。"
+    "あれば略称だけを英字1語で、無ければ none とだけ答えてください。"
+    "説明文・引用符・注釈は付けないでください。"
 )
 # 固定マスコット素材（毎回の生成で参照画像として渡すキャラの元。文字はこの上に合成）
 _MASCOT_BASE = (
@@ -191,19 +215,36 @@ def _build_hashtags(category: str | None) -> str:
     return " ".join(tags)
 
 
+def _local_source_label(source_path: str) -> str:
+    """ローカルファイルパスを公開用の資料名（ファイル名のみ）に変換する.
+
+    絶対パス（ユーザー名やディレクトリ構造）を公開面に出さないため、ディレクトリと
+    拡張子を落とした stem だけを出典として表示する。Zotero 等の stem は
+    「著者 - 年 - タイトル」形式で、公開してよい論文メタデータになっている。
+    """
+    stem = Path(source_path).stem.strip()
+    return stem or "資料"
+
+
 def _format_source_block(urls: list[str], site_name: str | None) -> str:
-    """公開用の出典ブロックを作る（Spark 等のメール共有 URL は秘匿）.
+    """公開用の出典ブロックを作る（メール共有 URL とローカルパスは秘匿）.
 
     複数ソースは各 URL を列挙する。メール系ソースは URL を出さず汎用ラベルにする。
+    ローカルファイルは絶対パスを出さず、ファイル名（＝資料名）だけを表示する。
     """
     lines: list[str] = []
     has_email = False
+    has_local = False
     for source_url in urls:
         if is_spark_share_url(source_url):
             has_email = True
+        elif is_local_path(source_url):
+            has_local = True
+            lines.append(f"📄 元資料: {_local_source_label(source_url)}")
         else:
             lines.append(f"📄 元記事: {source_url}")
-    if site_name and len(urls) == 1 and not has_email:
+    # サイト名は http(s) 単一ソースのときだけ（ローカル/メールは上で出典済み）
+    if site_name and len(urls) == 1 and not has_email and not has_local:
         lines.append(f"📰 ソース: {site_name}")
     if has_email:
         lines.append("📰 ソース: メールニュースレター")
@@ -336,6 +377,18 @@ async def _generate_japanese_title(
     if title is None:
         logger.warning("生成タイトルの整形に失敗")
     return title
+
+
+async def _extract_paper_shortname(
+    backend: NotebookLMBackend, notebook_id: str
+) -> str | None:
+    """論文の通称・略称（SAM/YOLO 等）を chat で抽出する（無ければ None）."""
+    try:
+        answer = await backend.ask(notebook_id, _PAPER_SHORTNAME_QUESTION)
+    except Exception as exc:
+        logger.warning("論文略称の抽出に失敗: {}", exc)
+        return None
+    return clean_paper_shortname(answer)
 
 
 def _clean_thumb_text(value: object, max_len: int) -> str | None:
@@ -560,6 +613,12 @@ def _now_iso() -> str:
 def _migrate_state(state: dict) -> dict:
     """旧 state.json (processed キー) を新 jobs スキーマにマイグレーションする."""
     if "jobs" in state:
+        for job in state["jobs"]:
+            job.setdefault("mode", "notebooklm")
+            job.setdefault("privacy_status", None)
+            job.setdefault("script_path", None)
+            job.setdefault("upload_metadata", None)
+            job.setdefault("upload_metadata_path", None)
         return state
     old_processed = state.get("processed", [])
     jobs: list[dict[str, Any]] = []
@@ -570,8 +629,10 @@ def _migrate_state(state: dict) -> dict:
         job: dict[str, Any] = {
             "url": entry["url"],
             "slug": _make_slug(entry["url"]),
+            "mode": "notebooklm",
             "audio_length": entry.get("audio_length", "default"),
             "prompt": entry.get("prompt", "default"),
+            "privacy_status": None,
             "status": status,
             "notebook_id": entry.get("notebook_id"),
             "task_id": None,
@@ -580,6 +641,9 @@ def _migrate_state(state: dict) -> dict:
             "audio_path": None,
             "thumbnail_path": None,
             "video_path": None,
+            "script_path": None,
+            "upload_metadata": None,
+            "upload_metadata_path": None,
             "youtube_url": entry.get("youtube_url"),
             "error": entry.get("error"),
             "submitted_at": entry.get("processed_at"),
@@ -615,7 +679,10 @@ def _save_state(state_path: Path, state: dict) -> None:
 
 
 def _update_job_state(
-    state_path: Path, url: str, updates: dict[str, Any]
+    state_path: Path,
+    url: str,
+    updates: dict[str, Any],
+    mode: str = "notebooklm",
 ) -> None:
     """state.json からジョブを検索し、指定フィールドのみ更新して保存する.
 
@@ -624,7 +691,7 @@ def _update_job_state(
     """
     state = _load_state(state_path)
     for job in state["jobs"]:
-        if job["url"] == url:
+        if job["url"] == url and job.get("mode", "notebooklm") == mode:
             job.update(updates)
             break
     state["last_run"] = _now_iso()
@@ -637,6 +704,7 @@ def _upsert_job_state(
     audio_length: str,
     prompt: str,
     updates: dict[str, Any],
+    mode: str = "notebooklm",
 ) -> None:
     """state.json を読み直してジョブを find-or-create し、更新して保存する.
 
@@ -646,36 +714,43 @@ def _upsert_job_state(
     並行操作で削除されていた場合は再作成する (オーファン化を防ぐ)。
     """
     state = _load_state(state_path)
-    job = _find_or_create_job(state, url, audio_length, prompt)
+    job = _find_or_create_job(state, url, audio_length, prompt, mode)
     job.update(updates)
     state["last_run"] = _now_iso()
     _save_state(state_path, state)
 
 
-def _get_active_urls(state: dict) -> set[str]:
-    """生成中・video_ready・uploaded の URL セットを返す."""
+def _get_active_jobs(state: dict) -> set[tuple[str, str]]:
+    """生成中・video_ready・uploaded の (URL, mode) セットを返す."""
     return {
-        job["url"]
+        (job["url"], job.get("mode", "notebooklm"))
         for job in state.get("jobs", [])
         if job.get("status") in ("generating", "video_ready", "uploaded")
     }
 
 
 def _find_or_create_job(
-    state: dict, url: str, audio_length: str, prompt: str
+    state: dict,
+    url: str,
+    audio_length: str,
+    prompt: str,
+    mode: str = "notebooklm",
 ) -> dict:
     """既存ジョブを探すか新規作成する."""
     for job in state["jobs"]:
-        if job["url"] == url:
+        if job["url"] == url and job.get("mode", "notebooklm") == mode:
             # 再投入時の audio_length / prompt 指定変更を反映する
             job["audio_length"] = audio_length
             job["prompt"] = prompt
+            job["mode"] = mode
             return job
     job: dict[str, Any] = {
         "url": url,
-        "slug": _make_slug(url),
+        "slug": _make_slug(url if mode == "notebooklm" else f"{mode}:{url}"),
+        "mode": mode,
         "audio_length": audio_length,
         "prompt": prompt,
+        "privacy_status": None,
         "status": "generating",
         "notebook_id": None,
         "task_id": None,
@@ -684,6 +759,9 @@ def _find_or_create_job(
         "audio_path": None,
         "thumbnail_path": None,
         "video_path": None,
+        "script_path": None,
+        "upload_metadata": None,
+        "upload_metadata_path": None,
         "youtube_url": None,
         "thumbnail_pending": False,
         "error": None,
@@ -746,6 +824,7 @@ async def _submit_single(
     slug = _make_slug(url)
     audio_length = entry.audio_length or settings.notebooklm.audio_length
     prompt_preset_name = entry.prompt or "default"
+    privacy_status = entry.privacy_status or settings.youtube.privacy_status
 
     logger.info("Submitting: {} (slug={})", url, slug)
 
@@ -794,6 +873,7 @@ async def _submit_single(
         "notebook_id": notebook_id,
         "task_id": None,
         "status": "generating",
+        "privacy_status": privacy_status,
     })
 
     try:
@@ -826,6 +906,7 @@ async def _submit_single(
         "metadata": _metadata_to_dict(metadata),
         "extra_urls": entry.extra_urls,
         "user_title": entry.title,
+        "privacy_status": privacy_status,
         "submitted_at": _now_iso(),
         "error": None,
     })
@@ -844,24 +925,73 @@ async def submit_urls(
     force: bool = False,
     dry_run: bool = False,
 ) -> list[ProcessResult]:
-    """Phase 1: 各URLに対してノートブック作成＋音声生成開始を並列実行する."""
+    """Phase 1: 生成方式ごとのジョブを開始可能な状態へ遷移させる。"""
     state_path = Path(settings.general.state_file)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state = _load_state(state_path)
-    active_urls = _get_active_urls(state)
-
-    backend = _create_backend(settings)
+    active_jobs = _get_active_jobs(state)
 
     to_submit: list[UrlEntry] = []
     for entry in entries:
-        if not force and entry.url in active_urls:
-            logger.info("Skipping already active: {}", entry.url)
+        if not force and (entry.url, entry.mode) in active_jobs:
+            logger.info("Skipping already active: {} ({})", entry.url, entry.mode)
             continue
         to_submit.append(entry)
 
     if not to_submit:
         logger.info("No new URLs to submit")
         return []
+
+    lecture_entries = [entry for entry in to_submit if entry.mode == "lecture"]
+    notebook_entries = [entry for entry in to_submit if entry.mode == "notebooklm"]
+    unknown_modes = {
+        entry.mode
+        for entry in to_submit
+        if entry.mode not in ("lecture", "notebooklm")
+    }
+    if unknown_modes:
+        raise ValueError(f"Unknown generation modes: {sorted(unknown_modes)}")
+
+    results: list[ProcessResult] = []
+    for entry in lecture_entries:
+        audio_length = entry.audio_length or settings.notebooklm.audio_length
+        prompt_preset_name = entry.prompt or "default"
+        privacy_status = entry.privacy_status or settings.youtube.privacy_status
+        if not dry_run:
+            _upsert_job_state(
+                state_path,
+                entry.url,
+                audio_length,
+                prompt_preset_name,
+                {
+                    "status": "generating",
+                    "notebook_id": None,
+                    "task_id": None,
+                    "metadata": None,
+                    "video_path": None,
+                    "thumbnail_path": None,
+                    "script_path": None,
+                    "upload_metadata": None,
+                    "upload_metadata_path": None,
+                    "youtube_url": None,
+                    "privacy_status": privacy_status,
+                    "submitted_at": _now_iso(),
+                    "error": None,
+                },
+                mode="lecture",
+            )
+        results.append(
+            ProcessResult(
+                url=entry.url,
+                status="generating (dry-run)" if dry_run else "generating",
+                phase="submit",
+            )
+        )
+
+    if not notebook_entries:
+        return results
+
+    backend = _create_backend(settings)
 
     async def _safe_submit(entry: UrlEntry) -> ProcessResult:
         try:
@@ -898,8 +1028,11 @@ async def submit_urls(
                 phase="submit",
             )
 
-    results = await asyncio.gather(*[_safe_submit(e) for e in to_submit])
-    return list(results)
+    notebook_results = await asyncio.gather(
+        *[_safe_submit(entry) for entry in notebook_entries]
+    )
+    results.extend(notebook_results)
+    return results
 
 
 # --- Phase 2: collect ---
@@ -1042,6 +1175,19 @@ async def _collect_single(
     category = await _refine_category(backend, notebook_id, classify_category(url))
     logger.info("カテゴリ判定: {} → {}", url, category)
 
+    # 論文カテゴリなら通称（SAM/YOLO 等）を抽出し、タイトル先頭に【略称】を付与する。
+    # 有名論文の解説を検索する学生・研究者に見つけてもらいやすくするため。略称は
+    # サムネの主役ワード（top）にも反映する。略称の無い論文はそのまま。
+    # ユーザーがタイトルを明示指定した場合は尊重し、抽出・付与しない。
+    paper_shortname: str | None = None
+    if category == "paper" and not user_title:
+        paper_shortname = await _extract_paper_shortname(backend, notebook_id)
+        # 既にタイトルに略称が含まれていれば二重に付けない（YouTube 検索は本文全体を
+        # 索引するので、含まれていれば発見性は満たされる。先頭【】は欠落時に付ける形式）。
+        if paper_shortname and paper_shortname.lower() not in metadata.title.lower():
+            metadata.title = f"【{paper_shortname}】{metadata.title}"
+            logger.info("論文略称を付与: {}", paper_shortname)
+
     # サムネイル生成: 話題連動のベース画像を毎回 AI 生成し、その上に3層テキスト
     # （上=製品名/導入・中=説明・下=ベネフィット黄色特大＋数字）を Pillow 合成する。
     # AIには文字を描かせない（文字化け防止）。AI生成が失敗したら固定マスコット、
@@ -1051,6 +1197,9 @@ async def _collect_single(
     style = style_for_category(category)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
     thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
+    # 論文略称があれば主役ワード（top）を略称で固定し、縮小時も判別しやすくする。
+    if paper_shortname and len(paper_shortname) <= _THUMB_TOP_MAX_LEN:
+        thumb_copy = replace(thumb_copy, top=paper_shortname)
     thumbnail_path = await _compose_topic_thumbnail(
         slug, tmp_dir, settings, headline, style, thumb_copy,
         thumbnail_path, metadata.site_name,
@@ -1095,12 +1244,78 @@ async def _collect_single(
     )
 
 
+async def _collect_lecture_single(
+    job: dict,
+    settings: Settings,
+    state_path: Path,
+) -> ProcessResult:
+    """情報源から澪・透の講義動画と投稿用成果物を生成する。"""
+    url = job["url"]
+    logger.info("Generating Mio/Toru lecture: {}", url)
+    artifacts: LectureArtifacts = await asyncio.to_thread(
+        generate_lecture,
+        url,
+        Path(settings.general.tmp_dir) / "lecture",
+        thumbnail_size=(settings.thumbnail.width, settings.thumbnail.height),
+        thumbnail_backdrop_options=ThumbnailBackdropOptions(
+            mode=settings.thumbnail.background_mode,
+        ),
+        script_model=settings.lecture.script_model,
+        script_effort=settings.lecture.script_effort,
+        review_model=settings.lecture.review_model,
+        review_effort=settings.lecture.review_effort,
+    )
+    metadata = {
+        "title": artifacts.title,
+        "description": artifacts.description,
+        "og_image_url": None,
+        "site_name": "澪と透の動画解説",
+        "language": "ja",
+        "favicon_url": None,
+    }
+    upload_metadata = {
+        "title": artifacts.title,
+        "description": artifacts.description,
+        "tags": list(artifacts.tags),
+        "thumbnail_text": list(artifacts.thumbnail_text),
+        "thumbnail_background": artifacts.thumbnail_backdrop.as_metadata(),
+        "script_generation": artifacts.script_generation,
+    }
+    _update_job_state(
+        state_path,
+        url,
+        {
+            "status": "video_ready",
+            "metadata": metadata,
+            "category": classify_category(url),
+            "video_path": str(artifacts.video_path),
+            "thumbnail_path": str(artifacts.thumbnail_path),
+            "thumbnail_background_path": str(artifacts.thumbnail_backdrop.path),
+            "thumbnail_background_prompt_path": str(
+                artifacts.thumbnail_backdrop.prompt_path
+            ),
+            "script_path": str(artifacts.script_path),
+            "upload_metadata": upload_metadata,
+            "upload_metadata_path": str(artifacts.upload_metadata_path),
+            "collected_at": _now_iso(),
+            "error": None,
+        },
+        mode="lecture",
+    )
+    return ProcessResult(
+        url=url,
+        title=artifacts.title,
+        status="video_ready",
+        phase="collect",
+    )
+
+
 async def collect_audio(
     settings: Settings,
     poll: bool = False,
     timeout: int | None = None,
 ) -> list[ProcessResult]:
-    """Phase 2: generating のジョブから音声をDL→サムネイル→動画変換する."""
+    """Phase 2: 生成方式に応じて投稿可能な動画一式を完成させる。"""
     tmp_dir = Path(settings.general.tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1114,6 +1329,36 @@ async def collect_audio(
     if not generating_jobs:
         logger.info("No generating jobs to collect")
         return []
+
+    lecture_jobs = [job for job in generating_jobs if job.get("mode") == "lecture"]
+    notebook_jobs = [
+        job for job in generating_jobs if job.get("mode", "notebooklm") == "notebooklm"
+    ]
+    results: list[ProcessResult] = []
+
+    # Playwright・VOICEVOX・ffmpeg を同時に複数起動しないよう講義動画は直列生成する。
+    for job in lecture_jobs:
+        try:
+            result = await _collect_lecture_single(job, settings, state_path)
+        except Exception as exc:
+            logger.exception("Failed to generate lecture {}: {}", job["url"], exc)
+            error_msg = str(exc)
+            _update_job_state(
+                state_path,
+                job["url"],
+                {"status": "failed", "error": error_msg},
+                mode="lecture",
+            )
+            result = ProcessResult(
+                url=job["url"],
+                status="failed",
+                error=error_msg,
+                phase="collect",
+            )
+        results.append(result)
+
+    if not notebook_jobs:
+        return results
 
     if timeout is not None:
         settings.notebooklm.generation_timeout_seconds = timeout
@@ -1145,8 +1390,11 @@ async def collect_audio(
                 error_msg,
             )
 
-    results = await asyncio.gather(*[_safe_collect(j) for j in generating_jobs])
-    return list(results)
+    notebook_results = await asyncio.gather(
+        *[_safe_collect(job) for job in notebook_jobs]
+    )
+    results.extend(notebook_results)
+    return results
 
 
 # --- Phase 3: upload ---
@@ -1176,7 +1424,12 @@ async def _reapply_pending_thumbnails(
         video_id = _video_id_from_url(job["youtube_url"])
         result = await set_thumbnail(creds, video_id, Path(thumb))
         if result == "ok":
-            _update_job_state(state_path, job["url"], {"thumbnail_pending": False})
+            _update_job_state(
+                state_path,
+                job["url"],
+                {"thumbnail_pending": False},
+                mode=job.get("mode", "notebooklm"),
+            )
             logger.info("サムネ再適用に成功: {}", job["youtube_url"])
         elif result == "quota":
             logger.warning("サムネ再適用: クォータ上限のため中断（次回リトライ）")
@@ -1230,10 +1483,15 @@ async def upload_videos(
         logger.error("YouTube authentication failed: {}", exc)
         results = []
         for job in ready_jobs:
-            _update_job_state(state_path, job["url"], {
-                "status": "failed",
-                "error": str(exc),
-            })
+            _update_job_state(
+                state_path,
+                job["url"],
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                },
+                mode=job.get("mode", "notebooklm"),
+            )
             results.append(
                 ProcessResult(
                     url=job["url"],
@@ -1264,16 +1522,33 @@ async def upload_videos(
         try:
             metadata = _dict_to_metadata(url, job["metadata"])
             category = job.get("category")
+            is_lecture = job.get("mode") == "lecture"
 
-            citation_data = job.get("citation")
-            citation = EmailCitation(**citation_data) if citation_data else None
-            description = _build_description(
-                metadata,
-                citation=citation,
-                category=category,
-                extra_urls=job.get("extra_urls", []),
-            )
-            title = _build_title(metadata, settings)
+            if is_lecture:
+                upload_metadata = job.get("upload_metadata")
+                if not isinstance(upload_metadata, dict):
+                    raise RuntimeError("講義動画の投稿情報がありません")
+                raw_title = str(upload_metadata.get("title", "")).strip()
+                description = str(upload_metadata.get("description", "")).strip()
+                raw_tags = upload_metadata.get("tags")
+                if not raw_title or not description or not isinstance(raw_tags, list):
+                    raise RuntimeError("講義動画の投稿情報が不完全です")
+                title = _sanitize_youtube_title(raw_title)
+                max_len = settings.youtube.title_max_length
+                if len(title) > max_len:
+                    title = title[: max_len - 1] + "…"
+                tags = [str(tag) for tag in raw_tags]
+            else:
+                citation_data = job.get("citation")
+                citation = EmailCitation(**citation_data) if citation_data else None
+                description = _build_description(
+                    metadata,
+                    citation=citation,
+                    category=category,
+                    extra_urls=job.get("extra_urls", []),
+                )
+                title = _build_title(metadata, settings)
+                tags = settings.youtube.default_tags
 
             # ③ カテゴリ→プレイリスト解決（無ければ既定 playlist_id へフォールバック）
             # ＋ all_playlist_id（全動画横断）を常に追加
@@ -1288,16 +1563,18 @@ async def upload_videos(
             # 24h ローリングをリセットしないため。動画には静止背景が入る）
             upload_thumb = (
                 None
-                if settings.general.simple_video_mode
+                if settings.general.simple_video_mode and not is_lecture
                 else Path(job["thumbnail_path"])
             )
             params = YouTubeUploadParams(
                 file_path=Path(job["video_path"]),
                 title=title,
                 description=description,
-                tags=settings.youtube.default_tags,
+                tags=tags,
                 category_id=settings.youtube.category_id,
-                privacy_status=settings.youtube.privacy_status,
+                privacy_status=(
+                    job.get("privacy_status") or settings.youtube.privacy_status
+                ),
                 thumbnail_path=upload_thumb,
                 playlist_ids=playlist_ids,
             )
@@ -1306,12 +1583,17 @@ async def upload_videos(
 
             # サムネが 429 等で貼れなかった場合は thumbnail_pending を立て、
             # 次回のアップロード時に _reapply_pending_thumbnails で自己修復する
-            _update_job_state(state_path, url, {
-                "status": "uploaded",
-                "youtube_url": result.youtube_url,
-                "thumbnail_pending": not result.thumbnail_set,
-                "uploaded_at": _now_iso(),
-            })
+            _update_job_state(
+                state_path,
+                url,
+                {
+                    "status": "uploaded",
+                    "youtube_url": result.youtube_url,
+                    "thumbnail_pending": not result.thumbnail_set,
+                    "uploaded_at": _now_iso(),
+                },
+                mode=job.get("mode", "notebooklm"),
+            )
             if not result.thumbnail_set:
                 logger.warning(
                     "サムネ未適用のまま公開（次回再適用予定）: {}", result.youtube_url
@@ -1328,10 +1610,15 @@ async def upload_videos(
             )
         except Exception as exc:
             logger.error("Failed to upload {}: {}", url, exc)
-            _update_job_state(state_path, url, {
-                "status": "failed",
-                "error": str(exc),
-            })
+            _update_job_state(
+                state_path,
+                url,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                },
+                mode=job.get("mode", "notebooklm"),
+            )
             results.append(
                 ProcessResult(
                     url=url,
@@ -1404,11 +1691,23 @@ async def process_single_url(
 
     # 8. サムネイル生成（話題連動AIベース画像 + 高密度3層テキストの Pillow 合成。
     #    AI生成失敗時は固定マスコット→グラデーションに縮退）
+    category = classify_category(entry.url)
+    # 論文カテゴリなら通称（SAM/YOLO 等）を抽出し、タイトル先頭に【略称】を付与する。
+    paper_shortname: str | None = None
+    if category == "paper":
+        paper_shortname = await _extract_paper_shortname(backend, notebook_id)
+        # 既にタイトルに略称が含まれていれば二重に付けない（YouTube 検索は本文全体を
+        # 索引するので、含まれていれば発見性は満たされる。先頭【】は欠落時に付ける形式）。
+        if paper_shortname and paper_shortname.lower() not in metadata.title.lower():
+            metadata.title = f"【{paper_shortname}】{metadata.title}"
+            logger.info("論文略称を付与: {}", paper_shortname)
     headline = sanitize_public_text(metadata.title)
     thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
-    category = classify_category(entry.url)
     style = style_for_category(category)
     thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
+    # 論文略称があれば主役ワード（top）を略称で固定し、縮小時も判別しやすくする。
+    if paper_shortname and len(paper_shortname) <= _THUMB_TOP_MAX_LEN:
+        thumb_copy = replace(thumb_copy, top=paper_shortname)
     thumbnail_path = await _compose_topic_thumbnail(
         slug, tmp_dir, settings, headline, style, thumb_copy,
         thumbnail_path, metadata.site_name,
@@ -1476,12 +1775,12 @@ async def run_pipeline(
         # retry_failed は旧互換: failed のジョブを generating にリセットして再実行
         state_path = Path(settings.general.state_file)
         state = _load_state(state_path)
-        failed_urls = {
-            job["url"]
+        failed_jobs = {
+            (job["url"], job.get("mode", "notebooklm"))
             for job in state.get("jobs", [])
             if job.get("status") == "failed"
         }
-        entries = [e for e in entries if e.url in failed_urls]
+        entries = [e for e in entries if (e.url, e.mode) in failed_jobs]
         if not entries:
             logger.info("No failed URLs to retry")
             return []

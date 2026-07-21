@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "description",
+    "tags",
+    "thumbnail_text",
+    "thumbnail_visual_prompt",
+    "eyecatch_before_scenes",
+    "scenes"
+  ],
+  "properties": {
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "thumbnail_text": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "string"}
+    },
+    "thumbnail_visual_prompt": {"type": "string"},
+    "eyecatch_before_scenes": {
+      "type": "array",
+      "items": {"type": "integer"}
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slide", "lines"],
+        "properties": {
+          "slide": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "template",
+              "background_mood",
+              "heading",
+              "subheading",
+              "source_label",
+              "items",
+              "left_title",
+              "left_items",
+              "right_title",
+              "right_items",
+              "code",
+              "caption",
+              "quote",
+              "attribution"
+            ],
+            "properties": {
+              "template": {
+                "type": "string",
+                "enum": ["title", "bullets", "compare", "code", "quote", "outro"]
+              },
+              "background_mood": {
+                "type": "string",
+                "enum": ["explain", "safety", "warm"]
+              },
+              "heading": {"type": "string"},
+              "subheading": {"type": ["string", "null"]},
+              "source_label": {"type": ["string", "null"]},
+              "items": {
+                "type": ["array", "null"],
+                "items": {"type": "string"}
+              },
+              "left_title": {"type": ["string", "null"]},
+              "left_items": {
+                "type": ["array", "null"],
+                "items": {"type": "string"}
+              },
+              "right_title": {"type": ["string", "null"]},
+              "right_items": {
+                "type": ["array", "null"],
+                "items": {"type": "string"}
+              },
+              "code": {"type": ["string", "null"]},
+              "caption": {"type": ["string", "null"]},
+              "quote": {"type": ["string", "null"]},
+              "attribution": {"type": ["string", "null"]}
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "speaker",
+                "text",
+                "reading",
+                "metan_pose",
+                "zunda_pose",
+                "show_items"
+              ],
+              "properties": {
+                "speaker": {"type": "string", "enum": ["metan", "zunda"]},
+                "text": {"type": "string"},
+                "reading": {"type": "string"},
+                "metan_pose": {
+                  "type": "string",
+                  "enum": [
+                    "default", "explain", "point", "praise", "tease",
+                    "caution", "surprised", "wink", "viewer"
+                  ]
+                },
+                "zunda_pose": {
+                  "type": "string",
+                  "enum": [
+                    "default", "listen", "understand", "confused",
+                    "flustered", "shy", "delighted", "praised"
+                  ]
+                },
+                "show_items": {"type": ["integer", "null"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

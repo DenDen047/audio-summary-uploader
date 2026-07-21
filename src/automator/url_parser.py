@@ -13,10 +13,12 @@ class UrlEntry:
     """1つ以上のソース＋共通設定。単一ソースは extra_urls=[] で従来どおり."""
 
     url: str
+    mode: str = "notebooklm"
     audio_length: str | None = None
     prompt: str | None = None
     title: str | None = None
     extra_urls: list[str] = field(default_factory=list)
+    privacy_status: str | None = None
 
     @property
     def sources(self) -> list[str]:
@@ -40,6 +42,11 @@ def _validate_audio_length(value: str | None) -> bool:
     return value is None or value in ("short", "default")
 
 
+def _validate_mode(value: str) -> bool:
+    """生成方式のバリデーション。"""
+    return value in ("notebooklm", "lecture")
+
+
 def _parse_multi_entry(
     item: dict,
     index: int,
@@ -53,6 +60,11 @@ def _parse_multi_entry(
     raw_urls = item.get("urls")
     if not isinstance(raw_urls, list) or not raw_urls:
         logger.warning("Skipping entry {}: 'urls' must be a non-empty list", index + 1)
+        return None
+
+    mode = str(item.get("mode", "notebooklm")).strip()
+    if not _validate_mode(mode):
+        logger.warning("Skipping entry {} — unknown mode: {!r}", index + 1, mode)
         return None
 
     urls: list[str] = []
@@ -92,6 +104,7 @@ def _parse_multi_entry(
     seen_urls.update(urls)
     return UrlEntry(
         url=urls[0],
+        mode=mode,
         extra_urls=urls[1:],
         audio_length=audio_length,
         prompt=prompt,
@@ -141,6 +154,10 @@ def parse_url_file(
             continue
 
         url = str(item["url"]).strip()
+        mode = str(item.get("mode", "notebooklm")).strip()
+        if not _validate_mode(mode):
+            logger.warning("Skipping URL {} — unknown mode: {!r}", url, mode)
+            continue
 
         # ローカルパスの場合: フォルダならPDFを展開、ファイルならそのまま
         if is_local_path(url):
@@ -157,6 +174,7 @@ def parse_url_file(
                     seen_urls.add(pdf_str)
                     entries.append(UrlEntry(
                         url=pdf_str,
+                        mode=mode,
                         audio_length=item.get("audio_length"),
                         prompt=item.get("prompt"),
                     ))
@@ -198,7 +216,14 @@ def parse_url_file(
             continue
 
         seen_urls.add(url)
-        entries.append(UrlEntry(url=url, audio_length=audio_length, prompt=prompt))
+        entries.append(
+            UrlEntry(
+                url=url,
+                mode=mode,
+                audio_length=audio_length,
+                prompt=prompt,
+            )
+        )
 
     logger.info("Parsed {} valid URL entries from {}", len(entries), file_path)
     return entries

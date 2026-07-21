@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Audio Summary</title>
+  <title>動画解説スタジオ</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
   <style>
@@ -27,6 +27,11 @@
       margin: 0;
       font-size: 1.5rem;
     }
+    .header-subtitle {
+      color: var(--pico-muted-color);
+      font-size: 0.82rem;
+      margin: 0.25rem 0 0;
+    }
     .badge {
       background: var(--pico-primary);
       color: var(--pico-primary-inverse);
@@ -43,11 +48,12 @@
       gap: 0.5rem;
       margin-bottom: 0.75rem;
     }
-    .url-input-row input {
+    .url-input-row textarea {
       flex: 1 1 0%;
       min-width: 0;
       width: auto;
       margin-bottom: 0;
+      resize: vertical;
     }
     .url-input-row button {
       flex: 0 0 auto;
@@ -69,6 +75,16 @@
       padding: 0.35rem 1.75rem 0.35rem 0.5rem;
       font-size: 0.85rem;
       width: auto;
+    }
+    .legacy-options {
+      margin-top: 0.65rem;
+      font-size: 0.82rem;
+    }
+    .legacy-options summary {
+      color: var(--pico-muted-color);
+    }
+    .legacy-options .options-row {
+      margin-top: 0.65rem;
     }
     section {
       margin-bottom: 2rem;
@@ -103,6 +119,16 @@
       flex: 1;
       min-width: 0;
     }
+    .mode-chip {
+      display: inline-block;
+      color: var(--pico-primary);
+      border: 1px solid color-mix(in srgb, var(--pico-primary) 45%, transparent);
+      border-radius: 999px;
+      padding: 0.05rem 0.45rem;
+      margin-bottom: 0.2rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+    }
     .job-title {
       font-weight: 500;
       white-space: nowrap;
@@ -124,6 +150,40 @@
       font-size: 0.8rem;
       color: var(--pico-del-color);
       margin-top: 0.2rem;
+    }
+    .job-thumbnail {
+      flex: 0 0 176px;
+      overflow: hidden;
+      border-radius: 0.45rem;
+      border: 1px solid var(--pico-muted-border-color);
+      line-height: 0;
+    }
+    .job-thumbnail img {
+      display: block;
+      width: 176px;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+    }
+    .artifact-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 0.35rem;
+      font-size: 0.78rem;
+    }
+    .upload-info {
+      margin-top: 0.55rem;
+      font-size: 0.78rem;
+    }
+    .upload-info > div {
+      margin-top: 0.5rem;
+    }
+    .upload-info pre {
+      margin: 0.2rem 0 0;
+      padding: 0.6rem;
+      max-height: 12rem;
+      white-space: pre-wrap;
+      font-size: 0.72rem;
     }
     .job-actions {
       display: flex;
@@ -166,6 +226,14 @@
     }
     .htmx-request .htmx-indicator {
       opacity: 1;
+    }
+    @media (max-width: 700px) {
+      body { padding: 0.75rem; }
+      .url-input-row { flex-direction: column; }
+      .url-input-row button { width: 100%; }
+      .completed-job { flex-wrap: wrap; }
+      .job-thumbnail { flex-basis: 140px; }
+      .job-thumbnail img { width: 140px; }
     }
   </style>
 </head>

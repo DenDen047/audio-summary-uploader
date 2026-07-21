@@ -1,6 +1,8 @@
-# NotebookLM → YouTube 自動化パイプライン
+# 澪・透の動画解説 → YouTube 自動化パイプライン
 
-URL リストから NotebookLM で音声要約（Audio Overview）を生成し、YouTube にアップロードする CLI + Web UI ツール。
+記事・論文・GitHub の URL から、澪と透が掛け合いで解説する動画、サムネイル、
+投稿情報をまとめて生成し、YouTube へアップロードする CLI + Web UI ツール。
+従来の NotebookLM 音声要約も選択できます。
 
 ## 必要なもの
 
@@ -9,8 +11,15 @@ URL リストから NotebookLM で音声要約（Audio Overview）を生成し�
 | Python 3.11+ | `.python-version` で指定済み |
 | [uv](https://docs.astral.sh/uv/) | パッケージ管理・実行 |
 | [FFmpeg](https://ffmpeg.org/) 6.x+ | 動画変換に使用 |
+| VOICEVOX | 澪・透の音声合成。macOS では同梱 ENGINE を自動起動 |
+| Claude Code CLI | Claude Maxでログインし、最新Opus・`xhigh` effortで講義台本の初稿を生成 |
+| Codex CLI | ChatGPT Proでログインし、最新Sol・`xhigh` effortで初稿を技術／編集審査 |
+| Playwright Chromium | スライドと動画固有SVG背景のローカル描画 |
 | Google Workspace アカウント | NotebookLM 用（会社契約アカウント） |
 | YouTube チャンネル（個人 Google アカウント） | アップロード先 |
+
+> **AI費用ポリシー:** AI処理は既存のサブスクリプション内だけで実行します。
+> OpenAI API、Anthropic API、Gemini APIなどの従量課金APIは、本番経路では使用しません。
 
 > **注意:** NotebookLM と YouTube で**異なる Google アカウント**を使用します。認証情報は別々に管理されます。
 
@@ -38,12 +47,30 @@ uv sync
 
 `.venv` は uv が自動作成します。
 
+### 2-1. Claude Code / Codexログインと動画固有サムネイル背景
+
+Claude Code CLIをClaude Max、Codex CLIをChatGPT Proアカウントでログインしておきます。
+台本はClaudeの最新Opus alias（`opus`, `effort=xhigh`）で初稿を作り、Codexの
+`gpt-5.6-sol`（`effort=xhigh`）で元情報との照合、技術的断定、会話、スライドを最終審査します。
+APIキーは使いません。実際に解決されたモデル名はジョブの投稿情報へ保存されます。
+
+サムネイル背景は、Codexが台本内に選んだ意味モチーフをローカルSVGへ変換し、
+PlaywrightでPNG化します。画像APIへの通信はなく、同じ台本なら同じ背景を再生成できます。
+固定背景へ切り替える場合だけ`thumbnail.background_mode: "static"`を指定します。
+
+Codexアプリの`$imagegen`（`gpt-image-2`）は、サブスクリプション枠でキャラクター原本や
+手動選定する専用サムネイル背景に利用できます。ただし現在はWeb UIから無人保存できる
+非対話経路がないため、E2Eの必須経路には置きません。公式のプログラム実行手段である
+OpenAI Image APIは従量課金になるため、自動運転時の背景はローカルSVGを使います。
+
 ### 3. 日本語フォントの配置
 
 サムネイル生成に日本語フォントが必要です。
 
-1. [Noto Sans JP](https://fonts.google.com/noto/specimen/Noto+Sans+JP) をダウンロード
-2. `fonts/NotoSansJP-Bold.ttf` として配置
+1. [Noto Sans JP](https://fonts.google.com/noto/specimen/Noto+Sans+JP) と
+   [M PLUS Rounded 1c](https://fonts.google.com/specimen/M+PLUS+Rounded+1c) をダウンロード
+2. `fonts/NotoSansJP-Bold.ttf`、`fonts/MPLUSRounded1c-Bold.ttf`、
+   `fonts/MPLUSRounded1c-Black.ttf` として配置
 
 ```bash
 # ダウンロードした ZIP を展開後
@@ -122,6 +149,8 @@ uv run automator auth youtube
 ## Docker で使う（推奨）
 
 Docker を使えば Python や FFmpeg のインストールなしで、すぐに利用できます。
+現時点の Docker 構成は従来の `notebooklm` モード向けです。VOICEVOX、
+Claude Code、Codex CLIを使う`lecture`モードはローカル実行を使用してください。
 
 ### クイックスタート
 
@@ -232,21 +261,32 @@ Docker を使わずにローカル環境で直接実行する場合は、以下�
 
 ### Web ダッシュボード（推奨）
 
-ブラウザベースの GUI で操作できます。URL を入力してボタンを押すだけで、音声生成から YouTube アップロードまで自動実行されます。
+ブラウザベースの GUI で操作できます。URL を入力して「動画を作成」を押すだけで、
+台本・音声・スライド・動画・サムネイル・投稿情報の生成から YouTube
+アップロードまで自動実行されます。
 
 ```bash
 # Web ダッシュボードを起動（ブラウザが自動で開きます）
-uv run automator web
+./web.sh
 
-# ポートを指定する場合
+# ポートを指定する場合（既定は3000）
+PORT=8080 ./web.sh
+
+# CLI を直接使う場合
 uv run automator web --port 3000
 ```
 
-- ダークテーマの MeTube 風 UI
-- URL 入力 → 自動で 3 フェーズ実行（submit → collect → upload）
+`webui.sh` は後方互換のエイリアスとして残っており、内部で `web.sh` を呼びます。
+
+- 既定は「澪と透の解説動画」。従来の NotebookLM 音声要約も選択可能
+- 複数 URL を改行区切りで入力し、自動で 3 フェーズ実行
+- 完成した動画・サムネイル・AI背景・背景プロンプト・投稿情報JSONを画面から確認・取得
 - 5 秒ごとに自動更新で進捗を確認
 - 失敗したジョブのリトライ、完了済みジョブの一括削除
 - サーバー再起動時に未完了ジョブを自動復旧
+
+裏側の処理は [`docs/2026-07-21_lecture-video-end-to-end-pipeline.html`](docs/2026-07-21_lecture-video-end-to-end-pipeline.html)
+に図解しています。
 
 ### CLI で実行
 
@@ -257,6 +297,7 @@ uv run automator web --port 3000
 ```yaml
 # urls.yaml
 - url: https://arxiv.org/abs/2401.12345
+  mode: lecture
 
 - url: https://example.com/article
   audio_length: short
@@ -277,6 +318,7 @@ uv run automator web --port 3000
 | フィールド | 必須 | 値 | デフォルト |
 |---|---|---|---|
 | `url` | Yes | URL 文字列、ローカル PDF パス、または PDF を含むフォルダパス | — |
+| `mode` | No | `"lecture"` / `"notebooklm"` | `"notebooklm"` |
 | `audio_length` | No | `"short"` / `"default"` | `settings.yaml` の `notebooklm.audio_length` |
 | `prompt` | No | `settings.yaml` の `prompt_presets` で定義されたキー（`"default"`, `"paper_summary"` 等） | `"default"` |
 
@@ -408,6 +450,13 @@ thumbnail:
   width: 1280
   height: 720
   overlay_opacity: 0.5           # 背景画像の暗さ (0.0〜1.0)
+  background_mode: "codex-svg"  # "codex-svg" | "static"
+
+lecture:
+  script_model: "opus"          # Claude Codeの最新Opus alias
+  script_effort: "xhigh"
+  review_model: "gpt-5.6-sol"  # Codexの最新・高品質モデル
+  review_effort: "xhigh"
 
 credentials:
   youtube_client_secret: "./credentials/youtube_client_secret.json"

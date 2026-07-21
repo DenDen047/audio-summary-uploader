@@ -58,6 +58,24 @@ class TestBuildDescription:
         m = _meta(SPARK_URL, "メール要約（タイトル取得中）")
         assert "sparkmailapp.com" not in _build_description(m)
 
+    def test_local_pdf_hides_absolute_path_shows_filename(self) -> None:
+        # ローカル PDF ソースは絶対パス（ユーザー名・ディレクトリ）を公開面に出さず、
+        # ファイル名（＝資料名）だけを出典として表示する
+        local = (
+            "/Users/ikuta/Zotero/storage/A3EIDWYF/"
+            "Wang - 2026 - Position Stop Hardcoding.pdf"
+        )
+        m = PageMetadata(
+            url=local, title="日本語タイトル", description="Local file: x.pdf",
+            og_image_url=None, site_name="Local PDF", language=None,
+            favicon_url=None,
+        )
+        desc = _build_description(m, category="paper")
+        assert "/Users/" not in desc
+        assert "ikuta" not in desc
+        assert "Local PDF" not in desc
+        assert "Wang - 2026 - Position Stop Hardcoding" in desc
+
     def test_multi_source_lists_all_urls(self) -> None:
         m = _meta("https://arxiv.org/abs/1", "Multi")
         desc = _build_description(m, extra_urls=["https://arxiv.org/abs/2"])
@@ -203,6 +221,74 @@ def _multi_job_with_user_title() -> dict:
         "submitted_at": "2026-01-01T00:00:00+00:00", "collected_at": None,
         "uploaded_at": None,
     }
+
+
+def _paper_job() -> dict:
+    return {
+        "url": "https://arxiv.org/abs/2304.02643", "slug": "paper1",
+        "audio_length": "short", "prompt": "default", "status": "generating",
+        "notebook_id": "nb-3", "task_id": "t-3",
+        "metadata": {
+            "title": "Segment Anything", "description": "", "og_image_url": None,
+            "site_name": None, "language": None,
+        },
+        "extra_urls": [], "user_title": None, "citation": None,
+        "audio_path": None, "thumbnail_path": None, "video_path": None,
+        "youtube_url": None, "error": None,
+        "submitted_at": "2026-01-01T00:00:00+00:00", "collected_at": None,
+        "uploaded_at": None,
+    }
+
+
+@pytest.mark.asyncio()
+async def test_collect_prepends_paper_shortname(tmp_path: Path) -> None:
+    """論文カテゴリでは通称(SAM 等)を抽出しタイトル先頭に【略称】を付与する.
+
+    ask は ② 日本語タイトル → 論文略称 → サムネ3層コピー の3回（arxiv は
+    確定カテゴリなので _refine_category は chat を呼ばない）。
+    """
+    settings = _settings(tmp_path)
+    state_path = Path(settings.general.state_file)
+    state_path.write_text(
+        json.dumps({"last_run": None, "jobs": [_paper_job()]}), encoding="utf-8"
+    )
+
+    backend = AsyncMock()
+    backend.check_audio_status = AsyncMock(return_value=_completed())
+    backend.ask = AsyncMock(side_effect=[
+        "あらゆる物体を一発で切り抜く基盤モデル",   # ② JP タイトル
+        "SAM",                                       # 論文略称
+        '{"top":"基盤モデル","bottom":"衝撃の実力"}',  # サムネ3層コピー
+    ])
+    audio = tmp_path / "tmp" / "audio" / "paper1.mp3"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"x")
+    backend.download_audio = AsyncMock(return_value=audio)
+    backend.delete_notebook = AsyncMock()
+
+    with (
+        patch("automator.pipeline._create_backend", return_value=backend),
+        patch(
+            "automator.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "automator.pipeline._generate_thumb_base",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+        ),
+        patch(
+            "automator.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+        ),
+    ):
+        results = await collect_audio(settings, poll=False)
+
+    assert results[0].status == "video_ready"
+    assert backend.ask.await_count == 3
+    job = _load_state(state_path)["jobs"][0]
+    assert job["metadata"]["title"] == "【SAM】あらゆる物体を一発で切り抜く基盤モデル"
 
 
 @pytest.mark.asyncio()

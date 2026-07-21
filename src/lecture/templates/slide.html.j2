@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  /* 保健室兼IT相談室テーマ。署名要素 = ずんだ緑×めたんピンクの2色マーカー */
+  @font-face {
+    font-family: "RoundedMPlus";
+    src: url("{{ heading_font_url }}") format("truetype");
+  }
+  @font-face {
+    font-family: "NotoSansJP";
+    src: url("{{ body_font_url }}") format("truetype");
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; }
+  :root {
+    --ink: #2A3440;
+    --sub-ink: #64707D;
+    --zunda: #63B23C;
+    --zunda-tint: #EDF7E2;
+    --metan: #E0618F;
+    --metan-tint: #FBECF3;
+    --panel-border: #E3E9E4;
+  }
+  body {
+    font-family: "NotoSansJP", sans-serif;
+    background-color: #E7DDE5;
+    /* 背景だけを約 8% 落とし、板書面とキャラの明度は保つ。 */
+    background-image:
+      linear-gradient(rgba(30, 22, 35, 0.08), rgba(30, 22, 35, 0.08)),
+      url("{{ background_url }}");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    color: var(--ink);
+    /* 下部 340px は字幕帯、左右 400px はキャラ立ち絵ゾーン (バストアップ 640px) */
+    padding: 64px 400px 340px 400px;
+    display: flex;
+    flex-direction: column;
+  }
+  body::before {
+    content: "";
+    position: absolute;
+    inset: 26px 340px 270px 340px;
+    border: 2px solid rgba(255, 255, 255, 0.70);
+    border-radius: 34px;
+    background: rgba(255, 252, 250, 0.58);
+    box-shadow: 0 18px 52px rgba(55, 38, 59, 0.13);
+    backdrop-filter: blur(3px);
+  }
+  body.mood-safety::before { background: rgba(250, 251, 255, 0.62); }
+  body.mood-warm::before { background: rgba(255, 249, 245, 0.54); }
+  body > * { position: relative; z-index: 1; }
+  .scene-no {
+    position: absolute; top: 40px; right: 56px;
+    font-family: "RoundedMPlus", sans-serif;
+    font-size: 26px; color: var(--sub-ink); letter-spacing: 3px;
+    background: #FFFFFF; border: 2px solid var(--panel-border);
+    border-radius: 999px; padding: 6px 24px;
+  }
+  h1.heading {
+    font-family: "RoundedMPlus", sans-serif;
+    font-size: 58px; line-height: 1.4;
+    margin-bottom: 48px;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  h1.heading span.marker {
+    background-image: linear-gradient(90deg, #F6CCDD, #CDEBB4);
+    background-size: 100% 40%;
+    background-position: 0 92%;
+    background-repeat: no-repeat;
+    padding: 0 6px;
+  }
+  .content { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+  .pending { visibility: hidden; }  /* セリフ同期の段階表示: 未到達の項目 */
+
+  /* title */
+  .title-wrap { text-align: center; margin-top: -30px; }
+  .title-wrap .main {
+    font-family: "RoundedMPlus", sans-serif;
+    font-size: 86px; line-height: 1.45;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  .title-wrap .main span.marker {
+    background-image: linear-gradient(90deg, #F6CCDD, #CDEBB4);
+    background-size: 100% 34%;
+    background-position: 0 94%;
+    background-repeat: no-repeat;
+    padding: 0 10px;
+  }
+  .title-wrap .sub {
+    font-size: 42px; color: var(--sub-ink); line-height: 1.6; margin-top: 44px;
+    font-family: "RoundedMPlus", sans-serif;
+  }
+  .title-wrap .source {
+    display: inline-block; margin-top: 56px;
+    font-size: 28px; color: var(--sub-ink);
+    background: #FFFFFF; border: 2px solid var(--panel-border);
+    border-radius: 999px; padding: 10px 34px;
+  }
+
+  /* bullets / outro */
+  ul.items { list-style: none; }
+  ul.items li {
+    font-size: 44px; line-height: 1.55; margin-bottom: 38px;
+    padding-left: 58px; position: relative;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  ul.items li::before {
+    content: ""; position: absolute; left: 0; top: 22px;
+    width: 24px; height: 24px; background: var(--zunda); border-radius: 7px;
+  }
+  ul.items.check li::before {
+    content: "✓"; color: #FFFFFF; background: var(--zunda);
+    width: 38px; height: 38px; border-radius: 50%;
+    font-size: 26px; line-height: 38px; text-align: center; top: 14px;
+  }
+  ul.items.check li { padding-left: 66px; }
+
+  /* compare */
+  .columns { display: flex; gap: 36px; }
+  .col {
+    flex: 1; background: #FFFFFF; border-radius: 20px; padding: 26px 28px;
+    border: 2px solid var(--panel-border);
+    box-shadow: 0 6px 18px rgba(42, 52, 64, 0.06);
+  }
+  .col h2 {
+    font-family: "RoundedMPlus", sans-serif;
+    font-size: 33px; margin-bottom: 20px; text-align: center;
+    padding-bottom: 12px;
+  }
+  .col.left h2 { color: var(--metan); border-bottom: 5px solid var(--metan-tint); }
+  .col.right h2 { color: var(--zunda); border-bottom: 5px solid var(--zunda-tint); }
+  .col ul.items li { font-size: 30px; margin-bottom: 16px; padding-left: 38px; line-height: 1.45; }
+  .col ul.items li::before { width: 15px; height: 15px; top: 14px; border-radius: 4px; }
+  .col.left ul.items li::before { background: var(--metan); }
+
+  /* code */
+  .code-window {
+    background: #24313A; border-radius: 18px; overflow: hidden;
+    box-shadow: 0 10px 26px rgba(42, 52, 64, 0.16);
+  }
+  .code-titlebar { display: flex; gap: 12px; padding: 18px 24px; background: #1B252D; }
+  .code-titlebar i { width: 18px; height: 18px; border-radius: 50%; }
+  .code-titlebar i:nth-child(1) { background: #F2655A; }
+  .code-titlebar i:nth-child(2) { background: #F5BE4F; }
+  .code-titlebar i:nth-child(3) { background: #61C554; }
+  pre.code {
+    padding: 36px 48px; font-family: "SF Mono", Menlo, monospace;
+    font-size: 33px; line-height: 1.65; color: #E8EDF2;
+    white-space: pre-wrap; overflow: hidden;
+  }
+  /* 左下のキャラ立ち絵を避けるため左に寄せない */
+  .caption { font-size: 31px; color: var(--sub-ink); margin-top: 28px; margin-left: 96px; }
+
+  /* quote */
+  .quote-card {
+    position: relative; background: #FFFFFF; border-radius: 20px;
+    border: 2px solid var(--panel-border);
+    box-shadow: 0 6px 18px rgba(42, 52, 64, 0.06);
+    padding: 72px 64px 56px 64px;
+  }
+  .quote-card .mark {
+    position: absolute; top: -34px; left: 40px;
+    font-family: "RoundedMPlus", sans-serif;
+    font-size: 90px; color: var(--metan); background: transparent;
+  }
+  blockquote.quote {
+    font-size: 50px; line-height: 1.7;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  .attribution { font-size: 30px; color: var(--sub-ink); margin-top: 36px; text-align: right; }
+</style>
+</head>
+<body class="mood-{{ background_mood }}">
+  <div class="scene-no">{{ "%02d / %02d" % (scene_no, total) }}</div>
+
+  {% if slide.template == "title" %}
+  <div class="content">
+    <div class="title-wrap">
+      <div class="main"><span class="marker">{{ slide.heading | budoux }}</span></div>
+      <div class="sub">{{ slide.subheading | budoux }}</div>
+      <div><span class="source">{{ slide.source_label }}</span></div>
+    </div>
+  </div>
+
+  {% elif slide.template in ("bullets", "outro") %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    <ul class="items{% if slide.template == 'outro' %} check{% endif %}">
+      {% for item in slide["items"] %}<li{% if visible is not none and loop.index > visible %} class="pending"{% endif %}>{{ item | budoux }}</li>{% endfor %}
+    </ul>
+  </div>
+
+  {% elif slide.template == "compare" %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    <div class="columns">
+      <div class="col left">
+        <h2>{{ slide.left_title | budoux }}</h2>
+        <ul class="items">
+          {% for item in slide.left_items %}<li>{{ item | budoux }}</li>{% endfor %}
+        </ul>
+      </div>
+      <div class="col right{% if visible is not none and visible < 2 %} pending{% endif %}">
+        <h2>{{ slide.right_title | budoux }}</h2>
+        <ul class="items">
+          {% for item in slide.right_items %}<li>{{ item | budoux }}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  {% elif slide.template == "code" %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    <div class="code-window">
+      <div class="code-titlebar"><i></i><i></i><i></i></div>
+      <pre class="code">{{ slide.code | highlight_code }}</pre>
+    </div>
+    <div class="caption">{{ slide.caption | budoux }}</div>
+  </div>
+
+  {% elif slide.template == "quote" %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    <div class="quote-card">
+      <div class="mark">“</div>
+      <blockquote class="quote">{{ slide.quote | budoux }}</blockquote>
+      <div class="attribution">{{ slide.attribution }}</div>
+    </div>
+  </div>
+  {% endif %}
+</body>
+</html>

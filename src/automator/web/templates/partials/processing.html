@@ -5,14 +5,21 @@
   <li class="job-item">
     <span class="job-icon">{{ display.icon }}</span>
     <div class="job-info">
+      <span class="mode-chip">{{ job_mode_label(job) }}</span>
       <div class="job-title">
         <a href="{{ job.url }}" target="_blank" rel="noopener">{{ job_title(job) }}</a>
       </div>
       <div class="job-status-text">{{ display.text }}</div>
+      {% if job.video_path and job.thumbnail_path %}
+      <div class="artifact-links">
+        <a href="/api/jobs/{{ job.slug }}/artifacts/video" target="_blank">動画を見る</a>
+        <a href="/api/jobs/{{ job.slug }}/artifacts/thumbnail" target="_blank">サムネイル</a>
+      </div>
+      {% endif %}
     </div>
   </li>
   {% endfor %}
 </ul>
 {% else %}
-<div class="empty-state">No jobs in progress.</div>
+<div class="empty-state">作成中の動画はありません。</div>
 {% endif %}

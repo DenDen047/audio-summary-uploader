@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from loguru import logger
 
 from automator.config import Settings
@@ -17,6 +17,7 @@ router = APIRouter()
 
 # 追加・再投入を受け付けないステータス (failed のみ再投入可能)
 _ACTIVE_STATUSES = ("queued", "generating", "video_ready", "uploading", "uploaded")
+_VALID_PRIVACY_STATUSES = ("unlisted", "public", "private")
 
 
 @router.get("/health")
@@ -38,15 +39,12 @@ def _processing_jobs(jobs: list[dict]) -> list[dict]:
     return [
         j
         for j in jobs
-        if j.get("status")
-        in ("queued", "generating", "video_ready", "uploading")
+        if j.get("status") in ("queued", "generating", "video_ready", "uploading")
     ]
 
 
 def _completed_jobs(jobs: list[dict]) -> list[dict]:
-    return [
-        j for j in jobs if j.get("status") in ("uploaded", "failed")
-    ]
+    return [j for j in jobs if j.get("status") in ("uploaded", "failed")]
 
 
 def _badge_counts(jobs: list[dict]) -> tuple[int, int]:
@@ -56,9 +54,7 @@ def _badge_counts(jobs: list[dict]) -> tuple[int, int]:
     リスト表示とバッジの食い違いを防ぐ。
     """
     processing = sum(
-        1
-        for j in jobs
-        if j.get("status") in ("generating", "video_ready", "uploading")
+        1 for j in jobs if j.get("status") in ("generating", "video_ready", "uploading")
     )
     queued = sum(1 for j in jobs if j.get("status") == "queued")
     return processing, queued
@@ -74,7 +70,7 @@ def _job_title(job: dict) -> str:
 def _status_display(status: str) -> dict[str, str]:
     mapping = {
         "queued": {"icon": "🕐", "text": "準備中..."},
-        "generating": {"icon": "⏳", "text": "音声を生成中..."},
+        "generating": {"icon": "⏳", "text": "動画を生成中..."},
         "video_ready": {
             "icon": "🎬",
             "text": "動画変換完了、アップロード待ち",
@@ -89,10 +85,17 @@ def _status_display(status: str) -> dict[str, str]:
     return mapping.get(status, {"icon": "❓", "text": status})
 
 
+def _job_mode_label(job: dict) -> str:
+    if job.get("mode") == "lecture":
+        return "澪と透"
+    return "NotebookLM"
+
+
 def _template_ctx(**kwargs: object) -> dict[str, object]:
     """テンプレートコンテキストに共通ヘルパーを注入する."""
     kwargs.setdefault("job_title", _job_title)
     kwargs.setdefault("status_display", _status_display)
+    kwargs.setdefault("job_mode_label", _job_mode_label)
     return kwargs
 
 
@@ -107,6 +110,9 @@ async def dashboard(request: Request) -> HTMLResponse:
     completed = _completed_jobs(jobs)
     processing_count, queued_count = _badge_counts(jobs)
     presets = list(settings.notebooklm.prompt_presets.keys())
+    default_privacy_status = settings.youtube.privacy_status
+    if default_privacy_status not in ("unlisted", "public"):
+        default_privacy_status = "unlisted"
 
     return templates.TemplateResponse(
         request,
@@ -117,6 +123,7 @@ async def dashboard(request: Request) -> HTMLResponse:
             processing_count=processing_count,
             queued_count=queued_count,
             presets=presets,
+            default_privacy_status=default_privacy_status,
         ),
     )
 
@@ -168,14 +175,28 @@ async def add_urls(request: Request) -> HTMLResponse:
     settings = _get_settings(request)
     form = await request.form()
     urls_text = str(form.get("urls", "")).strip()
+    # Webフォームはmodeを必ず送る。省略時は既存API利用者との互換性を保つ。
+    mode = str(form.get("mode", "notebooklm")).strip() or "notebooklm"
     prompt = str(form.get("prompt", "default")).strip() or "default"
-    audio_length = (
-        str(form.get("audio_length", "default")).strip() or "default"
+    audio_length = str(form.get("audio_length", "default")).strip() or "default"
+    privacy_status = (
+        str(form.get("privacy_status", settings.youtube.privacy_status)).strip()
+        or settings.youtube.privacy_status
     )
 
     if not urls_text:
         return HTMLResponse(
             '<div class="error">URL を入力してください</div>',
+            status_code=400,
+        )
+    if mode not in ("lecture", "notebooklm"):
+        return HTMLResponse(
+            '<div class="error">動画タイプが不正です</div>',
+            status_code=400,
+        )
+    if privacy_status not in _VALID_PRIVACY_STATUSES:
+        return HTMLResponse(
+            '<div class="error">公開範囲が不正です</div>',
             status_code=400,
         )
 
@@ -190,28 +211,46 @@ async def add_urls(request: Request) -> HTMLResponse:
     to_queue: list[UrlEntry] = []
     for url in urls:
         existing = next(
-            (j for j in state["jobs"] if j["url"] == url), None
+            (
+                j
+                for j in state["jobs"]
+                if j["url"] == url
+                and j.get("mode", "notebooklm") == mode
+            ),
+            None,
         )
-        if existing and existing["status"] in _ACTIVE_STATUSES:
+        if (
+            existing
+            and existing["status"] in _ACTIVE_STATUSES
+        ):
             logger.info(
                 "Skipping already active URL: {} (status={})",
                 url,
                 existing["status"],
             )
             continue
-        job = _find_or_create_job(state, url, audio_length, prompt)
+        job = _find_or_create_job(state, url, audio_length, prompt, mode)
         job["status"] = "queued"
         job["error"] = None
+        job["privacy_status"] = privacy_status
         to_queue.append(
-            UrlEntry(url=url, audio_length=audio_length, prompt=prompt)
+            UrlEntry(
+                url=url,
+                mode=mode,
+                audio_length=audio_length,
+                prompt=prompt,
+                privacy_status=privacy_status,
+            )
         )
     _save_state(state_path, state)
 
     logger.info(
-        "Adding {} URLs to queue (prompt={}, audio_length={})",
+        "Adding {} URLs to queue (mode={}, prompt={}, audio_length={}, privacy={})",
         len(to_queue),
+        mode,
         prompt,
         audio_length,
+        privacy_status,
     )
 
     if to_queue:
@@ -252,8 +291,10 @@ def _reset_failed_job(job: dict) -> UrlEntry | None:
     job["status"] = "queued"
     return UrlEntry(
         url=job["url"],
+        mode=job.get("mode", "notebooklm"),
         audio_length=job.get("audio_length", "default"),
         prompt=job.get("prompt", "default"),
+        privacy_status=job.get("privacy_status"),
     )
 
 
@@ -293,9 +334,7 @@ async def retry_all_failed(request: Request) -> HTMLResponse:
     state_path = Path(settings.general.state_file)
     state = _load_state(state_path)
 
-    failed_jobs = [
-        j for j in state.get("jobs", []) if j["status"] == "failed"
-    ]
+    failed_jobs = [j for j in state.get("jobs", []) if j["status"] == "failed"]
     entries: list[UrlEntry] = []
     for job in failed_jobs:
         entry = _reset_failed_job(job)
@@ -324,9 +363,7 @@ async def delete_job(slug: str, request: Request) -> HTMLResponse:
     state_path = Path(settings.general.state_file)
     state = _load_state(state_path)
 
-    state["jobs"] = [
-        j for j in state.get("jobs", []) if j["slug"] != slug
-    ]
+    state["jobs"] = [j for j in state.get("jobs", []) if j["slug"] != slug]
     _save_state(state_path, state)
     logger.info("Deleted job: slug={}", slug)
 
@@ -342,9 +379,7 @@ async def clear_completed(request: Request) -> HTMLResponse:
     # GUI_SPEC: uploaded のみ削除する。failed はエラー内容とリトライ機会を
     # 残すため対象外 (個別の削除ボタンで消せる)。
     before = len(state.get("jobs", []))
-    state["jobs"] = [
-        j for j in state.get("jobs", []) if j["status"] != "uploaded"
-    ]
+    state["jobs"] = [j for j in state.get("jobs", []) if j["status"] != "uploaded"]
     after = len(state["jobs"])
     _save_state(state_path, state)
     logger.info("Cleared {} completed jobs", before - after)
@@ -356,3 +391,34 @@ async def clear_completed(request: Request) -> HTMLResponse:
         "partials/completed.html",
         _template_ctx(completed_jobs=completed),
     )
+
+
+@router.get("/api/jobs/{slug}/artifacts/{kind}")
+async def get_artifact(slug: str, kind: str, request: Request) -> FileResponse:
+    """ジョブに記録済みの動画・サムネイル関連成果物だけを返す。"""
+    fields = {
+        "video": ("video_path", "video/mp4"),
+        "thumbnail": ("thumbnail_path", "image/png"),
+        "thumbnail-background": ("thumbnail_background_path", "image/png"),
+        "thumbnail-prompt": (
+            "thumbnail_background_prompt_path",
+            "text/plain; charset=utf-8",
+        ),
+        "upload-metadata": ("upload_metadata_path", "application/json"),
+    }
+    if kind not in fields:
+        raise HTTPException(status_code=404, detail="Unknown artifact")
+    job = next(
+        (item for item in _get_jobs(_get_settings(request)) if item["slug"] == slug),
+        None,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    field, media_type = fields[kind]
+    raw_path = job.get(field)
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="Artifact not ready")
+    path = Path(raw_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Artifact file not found")
+    return FileResponse(path, media_type=media_type)

@@ -30,9 +30,7 @@ async def enqueue_urls(entries: list[UrlEntry]) -> None:
     await _task_queue.put(entries)
 
 
-def _mark_queued_jobs_failed(
-    state_path: Path, urls: list[str], error: str
-) -> None:
+def _mark_queued_jobs_failed(state_path: Path, urls: list[str], error: str) -> None:
     """バッチ全体が失敗したとき、queued のまま残ったジョブを failed にする.
 
     submit まで進んだジョブ (generating 以降) は復旧可能性があるため触らない。
@@ -67,22 +65,20 @@ async def _recover_orphaned_jobs(settings: Settings) -> None:
     jobs = state.get("jobs", [])
 
     queued = [j for j in jobs if j.get("status") == "queued"]
-    in_flight = [
-        j for j in jobs if j.get("status") in ("generating", "video_ready")
-    ]
+    in_flight = [j for j in jobs if j.get("status") in ("generating", "video_ready")]
 
     if queued:
         entries = [
             UrlEntry(
                 url=j["url"],
+                mode=j.get("mode", "notebooklm"),
                 audio_length=j.get("audio_length"),
                 prompt=j.get("prompt"),
+                privacy_status=j.get("privacy_status"),
             )
             for j in queued
         ]
-        logger.info(
-            "Recovering {} queued jobs from previous session", len(queued)
-        )
+        logger.info("Recovering {} queued jobs from previous session", len(queued))
         # このバッチの run_pipeline が collect / upload スイープも行うため、
         # in_flight ジョブも一緒に回収される
         await enqueue_urls(entries)
@@ -101,9 +97,7 @@ async def pipeline_worker(settings: Settings) -> None:
         entries = await _task_queue.get()
         urls = [e.url for e in entries]
         if entries:
-            logger.info(
-                "Pipeline worker: processing {} URLs: {}", len(entries), urls
-            )
+            logger.info("Pipeline worker: processing {} URLs: {}", len(entries), urls)
         else:
             logger.info("Pipeline worker: running collect/upload sweep")
         try:
@@ -113,7 +107,10 @@ async def pipeline_worker(settings: Settings) -> None:
             for r in results:
                 logger.info(
                     "Pipeline result: url={} status={} phase={} error={}",
-                    r.url, r.status, r.phase, r.error,
+                    r.url,
+                    r.status,
+                    r.phase,
+                    r.error,
                 )
         except Exception as exc:
             logger.exception("Pipeline error: {}", exc)
@@ -138,7 +135,7 @@ def create_app(settings: Settings) -> FastAPI:
         yield
         worker.cancel()
 
-    app = FastAPI(title="Audio Summary", lifespan=lifespan)
+    app = FastAPI(title="動画解説スタジオ", lifespan=lifespan)
     app.state.settings = settings
 
     from automator.web.routes import router

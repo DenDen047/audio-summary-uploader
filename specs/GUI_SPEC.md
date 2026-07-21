@@ -2,15 +2,16 @@
 
 ## 概要
 
-URL を入力するだけで、音声要約の生成から YouTube アップロードまで自動で行う Web UI。
+URL を入力するだけで、澪・透の掛け合い解説動画の生成から YouTube
+アップロードまで自動で行う Web UI。従来の NotebookLM 音声要約も選択できる。
 内部の 3 フェーズ（submit → collect → upload）はユーザーに見せず、MeTube のようなシンプルな体験を提供する。
 
 **設計思想（MeTube に倣う）:**
 
-- URL を入れてボタンを押すだけ
+- URL を入れて「動画を作成」を押すだけ（既定は「澪と透の解説動画」）
 - 処理中と完了済みの 2 セクションで進捗を把握
 - オプションは最小限、デフォルトで動く
-- ダークテーマ、1 画面完結n
+- ダークテーマ、1 画面完結
 
 ## 技術スタック
 
@@ -31,14 +32,14 @@ htmx・Pico CSS は CDN から読み込み。
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  🎧 Audio Summary                           ● 2 processing     │  ← ヘッダー
+│  動画解説スタジオ                           ● 2 processing     │  ← ヘッダー
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────────────────────────────────┐  ┌──────────┐ │
-│  │ Enter URL                                    │  │   Add    │ │  ← URL 入力
+│  │ 解説したいURL（1行に1つ）                    │  │動画を作成│ │  ← URL 入力
 │  └─────────────────────────────────────────────┘  └──────────┘ │
 │                                                                 │
-│  Prompt: [default ▼]    Audio Length: [default ▼]               │  ← オプション
+│  動画タイプ: [澪と透の解説動画 ▼]  公開範囲: [限定公開 ▼]       │  ← オプション
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  Processing                                                     │
@@ -61,16 +62,20 @@ htmx・Pico CSS は CDN から読み込み。
 
 ### ヘッダー
 
-- アプリ名「Audio Summary」
+- アプリ名「動画解説スタジオ」
 - 処理中ジョブ数のバッジ（例: `● 2 processing`）。0 件なら非表示
 - ダークモード切替は不要（常にダーク）
 
 ### URL 入力エリア
 
-- テキスト入力 + 「Add」ボタン（MeTube と同じ配置）
-- 複数 URL は改行区切りで入力可能（textarea に切替 or 1 行ずつ追加）
+- 改行対応テキスト入力 + 「動画を作成」ボタン
+- 複数 URL は改行区切りで入力可能
 - Enter キーでも送信可能
-- オプション行: Prompt プリセット選択 + Audio Length 選択
+- 動画タイプ: `lecture`（澪と透、既定）/ `notebooklm`（従来方式）
+- 公開範囲: `unlisted`（限定公開、既定）/ `public`（一般公開）
+  - 選択値はジョブごとに state.json へ保存し、再起動や再試行を挟んでも維持する
+  - 旧ジョブなど値がない場合は `settings.youtube.privacy_status` を使う
+- NotebookLM 方式の詳細設定: Prompt プリセット選択 + Audio Length 選択
   - `settings.yaml` の `prompt_presets` からドロップダウンを動的生成
   - Audio Length: `short` / `default`
   - デフォルト値で動くので、触らなくて OK
@@ -87,7 +92,7 @@ htmx・Pico CSS は CDN から読み込み。
 - 記事タイトル（クリックで元 URL を新しいタブで開く）
 - 現在のフェーズを日本語で表示:
   - `queued` → 「準備中...」
-  - `generating` → 「音声を生成中...」
+  - `generating` → 「動画を生成中...」
   - `video_ready` → 「動画変換完了、アップロード待ち」
   - `uploading` → 「YouTube にアップロード中...」
 
@@ -110,22 +115,27 @@ htmx で 5 秒ごとにセクション全体を更新。ジョブが完了する
   - uploaded: 🔗（YouTube を開く）、🗑（一覧から削除）
   - failed: 🔄（リトライ）、🗑（一覧から削除）
 - failed の場合: タイトルの下にエラーメッセージを小さく表示（MeTube と同じ）
+- `lecture` はサムネイルプレビュー、動画、サムネイル、AI背景、背景生成プロンプト、
+  投稿情報JSONへのリンクと、title / description / tags の確認欄を表示する。
+- 投稿情報に記録された台本AIの実使用モデルと、背景のprovider / modelも表示する。
 
 htmx で 5 秒ごとに更新。
 
 ## 内部処理フロー
 
-ユーザーが「Add」を押すと、以下がバックグラウンドで自動実行される:
+ユーザーが「動画を作成」を押すと、以下がバックグラウンドで自動実行される:
 
 ```
-Add ボタン
-  → submit_urls() ... ノートブック作成 + 音声生成開始
-  → collect_audio(poll=True) ... 完了待ち + DL + 動画変換
+動画を作成ボタン
+  → submit_urls() ... mode に応じて生成ジョブを開始
+  → collect_audio(poll=True)
+      lecture: 台本 + 音声 + スライド + 動画 + サムネ + 投稿情報を生成
+      notebooklm: 完了待ち + DL + 動画変換
   → upload_videos() ... YouTube アップロード
 ```
 
 これは既存の `run_pipeline()` をそのまま呼ぶ。ユーザーから見ると、ジョブのステータスが
-「音声を生成中...」→「YouTube にアップロード中...」→ ✅ と遷移するだけ。
+「動画を生成中...」→「YouTube にアップロード中...」→ ✅ と遷移するだけ。
 
 ### 並行実行の制御
 
@@ -185,7 +195,7 @@ state.json のステータスと UI 表示の対応:
 | state.json    | セクション      | アイコン | 表示テキスト              |
 | ------------- | ---------- | ---- | ------------------- |
 | `queued`      | Processing | 🕐   | 準備中...              |
-| `generating`  | Processing | ⏳    | 音声を生成中...           |
+| `generating`  | Processing | ⏳    | 動画を生成中...           |
 | `video_ready` | Processing | 🎬   | 動画変換完了、アップロード待ち     |
 | `uploading`   | Processing | ⬆️   | YouTube にアップロード中... |
 | `uploaded`    | Completed  | ✅    | （なし、アイコンのみ）         |
@@ -228,6 +238,7 @@ state.json のステータスと UI 表示の対応:
 | POST   | `/api/retry-all-failed` | 全失敗ジョブを再実行        |
 | DELETE | `/api/jobs/{slug}`      | ジョブを一覧から削除        |
 | POST   | `/api/clear-completed`  | 完了済みジョブを一括削除      |
+| GET    | `/api/jobs/{slug}/artifacts/{kind}` | 生成成果物を取得 |
 
 
 ### API 詳細
@@ -237,11 +248,13 @@ state.json のステータスと UI 表示の対応:
 ```
 Form Data:
   urls: str              # 改行区切りの URL リスト（1行1URL）
+  mode: str              # "lecture" (default) | "notebooklm"
+  privacy_status: str    # "unlisted" (default) | "public"
   prompt: str            # プリセット名 (default: "default")
   audio_length: str      # "short" | "default"
 ```
 
-- 各 URL のジョブを `queued` ステータスで state.json に書き込んでから、`UrlEntry` に変換してキューに追加
+- 各 URL のジョブを `queued` ステータスで state.json に書き込んでから、`UrlEntry` に変換してキューに追加。`privacy_status` も同時に保存する
 - アクティブな URL（`queued` / `generating` / `video_ready` / `uploading` / `uploaded`）はスキップ
 - `200 OK` + Processing セクションの HTML パーシャルを返す（`HX-Trigger: refreshAll` で全セクションをリフレッシュ）
 - htmx: レスポンスでURL入力欄をクリア + Processing セクションをリフレッシュ
@@ -265,6 +278,12 @@ Form Data:
 
 - `uploaded` ステータスの全ジョブを state.json から削除
 
+#### `GET /api/jobs/{slug}/artifacts/{kind}`
+
+- `kind`: `video` / `thumbnail` / `thumbnail-background` / `thumbnail-prompt` /
+  `upload-metadata`
+- state に記録された当該ジョブの成果物だけを返す。未完成・削除済みは 404。
+
 ## ファイル構成
 
 ```
@@ -285,6 +304,7 @@ src/automator/
 ## CLI コマンド
 
 ```bash
+./web.sh [--config PATH]       # 既定ポート3000、PORT環境変数で変更可
 uv run automator web [--port 8080] [--config PATH]
 ```
 
@@ -318,4 +338,3 @@ uv run automator web [--port 8080] [--config PATH]
 - サムネイルのプレビュー
 - Clear selected（チェックボックスで選択したジョブの一括削除）
 - 実行中の「Add (queued)」ボタンテキスト切替フィードバック
-

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from automator.citation import (
     EmailCitation,
+    clean_paper_shortname,
     format_source_line,
     is_spark_share_url,
     parse_email_metadata,
@@ -104,3 +105,49 @@ class TestSanitizePublicText:
 
     def test_keeps_clean_text(self) -> None:
         assert sanitize_public_text("普通の説明文です") == "普通の説明文です"
+
+    def test_removes_local_path(self) -> None:
+        leaked = (
+            "📄 元記事: /Users/ikuta/Zotero/storage/A3EIDWYF/"
+            "Wang - 2026 - Position Stop Hardcoding.pdf"
+        )
+        out = sanitize_public_text(leaked)
+        assert "/Users/" not in out
+        assert "ikuta" not in out
+
+    def test_removes_home_and_volumes_paths(self) -> None:
+        out = sanitize_public_text("a /home/alice/secret.pdf b\n/Volumes/data/x.pdf")
+        assert "/home/alice" not in out
+        assert "/Volumes/data" not in out
+
+    def test_keeps_https_url_with_users_segment(self) -> None:
+        # 正規 URL のパス部に /Users/ 等が含まれても壊さない
+        url = "https://example.com/Users/profile/page"
+        assert sanitize_public_text(f"見る {url} ここ") == f"見る {url} ここ"
+
+
+class TestCleanPaperShortname:
+    def test_accepts_common_acronyms(self) -> None:
+        for name in ("SAM", "YOLO", "BERT", "NeRF", "YOLOv8"):
+            assert clean_paper_shortname(name) == name
+
+    def test_accepts_digit_leading_acronym(self) -> None:
+        assert clean_paper_shortname("3DGS") == "3DGS"
+        assert clean_paper_shortname("3D-GS") == "3D-GS"
+
+    def test_strips_citation_marker_and_quotes(self) -> None:
+        assert clean_paper_shortname("SAM [1]") == "SAM"
+        assert clean_paper_shortname('"SAM"') == "SAM"
+
+    def test_rejects_none_and_nullish(self) -> None:
+        for bad in ("none", "None", "null", "なし", "不明", "", "   "):
+            assert clean_paper_shortname(bad) is None
+
+    def test_rejects_year_and_phrases(self) -> None:
+        assert clean_paper_shortname("2026") is None
+        assert clean_paper_shortname("Segment Anything Model") is None
+        assert clean_paper_shortname("これはSAMという手法") is None
+
+    def test_rejects_non_string(self) -> None:
+        assert clean_paper_shortname(None) is None
+        assert clean_paper_shortname(123) is None

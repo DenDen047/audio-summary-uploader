@@ -120,9 +120,9 @@ class TestDashboard:
     def test_empty_dashboard(self, client: TestClient) -> None:
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "Audio Summary" in resp.text
-        assert "No jobs in progress" in resp.text
-        assert "No completed jobs" in resp.text
+        assert "動画解説スタジオ" in resp.text
+        assert "作成中の動画はありません" in resp.text
+        assert "完了した動画はありません" in resp.text
 
     def test_dashboard_with_jobs(
         self, client: TestClient, state_with_jobs: None
@@ -132,7 +132,7 @@ class TestDashboard:
         assert "Article One" in resp.text
         assert "Article Two" in resp.text
         assert "Article Three" in resp.text
-        assert "音声を生成中" in resp.text
+        assert "動画を生成中" in resp.text
         assert "NotebookLM timeout" in resp.text
 
     def test_presets_in_form(self, client: TestClient) -> None:
@@ -140,6 +140,12 @@ class TestDashboard:
         assert resp.status_code == 200
         assert '<option value="default"' in resp.text
         assert '<option value="paper"' in resp.text
+        assert '<option value="lecture" selected' in resp.text
+        assert "澪と透の解説動画" in resp.text
+        assert 'name="privacy_status"' in resp.text
+        assert '<option value="unlisted" selected' in resp.text
+        assert "限定公開" in resp.text
+        assert "一般公開" in resp.text
 
 
 class TestPartials:
@@ -190,6 +196,7 @@ class TestAPI:
                     "urls": "https://example.com/new",
                     "prompt": "default",
                     "audio_length": "short",
+                    "privacy_status": "public",
                 },
             )
         assert resp.status_code == 200
@@ -199,12 +206,14 @@ class TestAPI:
         assert entries[0].url == "https://example.com/new"
         assert entries[0].audio_length == "short"
         assert entries[0].prompt == "default"
+        assert entries[0].privacy_status == "public"
 
         # ジョブが即座に state.json に "queued" で書き込まれている
         state = json.loads(tmp_state.read_text())
         queued = [j for j in state["jobs"] if j["status"] == "queued"]
         assert len(queued) == 1
         assert queued[0]["url"] == "https://example.com/new"
+        assert queued[0]["privacy_status"] == "public"
 
     def test_add_urls_shows_immediately(
         self, client: TestClient, tmp_state: Path
@@ -481,7 +490,8 @@ class TestRecovery:
             "last_run": None,
             "jobs": [
                 {"url": "u1", "slug": "s1", "status": "queued",
-                 "audio_length": "default", "prompt": "default"},
+                 "audio_length": "default", "prompt": "default",
+                 "privacy_status": "public"},
                 {"url": "u2", "slug": "s2", "status": "generating"},
             ],
         }
@@ -494,6 +504,7 @@ class TestRecovery:
         mock_enqueue.assert_called_once()
         entries = mock_enqueue.call_args[0][0]
         assert [e.url for e in entries] == ["u1"]
+        assert entries[0].privacy_status == "public"
 
     @pytest.mark.asyncio()
     async def test_recover_in_flight_jobs_enqueues_sweep(

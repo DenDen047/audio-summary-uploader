@@ -242,6 +242,7 @@ credentials/gemini_cookie_cache/
 tmp/audio/
 tmp/thumbnails/
 tmp/videos/
+tmp/lecture/
 state.json
 fonts/*.ttf
 fonts/.DS_Store
