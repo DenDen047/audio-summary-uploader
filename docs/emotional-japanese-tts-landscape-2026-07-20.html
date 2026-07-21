@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>澪と透の講義動画に感情を宿す — 音声合成技術調査と導入設計</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --panel-soft: #f1f4f8;
+      --ink: #18212f;
+      --muted: #5f6b7b;
+      --line: #dbe1e8;
+      --rose: #b43a73;
+      --rose-soft: #f9e8f0;
+      --honey: #986d12;
+      --honey-soft: #fff3d2;
+      --green: #15794e;
+      --green-soft: #e6f6ef;
+      --blue: #2563a8;
+      --blue-soft: #e8f1fb;
+      --orange: #b75a12;
+      --orange-soft: #fff0e3;
+      --red: #b42318;
+      --red-soft: #feeceb;
+      --shadow: 0 14px 38px rgba(22, 33, 49, .08);
+      --radius: 18px;
+      --max: 1180px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1520;
+        --panel: #18202c;
+        --panel-soft: #202a38;
+        --ink: #eef3f8;
+        --muted: #b2bdca;
+        --line: #344152;
+        --rose: #f08ab9;
+        --rose-soft: #3d2332;
+        --honey: #f1c35e;
+        --honey-soft: #3c321d;
+        --green: #68d5a1;
+        --green-soft: #173a2d;
+        --blue: #84b9f2;
+        --blue-soft: #1c344e;
+        --orange: #f4a866;
+        --orange-soft: #472c1d;
+        --red: #ff9992;
+        --red-soft: #482422;
+        --shadow: 0 14px 38px rgba(0, 0, 0, .22);
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+      line-height: 1.78;
+      letter-spacing: .01em;
+    }
+    a { color: var(--blue); text-underline-offset: 3px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    code { font-size: .9em; }
+    .hero {
+      background:
+        radial-gradient(circle at 12% 10%, rgba(180,58,115,.20), transparent 35%),
+        radial-gradient(circle at 88% 14%, rgba(235,177,49,.22), transparent 34%),
+        linear-gradient(135deg, #20283a, #131923 66%);
+      color: #fff;
+      padding: 68px 24px 62px;
+      border-bottom: 5px solid transparent;
+      border-image: linear-gradient(90deg, #c74e85, #f0bd4c) 1;
+    }
+    .hero-inner { max-width: var(--max); margin: 0 auto; }
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 12px;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      font-size: .82rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    h1 { margin: 22px 0 15px; max-width: 900px; font-size: clamp(2rem, 5vw, 4rem); line-height: 1.14; letter-spacing: -.035em; }
+    .subtitle { max-width: 850px; margin: 0; color: #dce5ef; font-size: clamp(1.02rem, 2vw, 1.3rem); }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 25px; }
+    .meta span { padding: 6px 11px; border-radius: 8px; background: rgba(255,255,255,.09); color: #e7edf5; font-size: .82rem; }
+    .page { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 36px; max-width: var(--max); margin: 0 auto; padding: 38px 24px 80px; }
+    .toc { position: sticky; top: 18px; align-self: start; padding: 18px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+    .toc strong { display: block; margin-bottom: 10px; font-size: .84rem; letter-spacing: .08em; color: var(--muted); }
+    .toc a { display: block; padding: 6px 7px; border-radius: 7px; color: var(--muted); text-decoration: none; font-size: .86rem; line-height: 1.35; }
+    .toc a:hover { background: var(--panel-soft); color: var(--ink); }
+    main { min-width: 0; }
+    section { scroll-margin-top: 20px; margin-bottom: 28px; padding: 30px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+    section > :first-child { margin-top: 0; }
+    section > :last-child { margin-bottom: 0; }
+    h2 { margin: 0 0 18px; font-size: clamp(1.45rem, 3vw, 2.15rem); line-height: 1.3; letter-spacing: -.02em; }
+    h3 { margin: 28px 0 10px; font-size: 1.15rem; line-height: 1.4; }
+    p { margin: 0 0 14px; }
+    .lead { font-size: 1.18rem; line-height: 1.75; }
+    .intent, .ok, .risk, .note { margin: 18px 0; padding: 16px 18px; border-radius: 12px; border-left: 5px solid; }
+    .intent { background: var(--orange-soft); border-color: var(--orange); }
+    .ok { background: var(--green-soft); border-color: var(--green); }
+    .risk { background: var(--red-soft); border-color: var(--red); }
+    .note { background: var(--blue-soft); border-color: var(--blue); }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 20px 0; }
+    .card { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-soft); }
+    .card h3 { margin: 7px 0 8px; font-size: 1rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .9rem; }
+    .pill { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: .74rem; font-weight: 800; letter-spacing: .04em; }
+    .p1 { color: var(--green); background: var(--green-soft); }
+    .p2 { color: var(--blue); background: var(--blue-soft); }
+    .p3 { color: var(--orange); background: var(--orange-soft); }
+    .p5 { color: var(--red); background: var(--red-soft); }
+    .system-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .fact { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-soft); }
+    .fact b { display: block; margin-bottom: 5px; color: var(--muted); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
+    .table-wrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; font-size: .9rem; }
+    th, td { padding: 12px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { position: sticky; top: 0; background: var(--panel-soft); color: var(--muted); font-size: .78rem; letter-spacing: .04em; }
+    tr:last-child td { border-bottom: 0; }
+    .win td { background: color-mix(in srgb, var(--green-soft) 70%, transparent); }
+    .character-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .character { padding: 20px; border: 1px solid var(--line); border-radius: 15px; }
+    .character.mio { border-top: 5px solid var(--rose); background: var(--rose-soft); }
+    .character.toru { border-top: 5px solid var(--honey); background: var(--honey-soft); }
+    .character h3 { margin: 0 0 8px; }
+    .character ul { margin-bottom: 0; }
+    ul, ol { padding-left: 1.25rem; }
+    li + li { margin-top: 7px; }
+    pre { margin: 16px 0; padding: 17px; overflow-x: auto; border: 1px solid #334155; border-radius: 12px; background: #111827; color: #e6edf5; font-size: .82rem; line-height: 1.65; }
+    .diagram-scroll { overflow-x: auto; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: #101722; }
+    .diagram-scroll img { display: block; width: 100%; min-width: 650px; height: auto; margin: 0 auto; }
+    figcaption { margin-top: 10px; color: var(--muted); font-size: .82rem; text-align: center; }
+    .legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-bottom: 5px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .phase { display: grid; grid-template-columns: 72px 1fr; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .phase:last-child { border-bottom: 0; padding-bottom: 0; }
+    .phase-num { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 16px; background: var(--ink); color: var(--panel); font-weight: 900; }
+    .phase h3 { margin: 1px 0 5px; }
+    .phase p { margin: 0; color: var(--muted); }
+    .refs { padding-left: 1.2rem; }
+    .refs li { margin-bottom: 9px; }
+    .small { color: var(--muted); font-size: .84rem; }
+    footer { max-width: var(--max); margin: 0 auto; padding: 0 24px 46px; color: var(--muted); font-size: .82rem; }
+    @media (max-width: 920px) {
+      .page { grid-template-columns: 1fr; gap: 20px; padding-top: 24px; }
+      .toc { position: static; display: grid; grid-template-columns: repeat(2, 1fr); }
+      .toc strong { grid-column: 1 / -1; }
+      .cards { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .hero { padding: 45px 18px 42px; }
+      .page { padding: 18px 12px 58px; }
+      section { padding: 21px 17px; border-radius: 14px; }
+      .toc { grid-template-columns: 1fr; }
+      .system-facts, .character-grid { grid-template-columns: 1fr; }
+      .phase { grid-template-columns: 54px 1fr; gap: 11px; }
+      .phase-num { width: 48px; height: 48px; border-radius: 13px; }
+      .diagram-scroll img { min-width: 0; width: 100%; }
+    }
+    @media print {
+      :root { color-scheme: light; }
+      body { background: #fff; color: #111; font-size: 10pt; }
+      .hero { background: #1f2937 !important; padding: 32px 24px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .page { display: block; max-width: none; padding: 20px; }
+      .toc { display: none; }
+      section { box-shadow: none; break-inside: avoid; margin-bottom: 14px; }
+      a { color: #164e82; }
+      .table-wrap { overflow: visible; }
+      table { min-width: 0; font-size: 8.2pt; table-layout: fixed; }
+      th, td { padding: 7px; overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <span class="eyebrow">TECH LANDSCAPE · CORRECTED SCOPE</span>
+      <h1>澪と透の講義動画に<br>感情を宿す</h1>
+      <p class="subtitle">VOICEVOX＋オリジナル立ち絵の2人掛け合いを、声・表情・間が一致したキャラクター演技へ進めるための技術調査と導入設計</p>
+      <div class="meta">
+        <span>対象: worktree-lecture-video-prototype</span>
+        <span>調査日: 2026-07-20</span>
+        <span>v2.0 前提修正版</span>
+        <span>想定読了: 12分</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="page">
+    <nav class="toc" aria-label="目次">
+      <strong>CONTENTS</strong>
+      <a href="#tldr">結論</a>
+      <a href="#scope">正しい対象システム</a>
+      <a href="#problem">現在のボトルネック</a>
+      <a href="#design">導入する設計</a>
+      <a href="#voicevox">VOICEVOXで今できること</a>
+      <a href="#landscape">技術選択肢</a>
+      <a href="#characters">2人の声の設計</a>
+      <a href="#poc">検証計画</a>
+      <a href="#license">権利・クレジット</a>
+      <a href="#refs">参考資料・改訂履歴</a>
+    </nav>
+
+    <main>
+      <section id="tldr">
+        <h2>結論：まずVOICEVOXを使い切る</h2>
+        <p class="lead"><strong>対象はNotebookLM音声でもサムネイルのロボットでもなく、紫ノ宮澪と麦野透が立ち絵で掛け合う講義動画システム。</strong>最初にすべきことはTTSの全面交換ではなく、固定されている話者スタイルを、セリフの感情と立ち絵ポーズに合わせて切り替えることです。</p>
+        <div class="cards">
+          <article class="card">
+            <span class="pill p1">Phase 1 · 最優先</span>
+            <h3>VOICEVOXスタイル演出</h3>
+            <p>現行APIのまま、style・話速・抑揚・間をセリフ単位で制御。動画合成部分は変更不要。</p>
+          </article>
+          <article class="card">
+            <span class="pill p2">Phase 2 · 本命</span>
+            <h3>AivisSpeechへ差し替え</h3>
+            <p>VOICEVOX互換HTTP APIを活かし、多スタイルモデルまたは将来の独自音声へ移行。</p>
+          </article>
+          <article class="card">
+            <span class="pill p3">Quality benchmark</span>
+            <h3>ElevenLabs v3で上限確認</h3>
+            <p>自由な感情指示の品質上限を短い比較試験で確認。直ちに本番基盤にする必要はない。</p>
+          </article>
+        </div>
+        <div class="intent"><strong>推奨判断:</strong> 1〜2日でVOICEVOX版のA/Bテストを作り、その結果に満足できなければAivisSpeechを比較する。独自声の学習は、キャラクターの反応設計が固まってから着手する。</div>
+      </section>
+
+      <section id="scope">
+        <h2>正しい対象システム</h2>
+        <p>対象実装は、同リポジトリの別ワークツリー <code>worktree-lecture-video-prototype</code> にある <code>src/lecture/</code> 系です。URLから講義台本を作り、2人の立ち絵・口パク・字幕・音声をFFmpegで同期するプロトタイプです。</p>
+        <div class="system-facts">
+          <div class="fact"><b>解説役</b>紫ノ宮澪。現状の声は VOICEVOX「もち子さん セクシー／あん子」style_id 66。</div>
+          <div class="fact"><b>聞き役</b>麦野透。現状の声は VOICEVOX「満別花丸 ノーマル」style_id 69。</div>
+          <div class="fact"><b>映像演技</b>全セリフに <code>metan_pose</code> / <code>zunda_pose</code> があり、表情・ポーズを切り替える。</div>
+          <div class="fact"><b>音声演技</b><code>speaker</code> ごとの固定 style_id と固定 <code>speedScale</code> だけで、感情は未指定。</div>
+        </div>
+        <div class="ok"><strong>良い土台はすでにあります。</strong> セリフ単位のWAV、実測音声尺、ポーズ切替、口パクが分離されているため、TTSを高度化しても <code>assemble.py</code> のタイムライン設計をほぼ維持できます。</div>
+      </section>
+
+      <section id="problem">
+        <h2>現在のボトルネックは「声の演出層」がないこと</h2>
+        <p>現状の <code>tts.py</code> は、話者から style_id を1つ引き、全セリフへ同じ話速を適用します。一方、立ち絵側には「褒める・注意する・からかう・照れる・混乱する」といった意味のあるポーズがすでにあります。映像には感情があるのに、音声は同じ読み方のままです。</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>現状</th><th>起きること</th><th>必要な変更</th></tr></thead>
+            <tbody>
+              <tr><td>style_id が話者ごとに固定</td><td>喜び・注意・照れでも同じ声質</td><td>セリフ単位のstyle選択</td></tr>
+              <tr><td>speedScale だけを変更</td><td>テンポは変わるが演技にならない</td><td>抑揚・音高・音量・前後の間をプリセット化</td></tr>
+              <tr><td>ポーズと声が別々</td><td>ウインクしているのに平板、混乱しているのに断定口調</td><td>共通の <code>delivery</code> を単一ソースにする</td></tr>
+              <tr><td>感情の強度がない</td><td>スタイル切替が大げさになりやすい</td><td><code>intensity</code> で弱・中・強を制御</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note"><strong>重要:</strong> 「リアルさ」は声質だけで決まりません。キャラクターらしい間、語尾、強調位置、感情の立ち上がりと戻りが、立ち絵の変化と同時に起きることが効きます。</div>
+      </section>
+
+      <section id="design">
+        <h2>追加するのは小さな VoiceDirector</h2>
+        <p>台本に、発話者の演技を示す <code>delivery</code> と強度 <code>intensity</code> を追加します。VoiceDirectorは、その意味ラベルを各エンジン固有の style・抑揚・間へ変換します。これにより、VOICEVOXからAivisSpeechやクラウドTTSへ替えても台本スキーマを維持できます。</p>
+        <pre><code class="language-json">{
+  "speaker": "metan",
+  "text": "透くん、そこに気づいたのは鋭いわ。",
+  "reading": "とおるくん、そこにきづいたのはするどいわ。",
+  "delivery": "praise",
+  "intensity": 0.45,
+  "pause_after": 0.35,
+  "metan_pose": "praise",
+  "zunda_pose": "praised"
+}</code></pre>
+        <figure>
+          <div class="diagram-scroll">
+            <a href="assets/2026-07-20_lecture-voice-direction.svg" target="_blank" rel="noopener" title="クリックで原寸表示">
+              <img src="assets/2026-07-20_lecture-voice-direction.svg" alt="台本の感情指定をVoiceDirectorが各TTSエンジンへ変換し、既存のassemble.pyへWAVを渡す構成図" loading="lazy">
+            </a>
+          </div>
+          <figcaption>
+            <div class="legend">
+              <span><i class="swatch" style="background:#475569"></i>既存</span>
+              <span><i class="swatch" style="background:#16a34a"></i>追加</span>
+              <span><i class="swatch" style="background:#2563eb"></i>選択可能なTTS</span>
+              <span><i class="swatch" style="background:#d97706"></i>完成動画</span>
+            </div>
+            ソース: <code>docs/assets/2026-07-20_lecture-voice-direction.d2</code>。図をクリックすると原寸で開きます。
+          </figcaption>
+        </figure>
+        <div class="intent"><strong>設計原則:</strong> ポーズ名から声を直接決め打ちするのではなく、<code>delivery</code> を声と立ち絵の共通意味にする。非話者側のリアクションは、従来どおり別のposeで表します。</div>
+      </section>
+
+      <section id="voicevox">
+        <h2>VOICEVOXだけでも、まだ大きく改善できる</h2>
+        <p>VOICEVOX ENGINEは、<code>/audio_query</code> で得たクエリの話速・音高・抑揚・音量・前後無音などを変更してから合成できます。また、話者が対応していれば2スタイル間のモーフィングも可能です。モーフィングの可否はAPIで確認する必要があります。<a href="https://voicevox.github.io/voicevox_engine/api/" target="_blank" rel="noopener">VOICEVOX ENGINE API</a></p>
+        <h3>現在の2話者が持つスタイル</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>キャラクター</th><th>現行</th><th>利用候補</th><th>適する演技</th></tr></thead>
+            <tbody>
+              <tr><td>紫ノ宮澪<br><span class="small">もち子さん</span></td><td>66 セクシー／あん子</td><td>20 ノーマル、77 泣き、78 怒り、79 喜び、80 のんびり</td><td>説明、称賛、注意、からかい、珍しい動揺</td></tr>
+              <tr><td>麦野透<br><span class="small">満別花丸</span></td><td>69 ノーマル</td><td>70 元気、71 ささやき、72 ぶりっ子、73 ボーイ</td><td>理解、喜び、照れ、慌て、疑問</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small">style_id は実行時に <code>/speakers</code> から「話者名＋スタイル名」で解決するのが安全です。番号の直書きは、音源構成の変更に弱くなります。</p>
+
+        <h3>初期プリセット案</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>delivery</th><th>澪</th><th>透</th><th>演出の狙い</th></tr></thead>
+            <tbody>
+              <tr><td><code>explain</code></td><td>66、現行話速、抑揚は中立</td><td>69、現行話速</td><td>基準となる声。長尺でも疲れない</td></tr>
+              <tr><td><code>praise / delighted</code></td><td>79を弱め、話速を少し上げる</td><td>70、抑揚を少し上げる</td><td>声量ではなく明るさとテンポで喜びを出す</td></tr>
+              <tr><td><code>caution / confused</code></td><td>66を少し遅く低めに。78は低強度のみ</td><td>69または73、疑問語尾と短い前間</td><td>先生は怒鳴らず、少年は理解途中に聞こえる</td></tr>
+              <tr><td><code>tease / flustered</code></td><td>79または80を弱く、語尾に余裕</td><td>70、短い区切りを増やす</td><td>2人の掛け合いで最も差が出る組</td></tr>
+              <tr><td><code>warm / shy</code></td><td>80、抑揚を少し抑える</td><td>71を低強度、または69を低めに</td><td>ささやきへ急変させず、距離感を近づける</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="risk"><strong>注意:</strong> スタイルを替えれば自動的に自然になるわけではありません。強いスタイルを長文全体へ使うと別人格に聞こえます。感情が動く1〜2文だけに使い、通常スタイルへ戻す設計が必要です。</div>
+      </section>
+
+      <section id="landscape">
+        <h2>どのツールで、どこまでできるか</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>選択肢</th><th>感情表現</th><th>現行との相性</th><th>キャラ固有声</th><th>導入目安</th><th>位置づけ</th></tr></thead>
+            <tbody>
+              <tr class="win"><td><strong>VOICEVOX<br>既存スタイル活用</strong></td><td>中。アニメ的な感情差、抑揚・間の調整</td><td>最良。現行APIのまま</td><td>既存音声キャラの声</td><td>1〜2日</td><td><span class="pill p1">最初に実施</span></td></tr>
+              <tr><td><strong>AivisSpeech<br>多スタイルモデル</strong></td><td>中〜高。モデル次第で喜怒哀楽や細かなスタイル</td><td>高。VOICEVOX互換HTTP API</td><td>配布モデルまたは自作モデル</td><td>2〜5日</td><td><span class="pill p2">ローカル本命</span></td></tr>
+              <tr><td><strong>ElevenLabs v3<br>Voice Design</strong></td><td>高。自然言語・音声タグによる演技</td><td>中。専用アダプターが必要</td><td>テキストから新規声を設計・保存</td><td>1〜3日でPoC</td><td><span class="pill p3">品質上限の比較</span></td></tr>
+              <tr><td><strong>Style-Bert-VITS2<br>独自学習→AIVM</strong></td><td>高。スタイルと強度を連続制御</td><td>高。AivisSpeech経由で統合可能</td><td>同意済み録音から完全専用化</td><td>2〜6週間</td><td><span class="pill p2">長期ブランド</span></td></tr>
+              <tr><td><strong>Qwen3-TTS<br>VoiceDesign</strong></td><td>高い潜在力。指示ベース</td><td>低〜中。GPUと独自実装</td><td>設計声の反復一貫性は要検証</td><td>R&amp;D</td><td><span class="pill p3">実験枠</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>なぜAivisSpeechが次の一手か</h3>
+        <p>AivisSpeechは、VOICEVOX互換のHTTP API、文ごとのスタイル・話速・テンポ・アクセント調整、辞書、CPU推論を掲げています。AivisHubには喜び・怒り・悲しみ・驚きなどを持つ多スタイルモデルがあり、既存の <code>synthesize()</code> 境界を維持しやすい選択です。モデルごとのライセンス確認は必要です。<a href="https://aivis-project.com/AivisSpeech" target="_blank" rel="noopener">AivisSpeech公式</a> / <a href="https://hub.aivis-project.com/" target="_blank" rel="noopener">AivisHub</a></p>
+
+        <h3>独自声を持つならStyle-Bert-VITS2</h3>
+        <p>Style-Bert-VITS2は、感情・発話スタイルを強度込みで制御し、音声データから複数のスタイルベクトルを作れます。学習済みモデルをAIVMへ変換してAivisSpeechに載せる経路も公式に案内されています。最大の価値は「澪と透だけの声」を持てることですが、同意済みの録音、収録設計、データ整備、学習、品質管理が必要です。<a href="https://github.com/litagin02/Style-Bert-VITS2" target="_blank" rel="noopener">Style-Bert-VITS2公式リポジトリ</a></p>
+
+        <h3>ElevenLabsは置換候補よりベンチマーク</h3>
+        <p>Voice Designは年齢・性格・声色・感情・話速を文章で指定して新しい声を作り、保存できます。Eleven v3は幅広い感情と音声タグに対応します。一方で、公式自身がVoice Designを探索・反復向けとし、一貫性の最上位はProfessional Voice Cloneと説明しています。日本語の技術用語、長尺での声の安定、クラウド費用を含め、まず12セリフだけ比較するのが合理的です。<a href="https://elevenlabs.io/docs/overview/capabilities/voices" target="_blank" rel="noopener">ElevenLabs Voices</a> / <a href="https://elevenlabs.io/docs/eleven-creative/voices/voice-design/" target="_blank" rel="noopener">Voice Design guide</a></p>
+      </section>
+
+      <section id="characters">
+        <h2>声のリアルさより先に、2人の演技規則を固定する</h2>
+        <div class="character-grid">
+          <article class="character mio">
+            <h3>紫ノ宮澪 — 余裕のある優しい先生</h3>
+            <ul>
+              <li>基準は落ち着き、明瞭さ、知性、親しみ。</li>
+              <li>説明ではテンポを一定にし、重要語だけを強調。</li>
+              <li>褒める時は声量より明るさと柔らかい語尾。</li>
+              <li>注意は怒りではなく、話速を落として低めに。</li>
+              <li>からかい・ウインクは短く。長く続けない。</li>
+            </ul>
+          </article>
+          <article class="character toru">
+            <h3>麦野透 — 素直で好奇心のある少年</h3>
+            <ul>
+              <li>基準は聞き取りやすさ、誠実さ、少し控えめ。</li>
+              <li>疑問は語尾だけでなく、考える短い間を入れる。</li>
+              <li>理解した瞬間は話速と明るさを少し上げる。</li>
+              <li>照れは囁きにしすぎず、声を小さくして間を取る。</li>
+              <li>驚き・動揺は短い句へ分け、常時ハイテンションにしない。</li>
+            </ul>
+          </article>
+        </div>
+        <div class="note"><strong>映像との合わせ方:</strong> ハート瞳や赤面など大きな立ち絵リアクションは、音声でも感情ピークを1か所だけ作る。逆に通常の説明ポーズでは、TTSの派手なスタイルを使わない。この差が演技を本物らしく見せます。</div>
+      </section>
+
+      <section id="poc">
+        <h2>検証は3段階、同じ12セリフで比較する</h2>
+        <div class="phase">
+          <div class="phase-num">01</div>
+          <div><h3>現行VOICEVOXのA/B/C比較</h3><p>A＝現在の固定style、B＝style切替、C＝style＋抑揚・間・対応時のみモーフィング。澪と透それぞれ6感情、合計12セリフを同一テキストで生成します。</p></div>
+        </div>
+        <div class="phase">
+          <div class="phase-num">02</div>
+          <div><h3>AivisSpeechの既存モデルを2候補ずつ試す</h3><p>VOICEVOX版で表現不足だった感情だけを比較。澪は落ち着き・からかい・注意、透は疑問・喜び・照れを優先します。</p></div>
+        </div>
+        <div class="phase">
+          <div class="phase-num">03</div>
+          <div><h3>ElevenLabs v3を品質上限として1本だけ作る</h3><p>同じ12セリフと立ち絵で生成し、クラウドTTSに替える価値があるほど差が出るかを確認します。</p></div>
+        </div>
+
+        <h3>評価項目</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>項目</th><th>見るもの</th><th>合格の考え方</th></tr></thead>
+            <tbody>
+              <tr><td>キャラクター同一性</td><td>感情が変わっても同じ澪／透に聞こえるか</td><td>スタイル切替で別人化しない</td></tr>
+              <tr><td>立ち絵との一致</td><td>praise、confused、flustered等が声でも伝わるか</td><td>画面を見ながら違和感がない</td></tr>
+              <tr><td>感情の識別</td><td>音声だけで狙ったdeliveryを判別できるか</td><td>強さより方向が正しく伝わる</td></tr>
+              <tr><td>講義としての信頼感</td><td>感情が技術説明を邪魔していないか</td><td>5分以上聞いても疲れない</td></tr>
+              <tr><td>日本語・技術語</td><td>uv、Python、コマンド、固有名詞の読み</td><td>reading／辞書で再現可能</td></tr>
+              <tr><td>再現性</td><td>同じ入力を3回生成した時のばらつき</td><td>自動パイプラインで許容できる</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="intent"><strong>切替条件:</strong> VOICEVOXのC案で「立ち絵との一致」と「長尺の聞きやすさ」が成立すれば、そのまま本番化。声質そのものがキャラクターに合わない、または感情間の遷移が不自然ならAivisSpeechへ進む。</div>
+      </section>
+
+      <section id="license">
+        <h2>オリジナル立ち絵でも、声の権利はオリジナルにはならない</h2>
+        <p>VOICEVOXは商用・非商用で利用できますが、ソフトウェア規約に加えて各音声ライブラリの規約に従い、VOICEVOX利用のクレジットが必要です。<a href="https://voicevox.hiroshiba.jp/term/" target="_blank" rel="noopener">VOICEVOXソフトウェア利用規約</a></p>
+        <div class="risk"><strong>現行実装で要修正:</strong> <code>script_gen.py</code> のクレジットは <code>VOICEVOX:もち子さん</code> ですが、もち子さん公式規約は <code>VOICEVOX もち子さん(cv明日葉よもぎ)</code> の表記を求めています。また、別キャラクターのCVとして使う場合もクレジットが重要です。公開・収益化前に最新規約と用途を再確認してください。<a href="https://vtubermochio.wixsite.com/mochizora/%E5%88%A9%E7%94%A8%E8%A6%8F%E7%B4%84" target="_blank" rel="noopener">もち子さん公式 利用規約/Q&amp;A</a></div>
+        <ul>
+          <li>動画内または概要欄で、声の出所が澪・透の自前収録だと誤認されない表記にする。</li>
+          <li>VOICEVOX音声を、将来の独自TTS学習データやボイスチェンジャー学習へ流用しない。</li>
+          <li>AivisHubの配布モデルも、アプリ本体とは別にモデル固有ライセンスを確認する。</li>
+          <li>本当に「澪と透だけの声」を資産化するなら、同意済みの声優・収録者データで独自モデルを作る。</li>
+        </ul>
+      </section>
+
+      <section id="refs">
+        <h2>参考資料・改訂履歴</h2>
+        <ol class="refs">
+          <li><a href="https://voicevox.github.io/voicevox_engine/api/" target="_blank" rel="noopener">VOICEVOX ENGINE API Document</a> — AudioQuery、話者・スタイル、モーフィング。</li>
+          <li><a href="https://voicevox.hiroshiba.jp/term/" target="_blank" rel="noopener">VOICEVOX ソフトウェア利用規約</a> — 商用利用、音声ライブラリ規約、クレジット。</li>
+          <li><a href="https://voicevox.hiroshiba.jp/product/manbetsu_hanamaru/" target="_blank" rel="noopener">VOICEVOX 満別花丸</a> / <a href="https://voicevox.hiroshiba.jp/product/mochikosan/" target="_blank" rel="noopener">VOICEVOX もち子さん</a> — 公式話者情報。</li>
+          <li><a href="https://aivis-project.com/AivisSpeech" target="_blank" rel="noopener">AivisSpeech 公式</a> — VOICEVOX互換API、スタイル・辞書・自作モデル。</li>
+          <li><a href="https://hub.aivis-project.com/" target="_blank" rel="noopener">AivisHub</a> — 複数感情・複数スタイルを持つ配布モデル。</li>
+          <li><a href="https://github.com/litagin02/Style-Bert-VITS2" target="_blank" rel="noopener">Style-Bert-VITS2</a> — スタイル強度制御、学習、API、Aivis連携。</li>
+          <li><a href="https://elevenlabs.io/docs/overview/capabilities/voices" target="_blank" rel="noopener">ElevenLabs Voices</a> / <a href="https://elevenlabs.io/docs/eleven-creative/voices/voice-design/" target="_blank" rel="noopener">Voice Design</a> — 新規声の設計、感情、品質上の注意。</li>
+          <li><a href="https://github.com/QwenLM/Qwen3-TTS" target="_blank" rel="noopener">Qwen3-TTS</a> — オープンソースのVoiceDesign、音声指示、音声複製。</li>
+        </ol>
+        <h3>改訂履歴</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>版</th><th>日付</th><th>変更</th></tr></thead>
+            <tbody>
+              <tr><td>v1.0</td><td>2026-07-20</td><td>NotebookLM音声を主対象として作成。</td></tr>
+              <tr><td>v2.0</td><td>2026-07-20</td><td>対象を講義動画プロトタイプへ全面修正。澪・透、VOICEVOX、立ち絵ポーズ同期、現行実装への導入手順、クレジット上の注意を追加。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    本レポートは技術選定用であり、法的助言ではありません。製品仕様・料金・利用規約は公開前に各公式サイトの最新版を再確認してください。
+  </footer>
+</body>
+</html>

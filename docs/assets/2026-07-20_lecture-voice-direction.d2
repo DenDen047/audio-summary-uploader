@@ -1,0 +1,77 @@
+direction: down
+
+vars: {
+  d2-config: {
+    theme-id: 200
+    dark-theme-id: 200
+  }
+}
+
+classes: {
+  base: {
+    style: {
+      fill: "#475569"
+      stroke: "#1e293b"
+      stroke-width: 2
+      font-color: "#ffffff"
+      font-size: 18
+      bold: true
+    }
+  }
+  new: {
+    style: {
+      fill: "#16a34a"
+      stroke: "#14532d"
+      stroke-width: 2
+      font-color: "#ffffff"
+      font-size: 18
+      bold: true
+    }
+  }
+  attn: {
+    style: {
+      fill: "#d97706"
+      stroke: "#7c2d12"
+      stroke-width: 2
+      font-color: "#ffffff"
+      font-size: 18
+      bold: true
+    }
+  }
+  option: {
+    style: {
+      fill: "#2563eb"
+      stroke: "#1e3a8a"
+      stroke-width: 2
+      font-color: "#ffffff"
+      font-size: 16
+      bold: true
+    }
+  }
+}
+
+script: "script_gen.py\nセリフ・話者・両者のポーズ" {class: base}
+voice_director: "VoiceDirector（追加）\ndelivery・強度・間・話速を決定" {class: new}
+
+engines: {
+  label: "音声エンジン（段階的に選択）"
+  grid-columns: 3
+  voicevox: "Phase 1\nVOICEVOX\n既存スタイル切替" {class: option}
+  aivis: "Phase 2\nAivisSpeech\n多スタイル／独自モデル" {class: option}
+  eleven: "比較試験\nElevenLabs v3\n自由演技ベンチマーク" {class: option}
+}
+
+wav: "セリフ単位 WAV\n実測尺を保持" {class: base}
+assemble: "assemble.py\n立ち絵・口パク・字幕・音声を同期" {class: base}
+video: "澪 × 透の講義動画" {class: attn}
+
+script -> voice_director: "同じ意味ラベルから\n声と立ち絵を同期"
+voice_director -> engines.voicevox
+voice_director -> engines.aivis
+voice_director -> engines.eleven
+engines.voicevox -> wav
+engines.aivis -> wav
+engines.eleven -> wav
+wav -> assemble
+script -> assemble: "metan_pose / zunda_pose" {style.stroke-dash: 4}
+assemble -> video
