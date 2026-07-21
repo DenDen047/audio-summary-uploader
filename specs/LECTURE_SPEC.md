@@ -200,7 +200,8 @@ output: tmp/lecture/<job_id>/video.mp4 （＋ script.json, slides/, audio/）
   0.56秒周期のうち0.14秒だけ開くことで、落ち着いた話速に合う控えめな動きにする。
 - **クレジット表記**: VOICEVOX 利用規約に従い、概要欄 description に
   `VOICEVOX:満別花丸` `VOICEVOX:もち子さん` を必ず含める（script_gen の
-  description 生成後にコードで強制付与する）。
+  description 生成後にコードで強制付与する）。アイキャッチ効果音は
+  OtoLogic の CC BY 4.0 素材を使い、`OtoLogic` のクレジットも強制付与する。
 
 ### 3.5 assemble.py — 合成
 
@@ -215,8 +216,12 @@ output: tmp/lecture/<job_id>/video.mp4 （＋ script.json, slides/, audio/）
   - キャラ立ち絵 overlay: 常時表示し、`metan_pose` / `zunda_pose` に応じて台詞単位で
     表情・ポーズを切り替える。髪や輪郭全体の1px移動が口パク切替と重なるのを防ぐため、
     発話中も座標は固定し、動きは口パクと意味のあるポーズ差分だけで表現する。
-  - `eyecatch_before_scenes` で指定した章境界には、1.2秒の共通アイキャッチ画像と
-    独自生成の2音チャイムを挿入する。この区間は通常立ち絵と字幕を表示しない。
+  - `eyecatch_before_scenes` で指定した章境界には、短いアイキャッチを挿入する。
+    画像と効果音は挿入ごとに別のものを使う。1回目は実践開始にOtoLogic
+    「木琴06-1（上昇・短）」、2回目は総復習への転換に「グロッケン02-4
+    （高・短）」を使う。素材は24kHz mono WAVへ変換し、末尾に0.7秒以上の
+    完全な無音を保持して次の台詞と聴覚的に分離する。人声の効果音は使わない。
+    この区間は通常立ち絵と字幕を表示しない。
     解説役(metan 声)が左端・聞き役(zunda 声)が右端から95px内側。位置と表示寸法は
     PowerPointの手動配置実測値に従う。人物の骨格は素材生成時に調整済みで、合成時は
     アスペクト比を変えない。口パクパッチは

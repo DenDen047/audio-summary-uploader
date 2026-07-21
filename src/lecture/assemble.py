@@ -57,9 +57,9 @@ class SubEvent:
 
 @dataclass(frozen=True)
 class EyeCatch:
+    before_scene: int
     image: Path
     audio: Path
-    before_scenes: tuple[int, ...]
 
 
 def assemble(
@@ -70,7 +70,7 @@ def assemble(
     job_dir: Path,
     fonts_dir: Path,
     characters: dict[str, CharacterAssets],
-    eyecatch: EyeCatch | None = None,
+    eyecatches: tuple[EyeCatch, ...] = (),
 ) -> Path:
     if len(scene_wavs) != len(scene_state_pngs):
         raise RuntimeError(
@@ -84,30 +84,22 @@ def assemble(
     video_entries: list[tuple[Path, float]] = []  # (PNG, 表示時間)
     hidden_intervals: list[tuple[float, float]] = []
 
-    eyecatch_scenes: set[int] = set()
-    eyecatch_duration = 0.0
-    if eyecatch is not None:
-        if not eyecatch.image.exists() or not eyecatch.audio.exists():
-            raise RuntimeError(f"アイキャッチ素材がありません: {eyecatch}")
-        eyecatch_scenes = set(eyecatch.before_scenes)
-        if len(eyecatch_scenes) != len(eyecatch.before_scenes):
-            raise RuntimeError("アイキャッチの挿入位置が重複しています")
-        invalid = sorted(
-            scene for scene in eyecatch_scenes
-            if scene <= 1 or scene > len(scene_wavs)
-        )
-        if invalid:
-            raise RuntimeError(f"アイキャッチの挿入位置が不正です: {invalid}")
-        eyecatch_duration = _probe_duration(eyecatch.audio)
+    eyecatch_by_scene = _validate_eyecatches(eyecatches, len(scene_wavs))
+    eyecatch_durations = {
+        scene: _probe_duration(item.audio)
+        for scene, item in eyecatch_by_scene.items()
+    }
 
     t = 0.0
     last = len(scene_wavs) - 1
     for i, (wavs, scene, plan) in enumerate(zip(scene_wavs, script["scenes"], plans)):
-        if i + 1 in eyecatch_scenes:
+        if i + 1 in eyecatch_by_scene:
+            item = eyecatch_by_scene[i + 1]
+            duration = eyecatch_durations[i + 1]
             start = t
-            audio_entries.append(eyecatch.audio)
-            video_entries.append((eyecatch.image, eyecatch_duration))
-            t += eyecatch_duration
+            audio_entries.append(item.audio)
+            video_entries.append((item.image, duration))
+            t += duration
             hidden_intervals.append((start, t))
 
         line_starts: list[float] = []
@@ -166,6 +158,28 @@ def assemble(
         t,
         hidden_intervals,
     )
+
+
+def _validate_eyecatches(
+    eyecatches: tuple[EyeCatch, ...], scene_count: int
+) -> dict[int, EyeCatch]:
+    by_scene: dict[int, EyeCatch] = {}
+    images: set[Path] = set()
+    for item in eyecatches:
+        if not item.image.exists() or not item.audio.exists():
+            raise RuntimeError(f"アイキャッチ素材がありません: {item}")
+        if item.before_scene in by_scene:
+            raise RuntimeError("アイキャッチの挿入位置が重複しています")
+        if item.before_scene <= 1 or item.before_scene > scene_count:
+            raise RuntimeError(
+                f"アイキャッチの挿入位置が不正です: {item.before_scene}"
+            )
+        resolved_image = item.image.resolve()
+        if resolved_image in images:
+            raise RuntimeError("アイキャッチ画像は挿入ごとに別のものが必要です")
+        images.add(resolved_image)
+        by_scene[item.before_scene] = item
+    return by_scene
 
 
 def _compose(

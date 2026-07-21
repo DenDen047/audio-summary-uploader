@@ -14,6 +14,7 @@ PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script.md"
 TEMPLATES = {"title", "bullets", "compare", "code", "quote", "outro"}
 SPEAKERS = {"zunda", "metan"}
 VOICEVOX_CREDITS = ["VOICEVOX:満別花丸", "VOICEVOX:もち子さん"]
+EYECATCH_AUDIO_CREDIT = "OtoLogic (https://otologic.jp/)"
 POSES = {
     "metan": {
         "default",
@@ -147,13 +148,13 @@ def _validate(script: dict) -> list[str]:
     eyecatches = script.get("eyecatch_before_scenes")
     if (
         not isinstance(eyecatches, list)
-        or not 1 <= len(eyecatches) <= 3
+        or not 1 <= len(eyecatches) <= 2
         or any(type(scene) is not int for scene in eyecatches)
         or eyecatches != sorted(set(eyecatches))
         or any(scene <= 1 or scene > len(scenes) for scene in eyecatches)
     ):
         errors.append(
-            "eyecatch_before_scenes は話題転換前のシーン番号を昇順で1〜3個指定する"
+            "eyecatch_before_scenes は話題転換前のシーン番号を昇順で1〜2個指定する"
         )
     return errors
 
@@ -177,11 +178,12 @@ def _validate_reveal(i: int, slide: dict, lines: list[dict]) -> list[str]:
 
 
 def _finalize(script: dict, source: SourceContent) -> None:
-    """出典 URL と VOICEVOX クレジットを description に強制付与する。"""
+    """出典 URL と音声素材クレジットを description に強制付与する。"""
     description = script["description"].rstrip()
     if source.url not in description:
         description += f"\n\n出典: {source.url}"
     description += "\n\n" + " / ".join(VOICEVOX_CREDITS)
+    description += f"\n効果音: {EYECATCH_AUDIO_CREDIT}"
     script["description"] = description
     total_chars = sum(
         len(line["text"]) for scene in script["scenes"] for line in scene["lines"]

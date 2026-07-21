@@ -21,8 +21,22 @@ HEADING_FONT = FONTS_DIR / "MPLUSRounded1c-Black.ttf"
 BODY_FONT = FONTS_DIR / "NotoSansJP-Bold.ttf"
 DEFAULT_OUT_DIR = REPO_ROOT / "tmp" / "lecture"
 VIDEO_CHARACTER_DIR = REPO_ROOT / "assets" / "characters" / "video_v3"
-EYECATCH_IMAGE = REPO_ROOT / "assets" / "lecture" / "eyecatch_mio_toru.png"
-EYECATCH_AUDIO = REPO_ROOT / "assets" / "lecture" / "eyecatch_chime.wav"
+EYECATCH_ASSETS = (
+    (
+        REPO_ROOT / "assets" / "lecture" / "eyecatch_practice.png",
+        REPO_ROOT
+        / "assets"
+        / "lecture"
+        / "eyecatch_practice_otologic_xylophone06-1.wav",
+    ),
+    (
+        REPO_ROOT / "assets" / "lecture" / "eyecatch_recap.png",
+        REPO_ROOT
+        / "assets"
+        / "lecture"
+        / "eyecatch_recap_otologic_glocken02-4.wav",
+    ),
+)
 
 
 @click.group()
@@ -87,10 +101,13 @@ def _render(script: dict, job_dir: Path) -> None:
     )
     scene_wavs = synthesize_all(script, job_dir / "audio")
     eyecatch_scenes = tuple(script.get("eyecatch_before_scenes", []))
-    eyecatch = (
-        EyeCatch(EYECATCH_IMAGE, EYECATCH_AUDIO, eyecatch_scenes)
-        if eyecatch_scenes
-        else None
+    if len(eyecatch_scenes) > len(EYECATCH_ASSETS):
+        raise RuntimeError(
+            f"アイキャッチ素材が不足しています: {len(eyecatch_scenes)}箇所"
+        )
+    eyecatches = tuple(
+        EyeCatch(scene, image, audio)
+        for scene, (image, audio) in zip(eyecatch_scenes, EYECATCH_ASSETS)
     )
     video = assemble(
         script,
@@ -100,7 +117,7 @@ def _render(script: dict, job_dir: Path) -> None:
         job_dir,
         FONTS_DIR,
         characters,
-        eyecatch=eyecatch,
+        eyecatches=eyecatches,
     )
     click.echo(f"\n完成: {video}")
     click.echo(f"タイトル: {script['title']}")

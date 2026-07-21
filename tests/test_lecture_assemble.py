@@ -1,8 +1,14 @@
+from pathlib import Path
+
+import pytest
+
 from lecture.assemble import (
     MOUTH_TOGGLES,
+    EyeCatch,
     SubEvent,
     _pose_windows,
     _subtract_intervals,
+    _validate_eyecatches,
 )
 
 
@@ -29,3 +35,20 @@ def test_eyecatch_temporarily_hides_held_character_poses() -> None:
         (0.0, 2.0),
         (3.2, 5.0),
     ]
+
+
+def test_eyecatch_images_must_be_unique(tmp_path: Path) -> None:
+    image = tmp_path / "shared.png"
+    first_audio = tmp_path / "first.wav"
+    second_audio = tmp_path / "second.wav"
+    for path in (image, first_audio, second_audio):
+        path.touch()
+
+    with pytest.raises(RuntimeError, match="画像は挿入ごとに別"):
+        _validate_eyecatches(
+            (
+                EyeCatch(2, image, first_audio),
+                EyeCatch(3, image, second_audio),
+            ),
+            scene_count=3,
+        )
