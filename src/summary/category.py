@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from automator.image_gen import DEFAULT_STYLE, ThumbnailStyle
+from summary.image_gen import DEFAULT_STYLE, ThumbnailStyle
 
 # カテゴリキー
 PAPER = "paper"

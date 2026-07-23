@@ -5,7 +5,7 @@ from pathlib import Path
 from loguru import logger
 from notebooklm import AudioLength, GenerationStatus, NotebookLMClient
 
-from automator.notebooklm import NotebookLMBackend
+from summary.notebooklm import NotebookLMBackend
 
 _AUDIO_LENGTH_MAP: dict[str, AudioLength] = {
     "short": AudioLength.SHORT,

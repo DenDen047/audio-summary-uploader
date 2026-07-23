@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from automator.image_gen import (
+from summary.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     _resize_cover,
@@ -109,7 +109,7 @@ class TestResizeCover:
 async def test_generate_returns_none_without_cookies(tmp_path: Path) -> None:
     """cookie が無ければ gemini を一切呼ばず None を返す."""
     with patch(
-        "automator.image_gen.load_google_cookies", return_value=(None, None)
+        "summary.image_gen.load_google_cookies", return_value=(None, None)
     ):
         result = await generate_thumbnail_image(
             "見出し", tmp_path / "t.png", width=1280, height=720

@@ -33,7 +33,7 @@
 - 従来の NotebookLM 音声要約は `notebooklm` モードとして残し、既存ジョブと
   YAML の後方互換性を保つ。
 - `src/lecture/` は動画生成の詳細を隠す独立モジュールのままとし、
-  `src/automator/pipeline.py` からは `generate_lecture()` の成果物契約だけを利用する。
+  `src/summary/pipeline.py` からは `generate_lecture()` の成果物契約だけを利用する。
 - BudouX / Pygments は本番依存関係へ収載し、Web ワーカーから追加引数なしで使える。
 - **AI費用は既存サブスクリプション内に限定する。** OpenAI API、Anthropic API、
   Gemini APIなどの従量課金APIを本番経路から呼ばない。将来この制約を変える場合は、
@@ -406,7 +406,7 @@ tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 
 | 資産 | 統合後の扱い |
 |---|---|
-| YouTube アップロード (`automator/youtube.py`) | `video_ready` 以降を共用 |
+| YouTube アップロード (`summary/youtube.py`) | `video_ready` 以降を共用 |
 | サムネイル | 審査済み美術案のローカルSVG背景＋澪・透の確定立ち絵＋`thumbnail_text` |
 | urls.yaml パーサ (`url_parser.py`) | `mode: lecture` / `mode: notebooklm` を解釈 |
 | NotebookLM 系 (`notebooklm*.py`) | `notebooklm` モードだけで使用 |

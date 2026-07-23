@@ -86,27 +86,29 @@ audio-summary-uploader/
 │   ├── youtube_client_secret.json  # YouTube OAuth クライアント
 │   └── youtube_token.json          # リフレッシュトークン（自動生成）
 ├── src/
-│   └── automator/
-│       ├── __init__.py
-│       ├── cli.py                # CLI エントリポイント (Click)
-│       ├── config.py             # 設定読み込み
-│       ├── pipeline.py           # パイプライン全体のオーケストレーション
-│       ├── url_parser.py         # URL リスト読み込み・バリデーション（複数ソース対応）
-│       ├── metadata.py           # OGP メタデータ取得
-│       ├── notebooklm.py         # NotebookLM 操作（抽象層）
-│       ├── notebooklm_py_backend.py  # notebooklm-py による実装
-│       ├── notebooklm_playwright_backend.py  # Playwright による実装（Phase 2）
-│       ├── citation.py           # 出典抽出・公開テキストのサニタイズ
-│       ├── category.py           # カテゴリ判定→背景配色/プレイリスト解決
-│       ├── image_gen.py          # AIサムネベース/背景生成 (gemini-webapi / Nano Banana)
-│       ├── thumbnail.py          # サムネ合成 3層テキスト装飾 (Pillow)
-│       ├── video.py              # FFmpeg による動画変換
-│       ├── youtube.py            # YouTube API 操作
-│       ├── report.py             # 結果レポート生成
-│       └── web/                  # Web ダッシュボード
-│           ├── app.py            # FastAPI アプリ + バックグラウンドワーカー
-│           ├── routes.py         # ルーティング + API ハンドラ
-│           └── templates/        # Jinja2 テンプレート
+│   ├── summary/                  # 音声要約パイプライン（本仕様の対象）
+│   │   ├── __init__.py
+│   │   ├── cli.py                # CLI エントリポイント (Click)
+│   │   ├── config.py             # 設定読み込み
+│   │   ├── pipeline.py           # パイプライン全体のオーケストレーション
+│   │   ├── url_parser.py         # URL リスト読み込み・バリデーション（複数ソース対応）
+│   │   ├── metadata.py           # OGP メタデータ取得
+│   │   ├── notebooklm.py         # NotebookLM 操作（抽象層）
+│   │   ├── notebooklm_py_backend.py  # notebooklm-py による実装
+│   │   ├── citation.py           # 出典抽出・公開テキストのサニタイズ
+│   │   ├── category.py           # カテゴリ判定→背景配色/プレイリスト解決
+│   │   ├── image_gen.py          # AIサムネベース/背景生成 (gemini-webapi / Nano Banana)
+│   │   ├── thumbnail.py          # サムネ合成 3層テキスト装飾 (Pillow)
+│   │   ├── video.py              # FFmpeg による動画変換
+│   │   ├── youtube.py            # YouTube API 操作
+│   │   ├── report.py             # 結果レポート生成
+│   │   └── prompts/              # NotebookLM chat・画像生成の定型プロンプト (md)
+│   ├── lecture/                  # 講義動画パイプライン（specs/LECTURE_SPEC.md）
+│   └── webui/                    # 共通 Web ダッシュボード（specs/GUI_SPEC.md）
+│       ├── cli.py                # webui エントリポイント
+│       ├── app.py                # FastAPI アプリ + バックグラウンドワーカー
+│       ├── routes.py             # ルーティング + API ハンドラ
+│       └── templates/            # Jinja2 テンプレート
 ├── fonts/
 │   └── NotoSansJP-Bold.ttf       # 日本語フォント（サムネイル用）
 ├── tests/
@@ -130,38 +132,38 @@ Click ベースの CLI インターフェース。3フェーズ分離アーキ�
 
 ```
 # 3フェーズ一括実行（従来の run コマンド）
-$ automator run urls.yaml
-$ automator run urls.yaml --dry-run
-$ automator run urls.yaml --force
-$ automator run urls.yaml --retry-failed
+$ summary run urls.yaml
+$ summary run urls.yaml --dry-run
+$ summary run urls.yaml --force
+$ summary run urls.yaml --retry-failed
 
 # Phase 1: ノートブック作成＋音声生成開始（並列）
-$ automator submit urls.yaml
-$ automator submit urls.yaml --dry-run
-$ automator submit urls.yaml --force
+$ summary submit urls.yaml
+$ summary submit urls.yaml --dry-run
+$ summary submit urls.yaml --force
 
 # Phase 2: 生成完了した音声をDL→サムネイル→動画変換
-$ automator collect              # 完了チェックのみ
-$ automator collect --poll       # 完了までポーリング待機
-$ automator collect --timeout 900
+$ summary collect              # 完了チェックのみ
+$ summary collect --poll       # 完了までポーリング待機
+$ summary collect --timeout 900
 
 # Phase 3: video_ready のジョブを YouTube にアップロード
-$ automator upload
+$ summary upload
 
 # 特定のURLだけ処理
-$ automator run-single "https://example.com/article"
+$ summary run-single "https://example.com/article"
 
 # YouTube 認証セットアップ
-$ automator auth youtube
+$ summary auth youtube
 
 # NotebookLM 認証セットアップ
-$ automator auth notebooklm
+$ summary auth notebooklm
 
 # 処理状況の確認（各ステータスのカウント表示）
-$ automator status
+$ summary status
 
 # Web ダッシュボードを起動
-$ automator web [--port 8080] [--config PATH]
+$ webui [--port 8080] [--config PATH]
 ```
 
 ### 3.2 設定読み込み (`config.py`)
@@ -529,7 +531,7 @@ ffmpeg <背景入力> -i audio.mp3 -loop 1 -i eqgrad.png \
 **認証フロー（初回セットアップ）:**
 1. Google Cloud Console で OAuth 2.0 クライアント ID を作成
 2. `youtube_client_secret.json` を `credentials/` に配置
-3. `automator auth youtube` を実行
+3. `summary auth youtube` を実行
 4. ブラウザでOAuth同意画面が開き、YouTube アカウントで認証
 5. リフレッシュトークンが `credentials/youtube_token.json` に保存
 6. 以降は自動的にトークンリフレッシュ
@@ -962,7 +964,7 @@ uv sync
 ```bash
 # notebooklm-py のセットアップに従う
 # Google Workspace アカウントでログイン済みの状態が必要
-automator auth notebooklm
+summary auth notebooklm
 ```
 
 ### 6.4 YouTube API 認証
@@ -978,7 +980,7 @@ automator auth notebooklm
 cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 
 # 3. 認証フローを実行（ブラウザが開く）
-automator auth youtube
+summary auth youtube
 # → 個人の YouTube アカウントで認証
 ```
 
@@ -1017,7 +1019,7 @@ automator auth youtube
 - CSV/スプレッドシート入力対応
 - YouTube プレイリスト自動整理
 - 定期実行（cron / スケジューラ連携）
-- ~~Web UI ダッシュボード~~ → **実装済み**（`automator web`、詳細は `specs/GUI_SPEC.md`）
+- ~~Web UI ダッシュボード~~ → **実装済み**（`webui`、詳細は `specs/GUI_SPEC.md`）
 
 ---
 

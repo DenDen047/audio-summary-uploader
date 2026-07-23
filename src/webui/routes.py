@@ -8,10 +8,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from loguru import logger
 
-from automator.config import Settings
-from automator.pipeline import _find_or_create_job, _load_state, _save_state
-from automator.url_parser import UrlEntry
-from automator.web.app import enqueue_urls, templates
+from summary.config import Settings
+from summary.pipeline import _find_or_create_job, _load_state, _save_state
+from summary.url_parser import UrlEntry
+from webui.app import enqueue_urls, templates
 
 router = APIRouter()
 

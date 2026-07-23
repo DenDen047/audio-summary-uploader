@@ -19,14 +19,16 @@ if TYPE_CHECKING:
 from notebooklm.exceptions import AuthError as NotebookLMAuthError
 from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
-from automator.category import (
+from lecture.pipeline import LectureArtifacts, generate_lecture
+from lecture.thumbnail_backdrop import ThumbnailBackdropOptions
+from summary.category import (
     AMBIGUOUS_CATEGORIES,
     classify_category,
     parse_category,
     resolve_playlist_ids,
     style_for_category,
 )
-from automator.citation import (
+from summary.citation import (
     EmailCitation,
     clean_paper_shortname,
     format_source_line,
@@ -35,29 +37,27 @@ from automator.citation import (
     sanitize_public_text,
     strip_citation_markers,
 )
-from automator.config import Settings
-from automator.image_gen import (
+from summary.config import Settings
+from summary.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     generate_background_image,
     generate_thumbnail_image,
     storage_state_for_profile,
 )
-from automator.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
-from automator.notebooklm import NotebookLMBackend
-from automator.notebooklm_py_backend import NotebookLMPyBackend
-from automator.report import ProcessResult
-from automator.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
-from automator.url_parser import UrlEntry, is_local_path
-from automator.video import convert_to_video, probe_duration
-from automator.youtube import (
+from summary.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
+from summary.notebooklm import NotebookLMBackend
+from summary.notebooklm_py_backend import NotebookLMPyBackend
+from summary.report import ProcessResult
+from summary.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
+from summary.url_parser import UrlEntry, is_local_path
+from summary.video import convert_to_video, probe_duration
+from summary.youtube import (
     YouTubeUploadParams,
     authenticate,
     set_thumbnail,
     upload_video,
 )
-from lecture.pipeline import LectureArtifacts, generate_lecture
-from lecture.thumbnail_backdrop import ThumbnailBackdropOptions
 
 _NOTEBOOKLM_AUTH_ERROR_MSG = (
     "NotebookLM の認証が期限切れです。"

@@ -54,4 +54,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["tini", "--"]
-CMD ["automator", "web", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["webui", "--host", "0.0.0.0", "--port", "8080"]

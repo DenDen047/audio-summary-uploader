@@ -12,7 +12,6 @@ from pathlib import Path
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from automator.citation import sanitize_public_text
 from lecture.assemble import EyeCatch, assemble
 from lecture.characters import CharacterAssets, prepare_characters
 from lecture.fetch import (
@@ -29,6 +28,7 @@ from lecture.thumbnail_backdrop import (
     generate_thumbnail_backdrop,
 )
 from lecture.tts import managed_voicevox_engine, synthesize_all
+from summary.citation import sanitize_public_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FONTS_DIR = REPO_ROOT / "fonts"

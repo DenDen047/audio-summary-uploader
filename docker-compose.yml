@@ -1,5 +1,5 @@
 services:
-  automator:
+  webui:
     build: .
     # image: ghcr.io/ikuta/audio-summary-uploader:latest  # GHCR公開後はこちらを使用
     container_name: audio-summary-uploader

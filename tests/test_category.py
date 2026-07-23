@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from automator.category import (
+from summary.category import (
     AMBIGUOUS_CATEGORIES,
     BUSINESS,
     DEFAULT,
@@ -16,7 +16,7 @@ from automator.category import (
     resolve_playlist_ids,
     style_for_category,
 )
-from automator.image_gen import DEFAULT_STYLE
+from summary.image_gen import DEFAULT_STYLE
 
 
 class TestClassify:

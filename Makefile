@@ -8,7 +8,7 @@ setup:
 		|| echo "✘ credentials/youtube_client_secret.json が見つかりません（README.md を参照）"
 	@test -f credentials/youtube_token.json \
 		&& echo "✔ credentials/youtube_token.json" \
-		|| echo "✘ credentials/youtube_token.json が見つかりません（uv run automator auth youtube を実行）"
+		|| echo "✘ credentials/youtube_token.json が見つかりません（uv run summary auth youtube を実行）"
 	@test -f $(HOME)/.notebooklm/storage_state.json \
 		&& echo "✔ ~/.notebooklm/storage_state.json" \
 		|| echo "✘ ~/.notebooklm/storage_state.json が見つかりません（uv run notebooklm login を実行）"

@@ -3,7 +3,7 @@
 from pathlib import Path
 from textwrap import dedent
 
-from automator.url_parser import UrlEntry, parse_url_file
+from summary.url_parser import UrlEntry, parse_url_file
 
 
 def _write_yaml(tmp_path: Path, content: str) -> Path:

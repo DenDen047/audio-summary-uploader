@@ -14,7 +14,7 @@ import httpx
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
-from automator.config import ThumbnailConfig
+from summary.config import ThumbnailConfig
 
 _FONT_DIR = Path(__file__).resolve().parent.parent.parent / "fonts"
 

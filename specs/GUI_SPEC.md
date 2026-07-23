@@ -183,7 +183,7 @@ async def pipeline_worker(settings: Settings):
 
 Web サーバーは非対話コンテキストのため、YouTube トークンが無効な場合に
 ブラウザ OAuth フローを開始しない（イベントループがブロックされ UI 全体が
-フリーズするため）。代わりに該当ジョブを failed にし、`uv run automator auth
+フリーズするため）。代わりに該当ジョブを failed にし、`uv run summary auth
 youtube` での再認証を促すエラーメッセージを表示する。動画ファイルは
 `video_path` に残るため、再認証後のリトライではアップロードのみ再試行される。
 
@@ -287,25 +287,25 @@ Form Data:
 ## ファイル構成
 
 ```
-src/automator/
-├── web/
-│   ├── __init__.py
-│   ├── app.py              # FastAPI アプリ + ワーカー起動
-│   ├── routes.py            # ルーティング + API ハンドラ
-│   └── templates/
-│       ├── base.html        # ベーステンプレート (Pico CSS dark + htmx)
-│       ├── dashboard.html   # メイン画面
-│       └── partials/
-│           ├── header_badge.html
-│           ├── processing.html
-│           └── completed.html
+src/webui/
+├── __init__.py
+├── cli.py               # webui エントリポイント (Click)
+├── app.py               # FastAPI アプリ + ワーカー起動
+├── routes.py            # ルーティング + API ハンドラ
+└── templates/
+    ├── base.html        # ベーステンプレート (Pico CSS dark + htmx)
+    ├── dashboard.html   # メイン画面
+    └── partials/
+        ├── header_badge.html
+        ├── processing.html
+        └── completed.html
 ```
 
 ## CLI コマンド
 
 ```bash
-./web.sh [--config PATH]       # 既定ポート3000、PORT環境変数で変更可
-uv run automator web [--port 8080] [--config PATH]
+./webui.sh [--config PATH]       # 既定ポート3000、PORT環境変数で変更可
+uv run webui [--port 8080] [--config PATH]
 ```
 
 - デフォルト: `http://127.0.0.1:8080`（localhost のみ。LAN 公開しない）

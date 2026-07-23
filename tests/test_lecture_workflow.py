@@ -9,21 +9,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from PIL import Image
 
-from automator.config import (
-    CredentialsConfig,
-    GeneralConfig,
-    NotebookLMConfig,
-    Settings,
-    ThumbnailConfig,
-    YouTubeConfig,
-)
-from automator.pipeline import (
-    _find_or_create_job,
-    _update_job_state,
-    collect_audio,
-    upload_videos,
-)
-from automator.youtube import UploadResult
 from lecture.characters import CharacterAssets
 from lecture.fetch import SourceContent, SourceFigure
 from lecture.pipeline import (
@@ -33,6 +18,21 @@ from lecture.pipeline import (
     generate_lecture_thumbnail,
 )
 from lecture.thumbnail_backdrop import ThumbnailBackdropResult
+from summary.config import (
+    CredentialsConfig,
+    GeneralConfig,
+    NotebookLMConfig,
+    Settings,
+    ThumbnailConfig,
+    YouTubeConfig,
+)
+from summary.pipeline import (
+    _find_or_create_job,
+    _update_job_state,
+    collect_audio,
+    upload_videos,
+)
+from summary.youtube import UploadResult
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -319,10 +319,10 @@ async def test_collect_generates_lecture_without_notebooklm(tmp_path: Path) -> N
 
     with (
         patch(
-            "automator.pipeline.generate_lecture", return_value=artifacts
+            "summary.pipeline.generate_lecture", return_value=artifacts
         ) as generate,
         patch(
-            "automator.pipeline._create_backend",
+            "summary.pipeline._create_backend",
             side_effect=AssertionError("NotebookLM must not be created"),
         ),
     ):
@@ -386,8 +386,8 @@ async def test_upload_uses_lecture_title_description_and_tags(tmp_path: Path) ->
         )
     )
     with (
-        patch("automator.pipeline.authenticate", return_value=object()),
-        patch("automator.pipeline.upload_video", mock_upload),
+        patch("summary.pipeline.authenticate", return_value=object()),
+        patch("summary.pipeline.upload_video", mock_upload),
     ):
         results = await upload_videos(settings)
 

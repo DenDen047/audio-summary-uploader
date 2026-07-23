@@ -11,9 +11,9 @@ from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from automator.config import Settings
-from automator.pipeline import _load_state, _save_state, run_pipeline
-from automator.url_parser import UrlEntry
+from summary.config import Settings
+from summary.pipeline import _load_state, _save_state, run_pipeline
+from summary.url_parser import UrlEntry
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -138,7 +138,7 @@ def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="動画解説スタジオ", lifespan=lifespan)
     app.state.settings = settings
 
-    from automator.web.routes import router
+    from webui.routes import router
 
     app.include_router(router)
 

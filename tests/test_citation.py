@@ -1,7 +1,7 @@
 """citation モジュールの単体テスト (出典抽出・サニタイズ)."""
 from __future__ import annotations
 
-from automator.citation import (
+from summary.citation import (
     EmailCitation,
     clean_paper_shortname,
     format_source_line,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from automator.youtube import authenticate
+from summary.youtube import authenticate
 
 
 def test_authenticate_non_interactive_raises_without_token(

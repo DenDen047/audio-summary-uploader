@@ -9,7 +9,6 @@ from pathlib import Path
 
 from loguru import logger
 
-from automator.citation import sanitize_public_text
 from lecture.fetch import SourceContent
 from lecture.reveal import (
     REVEAL_TEMPLATES,
@@ -17,6 +16,7 @@ from lecture.reveal import (
     total_units,
 )
 from lecture.thumbnail_backdrop import THUMBNAIL_VISUAL_PROMPT_MAX_CHARS
+from summary.citation import sanitize_public_text
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script.md"
 REVIEW_PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script_review.md"
@@ -158,9 +158,7 @@ def generate_script(
         if errors:
             raise RuntimeError(f"Codex再審査後も台本が不正: {errors}")
 
-    script["generation"] = _generation_metadata(
-        primary_metadata, review_metadata
-    )
+    script["generation"] = _generation_metadata(primary_metadata, review_metadata)
     _finalize(script, source)
     return script
 
@@ -196,7 +194,7 @@ def _generate_with_claude(
     timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
 ) -> tuple[dict, dict]:
     logger.info(
-        "Claude Maxで台本初稿を生成中 (model={}, effort={}, {}文字)...",
+        "Claude Codeで台本初稿を生成中 (model={}, effort={}, {}文字)...",
         model,
         effort,
         len(prompt),
@@ -226,8 +224,7 @@ def _generate_with_claude(
     )
     if result.returncode != 0:
         raise RuntimeError(
-            "Claude Codeが失敗 "
-            f"(exit {result.returncode}): {result.stderr[-1000:]}"
+            f"Claude Codeが失敗 (exit {result.returncode}): {result.stderr[-1000:]}"
         )
     return _parse_claude_output(result.stdout, model, effort)
 
@@ -300,8 +297,7 @@ def _review_with_codex(
         )
         if result.returncode != 0:
             raise RuntimeError(
-                "codex execが失敗 "
-                f"(exit {result.returncode}): {result.stderr[-1000:]}"
+                f"codex execが失敗 (exit {result.returncode}): {result.stderr[-1000:]}"
             )
         if not output_path.is_file():
             raise RuntimeError("Codexが審査済み台本JSONを出力しませんでした")
@@ -324,8 +320,10 @@ def _parse_claude_output(
 ) -> tuple[dict, dict]:
     envelope = json.loads(raw)
     structured = envelope.get("structured_output")
-    script = structured if isinstance(structured, dict) else _parse_json(
-        str(envelope.get("result", ""))
+    script = (
+        structured
+        if isinstance(structured, dict)
+        else _parse_json(str(envelope.get("result", "")))
     )
     model_usage = envelope.get("modelUsage", {})
     used_models = (
@@ -430,8 +428,7 @@ def _source_figures_prompt(source: SourceContent) -> str:
     if not source.figures:
         return "利用可能な図はありません。"
     return "\n".join(
-        f"{index}. {figure.caption}"
-        for index, figure in enumerate(source.figures, 1)
+        f"{index}. {figure.caption}" for index, figure in enumerate(source.figures, 1)
     )
 
 
@@ -497,10 +494,7 @@ def _validate(
                 errors.extend(_validate_diagram(i, slide))
             if template == "figure" and available_figure_count is not None:
                 figure_index = slide.get("figure_index")
-                if (
-                    type(figure_index) is int
-                    and figure_index > available_figure_count
-                ):
+                if type(figure_index) is int and figure_index > available_figure_count:
                     errors.append(
                         f"scene {i}: figure_index {figure_index} は利用可能な図 "
                         f"{available_figure_count} 件の範囲外"
@@ -515,9 +509,7 @@ def _validate(
             errors.append(f"scene {i}: lines は2〜6個の配列にする")
             lines = []
         elif not 2 <= len(lines) <= 6:
-            errors.append(
-                f"scene {i}: lines は2〜6個にする (現在{len(lines)}個)"
-            )
+            errors.append(f"scene {i}: lines は2〜6個にする (現在{len(lines)}個)")
         for j, line in enumerate(lines, 1):
             if line.get("speaker") not in SPEAKERS:
                 errors.append(
@@ -526,9 +518,7 @@ def _validate(
             if not line.get("text", "").strip():
                 errors.append(f"scene {i} line {j}: text が空")
             elif len(line["text"]) > 80:
-                errors.append(
-                    f"scene {i} line {j}: text が80文字を超えている"
-                )
+                errors.append(f"scene {i} line {j}: text が80文字を超えている")
             if not line.get("reading", "").strip():
                 errors.append(f"scene {i} line {j}: reading が空")
             for speaker in SPEAKERS:
@@ -571,20 +561,14 @@ def _validate_world(scenes: list[dict]) -> list[str]:
     first_lines = scenes[0].get("lines", []) if scenes else []
     if first_lines:
         first = first_lines[0]
-        if (
-            first.get("speaker") != "zunda"
-            or first.get("zunda_pose") not in {"confused", "flustered"}
-        ):
-            errors.append(
-                "scene 1 line 1: 導入は困っている透の相談から始める"
-            )
+        if first.get("speaker") != "zunda" or first.get("zunda_pose") not in {
+            "confused",
+            "flustered",
+        }:
+            errors.append("scene 1 line 1: 導入は困っている透の相談から始める")
         elif "澪先生" not in first.get("text", ""):
-            errors.append(
-                "scene 1 line 1: 透は『澪先生』と呼びかけて相談を始める"
-            )
-        if not any(
-            line.get("speaker") == "metan" for line in first_lines[1:]
-        ):
+            errors.append("scene 1 line 1: 透は『澪先生』と呼びかけて相談を始める")
+        if not any(line.get("speaker") == "metan" for line in first_lines[1:]):
             errors.append("scene 1: 透の相談を受け止める澪の返答が必要")
 
     for i, scene in enumerate(scenes, 1):
@@ -604,13 +588,9 @@ def _validate_world(scenes: list[dict]) -> list[str]:
                 continue
             teasing = line.get("metan_pose") == "tease"
             if teasing and polite:
-                errors.append(
-                    f"scene {i} line {j}: 澪がからかう時は敬語を使わない"
-                )
+                errors.append(f"scene {i} line {j}: 澪がからかう時は敬語を使わない")
             elif not teasing and not polite:
-                errors.append(
-                    f"scene {i} line {j}: 澪の非敬語はからかう時だけにする"
-                )
+                errors.append(f"scene {i} line {j}: 澪の非敬語はからかう時だけにする")
     return errors
 
 
@@ -667,12 +647,9 @@ def _validate_diagram(i: int, slide: dict) -> list[str]:
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"scene {i}: matrix では slide.{field} が必要")
         if any(isinstance(item, str) and "|" in item for item in items):
-            errors.append(
-                f"scene {i}: 定量比較は matrix ではなく table を使う"
-            )
+            errors.append(f"scene {i}: 定量比較は matrix ではなく table を使う")
         if any(
-            isinstance(item, str)
-            and item.strip().startswith(("横軸", "縦軸"))
+            isinstance(item, str) and item.strip().startswith(("横軸", "縦軸"))
             for item in items
         ):
             errors.append(f"scene {i}: matrix の items に軸名を含めない")
@@ -689,9 +666,7 @@ def _validate_diagram(i: int, slide: dict) -> list[str]:
             or not 2 <= next(iter(column_counts), 0) <= 4
             or any(not cell for row in rows for cell in row)
         ):
-            errors.append(
-                f"scene {i}: table は同じ2〜4列を | で区切った行にする"
-            )
+            errors.append(f"scene {i}: table は同じ2〜4列を | で区切った行にする")
     return errors
 
 

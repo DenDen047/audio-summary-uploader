@@ -6,17 +6,17 @@ from pathlib import Path
 import click
 from loguru import logger
 
-from automator.config import load_settings
-from automator.pipeline import (
+from summary.config import load_settings
+from summary.pipeline import (
     collect_audio,
     get_status_counts,
     run_pipeline,
     submit_urls,
     upload_videos,
 )
-from automator.report import print_report
-from automator.url_parser import parse_url_file
-from automator.youtube import authenticate
+from summary.report import print_report
+from summary.url_parser import parse_url_file
+from summary.youtube import authenticate
 
 
 @click.group()
@@ -158,7 +158,7 @@ def upload(config_path: Path | None) -> None:
 )
 def run_single(url: str, dry_run: bool, config_path: Path | None) -> None:
     """単一の URL を処理する."""
-    from automator.url_parser import UrlEntry
+    from summary.url_parser import UrlEntry
 
     settings = load_settings(config_path)
     entry = UrlEntry(url=url)
@@ -214,38 +214,6 @@ def notebooklm() -> None:
             "NotebookLM authentication failed (exit code {})",
             result.returncode,
         )
-
-
-@main.command()
-@click.option(
-    "--host", default="127.0.0.1", help="ホストアドレス (デフォルト: 127.0.0.1)"
-)
-@click.option("--port", default=8080, help="ポート番号 (デフォルト: 8080)")
-@click.option("--no-browser", is_flag=True, help="ブラウザを自動で開かない")
-@click.option(
-    "--config",
-    "config_path",
-    type=click.Path(exists=True, path_type=Path),
-    default=None,
-    help="設定ファイルパス (デフォルト: config/settings.yaml)",
-)
-def web(host: str, port: int, no_browser: bool, config_path: Path | None) -> None:
-    """Web ダッシュボードを起動する."""
-    import uvicorn
-
-    settings = load_settings(config_path)
-
-    from automator.web.app import create_app
-
-    app = create_app(settings)
-
-    url = f"http://{host}:{port}"
-    logger.info("Starting web dashboard at {}", url)
-    if not no_browser:
-        import webbrowser
-
-        webbrowser.open(url)
-    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 @main.command()

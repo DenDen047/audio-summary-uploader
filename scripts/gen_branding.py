@@ -23,7 +23,7 @@ from pathlib import Path
 from loguru import logger
 from PIL import Image
 
-from automator.image_gen import _resize_cover, load_google_cookies
+from summary.image_gen import _resize_cover, load_google_cookies
 
 _DEFAULT_NAME = "ながらAI"
 _DEFAULT_TAGLINE = "AIニュース・論文を耳でまとめ聴き"

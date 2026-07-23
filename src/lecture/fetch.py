@@ -10,7 +10,7 @@ import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from automator.citation import is_spark_share_url, sanitize_public_text
+from summary.citation import is_spark_share_url, sanitize_public_text
 
 MAX_TEXT_CHARS = 40_000
 MAX_SOURCE_FIGURES = 12

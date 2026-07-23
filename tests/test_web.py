@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from automator.config import (
+from summary.config import (
     CredentialsConfig,
     GeneralConfig,
     NotebookLMConfig,
@@ -17,7 +17,7 @@ from automator.config import (
     ThumbnailConfig,
     YouTubeConfig,
 )
-from automator.web.app import create_app
+from webui.app import create_app
 
 
 @pytest.fixture()
@@ -189,7 +189,7 @@ class TestAPI:
         assert resp.status_code == 400
 
     def test_add_urls(self, client: TestClient, tmp_state: Path) -> None:
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post(
                 "/api/add",
                 data={
@@ -219,7 +219,7 @@ class TestAPI:
         self, client: TestClient, tmp_state: Path
     ) -> None:
         """Add 直後のレスポンスに queued ジョブが含まれる."""
-        with patch("automator.web.routes.enqueue_urls"):
+        with patch("webui.routes.enqueue_urls"):
             resp = client.post(
                 "/api/add",
                 data={
@@ -232,7 +232,7 @@ class TestAPI:
         assert "準備中" in resp.text
 
     def test_add_multiple_urls(self, client: TestClient) -> None:
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post(
                 "/api/add",
                 data={
@@ -272,7 +272,7 @@ class TestAPI:
     def test_retry_job(
         self, client: TestClient, state_with_jobs: None, tmp_state: Path
     ) -> None:
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post("/api/retry/eee555fff666")
         assert resp.status_code == 200
         mock_enqueue.assert_called_once()
@@ -320,7 +320,7 @@ class TestAPI:
         }
         tmp_state.write_text(json.dumps(state, ensure_ascii=False))
 
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post("/api/retry/deadbeef0001")
         assert resp.status_code == 200
         # 空バッチ → run_pipeline の upload スイープで再試行される
@@ -369,7 +369,7 @@ class TestAPI:
         }
         tmp_state.write_text(json.dumps(state, ensure_ascii=False))
 
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post("/api/retry/deadbeef0002")
         assert resp.status_code == 200
         entries = mock_enqueue.call_args[0][0]
@@ -381,7 +381,7 @@ class TestAPI:
     def test_retry_all_failed(
         self, client: TestClient, state_with_jobs: None, tmp_state: Path
     ) -> None:
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post("/api/retry-all-failed")
         assert resp.status_code == 200
         mock_enqueue.assert_called_once()
@@ -398,7 +398,7 @@ class TestAPI:
         self, client: TestClient, state_with_jobs: None, tmp_state: Path
     ) -> None:
         """処理中・アップロード済みの URL は再追加されない."""
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post(
                 "/api/add",
                 data={
@@ -420,7 +420,7 @@ class TestAPI:
         self, client: TestClient, state_with_jobs: None, tmp_state: Path
     ) -> None:
         """failed の URL は再追加で queued に戻る."""
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             resp = client.post(
                 "/api/add",
                 data={
@@ -443,7 +443,7 @@ class TestAPI:
 
     def test_add_dedups_urls_in_batch(self, client: TestClient) -> None:
         """同一バッチ内の重複 URL は 1 件に集約される."""
-        with patch("automator.web.routes.enqueue_urls") as mock_enqueue:
+        with patch("webui.routes.enqueue_urls") as mock_enqueue:
             client.post(
                 "/api/add",
                 data={
@@ -484,7 +484,7 @@ class TestRecovery:
     async def test_recover_queued_jobs_enqueues_batch(
         self, settings: Settings, tmp_state: Path
     ) -> None:
-        from automator.web.app import _recover_orphaned_jobs
+        from webui.app import _recover_orphaned_jobs
 
         state = {
             "last_run": None,
@@ -497,7 +497,7 @@ class TestRecovery:
         }
         tmp_state.write_text(json.dumps(state))
 
-        with patch("automator.web.app.enqueue_urls") as mock_enqueue:
+        with patch("webui.app.enqueue_urls") as mock_enqueue:
             await _recover_orphaned_jobs(settings)
 
         # queued バッチの run_pipeline が generating のスイープも行うため 1 回のみ
@@ -510,7 +510,7 @@ class TestRecovery:
     async def test_recover_in_flight_jobs_enqueues_sweep(
         self, settings: Settings, tmp_state: Path
     ) -> None:
-        from automator.web.app import _recover_orphaned_jobs
+        from webui.app import _recover_orphaned_jobs
 
         state = {
             "last_run": None,
@@ -520,13 +520,13 @@ class TestRecovery:
         }
         tmp_state.write_text(json.dumps(state))
 
-        with patch("automator.web.app.enqueue_urls") as mock_enqueue:
+        with patch("webui.app.enqueue_urls") as mock_enqueue:
             await _recover_orphaned_jobs(settings)
 
         mock_enqueue.assert_called_once_with([])
 
     def test_mark_queued_jobs_failed(self, tmp_state: Path) -> None:
-        from automator.web.app import _mark_queued_jobs_failed
+        from webui.app import _mark_queued_jobs_failed
 
         state = {
             "last_run": None,
@@ -554,8 +554,8 @@ class TestRecovery:
         """run_pipeline がバッチごと失敗したら queued ジョブを failed にする配線."""
         import asyncio
 
-        from automator.url_parser import UrlEntry
-        from automator.web import app as web_app
+        from summary.url_parser import UrlEntry
+        from webui import app as web_app
 
         state = {
             "last_run": None,
@@ -567,7 +567,7 @@ class TestRecovery:
         tmp_state.write_text(json.dumps(state))
 
         with patch(
-            "automator.web.app.run_pipeline",
+            "webui.app.run_pipeline",
             side_effect=RuntimeError("boom"),
         ):
             worker = asyncio.create_task(web_app.pipeline_worker(settings))

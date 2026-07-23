@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from automator.pipeline import (
+from summary.pipeline import (
     _clean_generated_title,
     _generate_japanese_title,
     _refine_category,

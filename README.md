@@ -139,7 +139,7 @@ cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 #### 5-6. 認証フローを実行
 
 ```bash
-uv run automator auth youtube
+uv run summary auth youtube
 ```
 
 ブラウザが開き、個人の YouTube アカウントで OAuth 認証を行います。認証が完了するとリフレッシュトークンが `credentials/youtube_token.json` に自動保存されます。以降は自動的にトークンがリフレッシュされます。
@@ -166,7 +166,7 @@ cd audio-summary-uploader
 cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 
 # YouTube OAuth トークン（ホスト側で事前に取得）
-uv run automator auth youtube
+uv run summary auth youtube
 
 # NotebookLM の認証（ホスト側で事前に取得）
 uv run notebooklm login
@@ -249,7 +249,7 @@ make restart
 リフレッシュトークンは通常自動更新されますが、長期間使用しなかった場合は再認証が必要です:
 
 ```bash
-uv run automator auth youtube
+uv run summary auth youtube
 make restart
 ```
 
@@ -267,16 +267,16 @@ Docker を使わずにローカル環境で直接実行する場合は、以下�
 
 ```bash
 # Web ダッシュボードを起動（ブラウザが自動で開きます）
-./web.sh
+./webui.sh
 
 # ポートを指定する場合（既定は3000）
-PORT=8080 ./web.sh
+PORT=8080 ./webui.sh
 
 # CLI を直接使う場合
-uv run automator web --port 3000
+uv run webui --port 3000
 ```
 
-`webui.sh` は後方互換のエイリアスとして残っており、内部で `web.sh` を呼びます。
+`webui.sh` は `uv run webui` の薄いラッパーです。
 
 - 既定は「澪と透の解説動画」。従来の NotebookLM 音声要約も選択可能
 - 複数 URL を改行区切りで入力し、自動で 3 フェーズ実行
@@ -330,16 +330,16 @@ uv run automator web --port 3000
 
 ```bash
 # 基本実行（submit → collect → upload を順に実行）
-uv run automator run urls.yaml
+uv run summary run urls.yaml
 
 # ドライラン（メタデータ取得のみ、NotebookLM/YouTube 操作なし）
-uv run automator run urls.yaml --dry-run
+uv run summary run urls.yaml --dry-run
 
 # 処理済み URL も強制的に再処理
-uv run automator run urls.yaml --force
+uv run summary run urls.yaml --force
 
 # 前回失敗した URL だけ再処理
-uv run automator run urls.yaml --retry-failed
+uv run summary run urls.yaml --retry-failed
 ```
 
 ##### 3フェーズ分離実行
@@ -348,27 +348,27 @@ uv run automator run urls.yaml --retry-failed
 
 ```bash
 # Phase 1: ノートブック作成＋音声生成を並列に開始
-uv run automator submit urls.yaml
-uv run automator submit urls.yaml --dry-run   # API呼び出しなし
-uv run automator submit urls.yaml --force      # 生成中/処理済みも再処理
+uv run summary submit urls.yaml
+uv run summary submit urls.yaml --dry-run   # API呼び出しなし
+uv run summary submit urls.yaml --force      # 生成中/処理済みも再処理
 
 # Phase 2: 生成完了した音声をDL→サムネイル→動画変換
-uv run automator collect              # 完了チェックのみ（未完了はスキップ）
-uv run automator collect --poll       # 全ジョブの完了までポーリング待機
-uv run automator collect --timeout 900  # タイムアウト指定（秒）
+uv run summary collect              # 完了チェックのみ（未完了はスキップ）
+uv run summary collect --poll       # 全ジョブの完了までポーリング待機
+uv run summary collect --timeout 900  # タイムアウト指定（秒）
 
 # Phase 3: 動画を YouTube にアップロード
-uv run automator upload
+uv run summary upload
 ```
 
 ##### その他のコマンド
 
 ```bash
 # 特定の URL だけ処理（一括実行）
-uv run automator run-single "https://example.com/article"
+uv run summary run-single "https://example.com/article"
 
 # 処理状況の確認（各ステータスのカウント表示）
-uv run automator status
+uv run summary status
 ```
 
 ### 処理の流れ
@@ -483,7 +483,7 @@ uv run python <file>
 ├── config/
 │   └── settings.yaml             # アプリ設定
 ├── credentials/                  # OAuth トークン等（.gitignore 対象）
-├── src/automator/                # メインパッケージ
+├── src/summary/                  # 音声要約パイプライン（NotebookLM → YouTube）
 │   ├── cli.py                    # CLI エントリポイント (Click)
 │   ├── config.py                 # 設定読み込み
 │   ├── pipeline.py               # パイプラインオーケストレーション
@@ -495,10 +495,13 @@ uv run python <file>
 │   ├── video.py                  # FFmpeg 動画変換
 │   ├── youtube.py                # YouTube API 操作
 │   ├── report.py                 # 結果レポート
-│   └── web/                      # Web ダッシュボード
-│       ├── app.py                # FastAPI アプリ + バックグラウンドワーカー
-│       ├── routes.py             # ルーティング + API ハンドラ
-│       └── templates/            # Jinja2 テンプレート (htmx + Pico CSS)
+│   └── prompts/                  # NotebookLM chat・画像生成の定型プロンプト (md)
+├── src/lecture/                  # 講義動画パイプライン（澪と透の解説動画）
+├── src/webui/                    # 共通 Web ダッシュボード
+│   ├── cli.py                    # webui エントリポイント
+│   ├── app.py                    # FastAPI アプリ + バックグラウンドワーカー
+│   ├── routes.py                 # ルーティング + API ハンドラ
+│   └── templates/                # Jinja2 テンプレート (htmx + Pico CSS)
 ├── specs/                        # 仕様書
 ├── fonts/                        # サムネイル用日本語フォント
 ├── tests/

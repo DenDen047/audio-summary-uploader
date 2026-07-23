@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from automator.config import ThumbnailConfig
-from automator.thumbnail import ThumbCopy, _wrap_text_phrases, compose_thumbnail
+from summary.config import ThumbnailConfig
+from summary.thumbnail import ThumbCopy, _wrap_text_phrases, compose_thumbnail
 
 
 def _make_base(path: Path, size: tuple[int, int] = (1280, 720)) -> Path:
@@ -55,7 +55,7 @@ class TestComposeThumbnail:
 
 class TestWrapTextPhrases:
     def test_breaks_at_phrase_boundaries(self, tmp_path: Path) -> None:
-        from automator.thumbnail import _load_font
+        from summary.thumbnail import _load_font
 
         font = _load_font("NotoSansJP-Bold", 60)
         text = "米政府のオープンソースAI移行とPalantirの戦略"
@@ -66,7 +66,7 @@ class TestWrapTextPhrases:
         assert any("Palantir" in line for line in lines)
 
     def test_oversized_phrase_falls_back_to_char_split(self) -> None:
-        from automator.thumbnail import _load_font
+        from summary.thumbnail import _load_font
 
         font = _load_font("NotoSansJP-Bold", 60)
         text = "スーパーウルトラハイパーミラクルロマンティック"

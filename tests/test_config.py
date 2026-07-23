@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from automator.config import NotebookLMConfig, load_settings
+from summary.config import NotebookLMConfig, load_settings
 
 
 def test_load_settings_from_default() -> None:

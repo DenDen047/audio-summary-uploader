@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from automator.config import (
+from summary.config import (
     CredentialsConfig,
     GeneralConfig,
     NotebookLMConfig,
@@ -16,15 +16,15 @@ from automator.config import (
     ThumbnailConfig,
     YouTubeConfig,
 )
-from automator.pipeline import (
+from summary.pipeline import (
     _load_state,
     collect_audio,
     run_pipeline,
     submit_urls,
     upload_videos,
 )
-from automator.url_parser import UrlEntry
-from automator.youtube import UploadResult
+from summary.url_parser import UrlEntry
+from summary.youtube import UploadResult
 
 
 @pytest.fixture()
@@ -92,8 +92,8 @@ async def test_submit_sets_generating(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -165,17 +165,17 @@ async def test_collect_transitions_to_video_ready(
     video_path = tmp_path / "tmp" / "videos" / "abc123.mp4"
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("automator.pipeline.generate_thumbnail") as mock_thumb,
-        patch("automator.pipeline.convert_to_video") as mock_video,
+        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
+        patch("summary.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = thumb_path
         mock_video.return_value = video_path
@@ -239,17 +239,17 @@ async def test_collect_still_generating(
     mock_backend.download_audio.return_value = audio_path
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("automator.pipeline.generate_thumbnail") as mock_thumb,
-        patch("automator.pipeline.convert_to_video") as mock_video,
+        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
+        patch("summary.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = Path("/tmp/thumb.png")
         mock_video.return_value = Path("/tmp/video.mp4")
@@ -306,20 +306,20 @@ async def test_full_pipeline_phase_transitions(
     video_path.write_bytes(b"fake video")
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("automator.pipeline.generate_thumbnail") as mock_thumb_fn,
-        patch("automator.pipeline.convert_to_video") as mock_video_fn,
-        patch("automator.pipeline.authenticate") as mock_auth,
-        patch("automator.pipeline.upload_video") as mock_upload,
+        patch("summary.pipeline.generate_thumbnail") as mock_thumb_fn,
+        patch("summary.pipeline.convert_to_video") as mock_video_fn,
+        patch("summary.pipeline.authenticate") as mock_auth,
+        patch("summary.pipeline.upload_video") as mock_upload,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -387,8 +387,8 @@ async def test_queued_job_not_skipped_by_submit(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -457,17 +457,17 @@ async def test_collect_handles_lowercase_completed(
     mock_backend.download_audio.return_value = audio_path
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("automator.pipeline.generate_thumbnail") as mock_thumb,
-        patch("automator.pipeline.convert_to_video") as mock_video,
+        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
+        patch("summary.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = Path("/tmp/thumb.png")
         mock_video.return_value = Path("/tmp/video.mp4")
@@ -529,7 +529,7 @@ async def test_collect_terminal_failed_without_poll(
 
     mock_backend.check_audio_status.return_value = _mock_generation_status("FAILED")
 
-    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+    with patch("summary.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "failed"
@@ -552,7 +552,7 @@ async def test_collect_timeout_keeps_generating(
     mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
     mock_backend.wait_for_audio.side_effect = TimeoutError("timed out")
 
-    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+    with patch("summary.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "generating"
@@ -572,7 +572,7 @@ async def test_collect_missing_task_id_fails_with_clear_error(
     state_path = Path(settings.general.state_file)
     _write_state(state_path, [_make_job(task_id=None)])
 
-    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+    with patch("summary.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "failed"
@@ -594,8 +594,8 @@ async def test_dry_run_does_not_write_state(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -628,7 +628,7 @@ async def test_submit_failure_does_not_clobber_other_jobs(
         # submit 実行中に Web ハンドラが other ジョブを削除した状況を再現
         state = _load_state(state_path)
         state["jobs"] = [j for j in state["jobs"] if j["slug"] != "other1"]
-        from automator.pipeline import _save_state
+        from summary.pipeline import _save_state
 
         _save_state(state_path, state)
         raise RuntimeError("source add failed")
@@ -637,8 +637,8 @@ async def test_submit_failure_does_not_clobber_other_jobs(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -673,8 +673,8 @@ async def test_submit_cleans_up_old_notebook(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -707,7 +707,7 @@ async def test_upload_auth_failure_non_interactive_marks_failed(
     )
 
     with patch(
-        "automator.pipeline.authenticate",
+        "summary.pipeline.authenticate",
         side_effect=RuntimeError("YouTube の認証が必要です"),
     ) as mock_auth:
         results = await upload_videos(settings, allow_interactive_auth=False)
@@ -734,7 +734,7 @@ async def test_upload_auth_failure_interactive_raises(
 
     with (
         patch(
-            "automator.pipeline.authenticate",
+            "summary.pipeline.authenticate",
             side_effect=RuntimeError("auth failed"),
         ),
         pytest.raises(RuntimeError, match="auth failed"),
@@ -756,9 +756,9 @@ async def test_upload_reapplies_pending_thumbnail(
     )])
 
     with (
-        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch("summary.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "automator.pipeline.set_thumbnail", new=AsyncMock(return_value="ok")
+            "summary.pipeline.set_thumbnail", new=AsyncMock(return_value="ok")
         ) as mock_set,
     ):
         await upload_videos(settings, allow_interactive_auth=False)
@@ -783,9 +783,9 @@ async def test_upload_pending_thumbnail_quota_stays_pending(
     )])
 
     with (
-        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch("summary.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "automator.pipeline.set_thumbnail", new=AsyncMock(return_value="quota")
+            "summary.pipeline.set_thumbnail", new=AsyncMock(return_value="quota")
         ),
     ):
         await upload_videos(settings, allow_interactive_auth=False)
@@ -805,14 +805,14 @@ async def test_simple_mode_collect_skips_ai_backgrounds(
     mock_backend.download_audio.return_value = tmp_path / "a.mp3"
 
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline._generate_backgrounds") as mock_bg,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline._generate_backgrounds") as mock_bg,
         patch(
-            "automator.pipeline.compose_thumbnail",
+            "summary.pipeline.compose_thumbnail",
             return_value=tmp_path / "t.png",
         ) as mock_compose,
         patch(
-            "automator.pipeline.convert_to_video",
+            "summary.pipeline.convert_to_video",
             new=AsyncMock(return_value=tmp_path / "v.mp4"),
         ),
     ):
@@ -836,9 +836,9 @@ async def test_simple_mode_upload_skips_custom_thumbnail(
     )])
 
     with (
-        patch("automator.pipeline.authenticate", return_value=MagicMock()),
+        patch("summary.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "automator.pipeline.upload_video",
+            "summary.pipeline.upload_video",
             new=AsyncMock(return_value=UploadResult(
                 youtube_url="https://youtu.be/x", thumbnail_set=True
             )),
@@ -860,7 +860,7 @@ async def test_collect_single_not_found_not_terminal(
 
     mock_backend.check_audio_status.return_value = _mock_generation_status("not_found")
 
-    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+    with patch("summary.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "generating"
@@ -885,7 +885,7 @@ async def test_collect_network_error_keeps_generating(
     mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
     mock_backend.wait_for_audio.side_effect = NetworkError("connection reset")
 
-    with patch("automator.pipeline._create_backend", return_value=mock_backend):
+    with patch("summary.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "generating"
@@ -917,8 +917,8 @@ async def test_resubmit_clears_stale_task_id(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("automator.pipeline._create_backend", return_value=mock_backend),
-        patch("automator.pipeline.fetch_metadata") as mock_meta,
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("summary.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -941,18 +941,18 @@ async def test_compose_topic_thumbnail_uses_ai_base(
     settings: Settings, tmp_path: Path
 ) -> None:
     """AIベース生成が成功したら、そのベース画像で compose する."""
-    from automator.category import style_for_category
-    from automator.pipeline import _compose_topic_thumbnail
-    from automator.thumbnail import ThumbCopy
+    from summary.category import style_for_category
+    from summary.pipeline import _compose_topic_thumbnail
+    from summary.thumbnail import ThumbCopy
 
     ai_base = tmp_path / "base.png"
     with (
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=ai_base),
         ),
         patch(
-            "automator.pipeline.compose_thumbnail",
+            "summary.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):
@@ -971,17 +971,17 @@ async def test_compose_topic_thumbnail_falls_back_to_mascot(
     settings: Settings, tmp_path: Path
 ) -> None:
     """AIベース生成が失敗(None)したら固定マスコットで compose する."""
-    from automator.category import style_for_category
-    from automator.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
-    from automator.thumbnail import ThumbCopy
+    from summary.category import style_for_category
+    from summary.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from summary.thumbnail import ThumbCopy
 
     with (
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "automator.pipeline.compose_thumbnail",
+            "summary.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):
@@ -999,15 +999,15 @@ async def test_compose_topic_thumbnail_simple_mode_skips_ai(
     settings: Settings, tmp_path: Path
 ) -> None:
     """簡易動画モードは AIベース生成を呼ばず固定マスコットで compose する."""
-    from automator.category import style_for_category
-    from automator.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
-    from automator.thumbnail import ThumbCopy
+    from summary.category import style_for_category
+    from summary.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from summary.thumbnail import ThumbCopy
 
     settings.general.simple_video_mode = True
     with (
-        patch("automator.pipeline._generate_thumb_base") as mock_base,
+        patch("summary.pipeline._generate_thumb_base") as mock_base,
         patch(
-            "automator.pipeline.compose_thumbnail",
+            "summary.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):

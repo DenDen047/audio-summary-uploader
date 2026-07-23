@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from automator.citation import EmailCitation
-from automator.config import (
+from summary.citation import EmailCitation
+from summary.config import (
     CredentialsConfig,
     GeneralConfig,
     NotebookLMConfig,
@@ -16,8 +16,8 @@ from automator.config import (
     ThumbnailConfig,
     YouTubeConfig,
 )
-from automator.metadata import PageMetadata
-from automator.pipeline import _build_description, _load_state, collect_audio
+from summary.metadata import PageMetadata
+from summary.pipeline import _build_description, _load_state, collect_audio
 
 SPARK_URL = "https://app.sparkmailapp.com/web-share/AbC123xyz"
 
@@ -171,21 +171,21 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("automator.pipeline._create_backend", return_value=backend),
+        patch("summary.pipeline._create_backend", return_value=backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "automator.pipeline.generate_thumbnail",
+            "summary.pipeline.generate_thumbnail",
             return_value=tmp_path / "t.png",
         ),
         patch(
-            "automator.pipeline.convert_to_video",
+            "summary.pipeline.convert_to_video",
             return_value=tmp_path / "v.mp4",
         ),
     ):
@@ -267,20 +267,20 @@ async def test_collect_prepends_paper_shortname(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("automator.pipeline._create_backend", return_value=backend),
+        patch("summary.pipeline._create_backend", return_value=backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+            "summary.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
         ),
         patch(
-            "automator.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+            "summary.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
         ),
     ):
         results = await collect_audio(settings, poll=False)
@@ -310,20 +310,20 @@ async def test_collect_honors_user_title(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("automator.pipeline._create_backend", return_value=backend),
+        patch("summary.pipeline._create_backend", return_value=backend),
         patch(
-            "automator.pipeline._generate_backgrounds",
+            "summary.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "automator.pipeline._generate_thumb_base",
+            "summary.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "automator.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+            "summary.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
         ),
         patch(
-            "automator.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+            "summary.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
         ),
     ):
         results = await collect_audio(settings, poll=False)
