@@ -198,9 +198,21 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
         fallback_reason="test",
     )
 
+    def fake_generate(_source: SourceContent, **kwargs: object) -> dict:
+        outputs = kwargs["stage_outputs"]
+        assert isinstance(outputs, dict)
+        outputs.update(
+            {
+                "source-understanding.json": {"central_question": "問い"},
+                "teaching-outline.json": {"scenes": [{"scene_number": 1}]},
+                "scene-draft.json": {"title": "初稿"},
+            }
+        )
+        return script
+
     with (
         patch("lecture.pipeline.fetch_content", return_value=source),
-        patch("lecture.pipeline.generate_script", return_value=script),
+        patch("lecture.pipeline.generate_script", side_effect=fake_generate),
         patch(
             "lecture.pipeline.materialize_source_figures",
             return_value=(),
@@ -222,6 +234,15 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
     assert artifacts.thumbnail_path.read_bytes() == b"thumbnail"
     assert artifacts.source_path.read_text(encoding="utf-8") == source.text
     assert json.loads(artifacts.script_path.read_text(encoding="utf-8")) == script
+    assert json.loads(
+        (artifacts.job_dir / "source-understanding.json").read_text()
+    ) == {"central_question": "問い"}
+    assert json.loads(
+        (artifacts.job_dir / "teaching-outline.json").read_text()
+    ) == {"scenes": [{"scene_number": 1}]}
+    assert json.loads(
+        (artifacts.job_dir / "scene-draft.json").read_text()
+    ) == {"title": "初稿"}
     assert script["scenes"][0]["slide"]["caption"] == (
         "Figure 1: 一次資料の正確なキャプション"
     )

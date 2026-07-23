@@ -140,7 +140,12 @@ def test_generate_script_passes_remaining_claude_errors_to_codex() -> None:
         patch("lecture.script_gen._assert_subscription_auth"),
         patch(
             "lecture.script_gen._generate_with_claude",
-            side_effect=[(draft, metadata), (draft, metadata)],
+            side_effect=[
+                (draft, metadata),
+                (draft, metadata),
+                (draft, metadata),
+                (draft, metadata),
+            ],
         ),
         patch(
             "lecture.script_gen._validate",
@@ -624,6 +629,40 @@ def test_validate_accepts_semantic_diagram_and_available_source_figure() -> None
             "zunda_pose": "listen",
         },
     ]
+    metan_text = (
+        "ここでは入力と変換と出力のつながりを一つずつ確かめ、どの段階で意味が変わるのかを"
+        "具体例と一緒に整理し、根拠と限界も分けて説明します。"
+    )
+    zunda_text = (
+        "ぼくは図の矢印をたどりながら、前の段階で分かったことを次の例へ当てはめ、"
+        "どこで判断が変わるかを自分の言葉で確かめてみます。"
+    )
+    for scene in script["scenes"]:
+        while len(scene["lines"]) < 6:
+            speaker = "metan" if len(scene["lines"]) % 2 == 0 else "zunda"
+            scene["lines"].append(
+                {
+                    "speaker": speaker,
+                    "text": metan_text if speaker == "metan" else zunda_text,
+                    "reading": metan_text if speaker == "metan" else zunda_text,
+                    "metan_pose": "explain" if speaker == "metan" else "default",
+                    "zunda_pose": "listen" if speaker == "metan" else "understand",
+                }
+            )
+        for line in scene["lines"]:
+            text = metan_text if line["speaker"] == "metan" else zunda_text
+            line["text"] = text
+            line["reading"] = text
+            if scene["slide"]["template"] in {"diagram", "outro"}:
+                line["show_items"] = len(scene["slide"]["items"])
+    script["scenes"][0]["lines"][0]["text"] = (
+        "澪先生、ぼくは入力から出力までの矢印をたどりましたが、どの段階で意味が変わるのか"
+        "判断できず、具体例で確かめたいです。"
+    )
+    script["scenes"][0]["lines"][0]["reading"] = (
+        "みおせんせい、ぼくは入力から出力までの矢印をたどりましたが、どの段階で意味が"
+        "変わるのか判断できず、具体例で確かめたいです。"
+    )
 
     assert _validate(script, available_figure_count=1) == []
     script["scenes"][2]["slide"]["figure_index"] = 2

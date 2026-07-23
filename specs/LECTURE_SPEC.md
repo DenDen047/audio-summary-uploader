@@ -51,10 +51,12 @@ URL（記事 / 論文 / GitHub / Spark メール共有）またはローカル P
                    （HTML/Spark: httpx+bs4 / PDF: pymupdf）
     │
     ▼
-2. script_gen.py    Claude Maxで初稿 → ChatGPT Pro Codexで最終審査
-    │                 - タイトル / 説明文 / タグ
-    │                 - scenes[]: 一次資料図または意味別図解＋掛け合いセリフ
-    │                 - サムネイルコピー＋動画固有の背景美術案
+2. script_gen.py    4段階の独立成果物を順番に生成
+    │                 1) 資料理解: 主張・根拠・限界・前提用語
+    │                 2) 教える順番: 場面の問い・理解目標・接続理由
+    │                 3) 場面生成: 図解＋澪・透の掛け合い
+    │                 4) 教え方レビュー: 根拠・平易さ・掛け合い・感情
+    │                 Claude Max（1〜3）→ ChatGPT Pro Codex（4）
     │
     ▼
 3. reveal.py        show_items から段階表示の計画を組み立てる
@@ -88,7 +90,8 @@ output: tmp/lecture/<job_id>/
         video.mp4 + thumbnail.png + upload_metadata.json
         thumbnail-background.svg + thumbnail-background.png
         + thumbnail-background-prompt.txt
-        （＋ source.txt, source_figures/, script.json, slides/, audio/）
+        （＋ source.txt, source-understanding.json, teaching-outline.json,
+        scene-draft.json, source_figures/, script.json, slides/, audio/）
 ```
 
 ## 3. モジュール仕様
@@ -112,25 +115,38 @@ output: tmp/lecture/<job_id>/
 - 上限 40,000 文字で切り詰め（台本生成プロンプトの入力上限対策）。
 - 取得失敗は Fail Fast（例外で即停止）。
 
-### 3.2 script_gen.py — 台本生成（Claude初稿＋Codex審査）
+### 3.2 script_gen.py — 4段階の台本生成
 
 - 定額サブスク内で完結させるため、APIではなくClaude Maxでログイン済みの
   **Claude Code CLI** と、ChatGPT Proでログイン済みの **Codex CLI** を呼ぶ。
-- 初稿は`claude -p --safe-mode --model opus --effort xhigh --tools ""`で生成する。
-  `--json-schema`で構造を強制し、外部ツール・カスタマイズ・セッション保存を無効にする。
+- 「資料理解」「教える順番」「場面生成」は、それぞれ独立したJSONを
+  `claude -p --safe-mode --model opus --effort xhigh --tools ""`で生成する。
+  各段階で専用`--json-schema`を使い、外部ツール・カスタマイズ・セッション保存を無効にする。
 - Claude/Codexの各CLI呼び出しは`lecture.generation_timeout_seconds`で上限を設定する。
   40,000文字級の入力を最高品質で処理できるよう既定値は3,600秒とする。
-- 初稿を固定コードで検証後、`codex exec --ephemeral --ignore-user-config --ignore-rules
-  --sandbox read-only --model gpt-5.6-sol`へ、元情報・初稿・審査基準を渡す。
+- 場面初稿を固定コードで検証後、`codex exec --ephemeral --ignore-user-config --ignore-rules
+  --sandbox read-only --model gpt-5.6-sol`へ、元情報、資料理解、教える順番、初稿、
+  教え方レビュー基準を渡す。
   `model_reasoning_effort=xhigh`、`approval_policy="never"`、`--output-schema`で、技術的断定、
-  危険なコマンド、説明順、澪・透の口調、字幕と読み、スライド同期を最終審査する。
+  危険なコマンド、未定義語、説明順、掛け合い、世界観、感情、澪・透の口調、
+  字幕と読み、スライド同期を最終審査する。
 - Claude Max認証とChatGPT認証を起動前に確認し、APIキー経路へフォールバックしない。
 - 監査情報には要求モデル、実際に使われた全モデル、各役割、effort、認証方式、
   `metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
-- 入力: 本文テキスト＋プロンプトテンプレート（`prompts/lecture_script.md`）。
+- 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、
+  パイプラインと`.claude/skills/`の対話用スキルが同じファイルを読む。対話用スキルは
+  `.agents/skills/`からシンボリックリンクする。
+  - `lecture_source_understanding.md`
+  - `lecture_teaching_outline.md`
+  - `lecture_script.md`
+  - `lecture_teaching_review.md`
+- 段階成果物は`source-understanding.json`、`teaching-outline.json`、
+  `scene-draft.json`、`script.json`としてジョブへ保存する。各AIへ元URLは渡さず、
+  成果物へURL・メールアドレス・アクセストークンを残さない。
 - 出力: 下記スキーマの JSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`で
   Claude/Codexの両方へ強制し、コードフェンス除去→`json.loads`→固定コードでも再検証する。
-  投稿タグを含む必須キー・テンプレ型・話者名・セリフ長が不正なら、前回の台本JSONと
+  投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数が不正なら、
+  前回の台本JSONと
   行番号付きエラーを渡してClaudeで1回だけ修正する。残ったエラーは初稿ごとCodex審査へ
   引き継ぎ、Codexでも1回だけ再審査する。それでも不正ならFail Fastする。
 
@@ -182,6 +198,8 @@ output: tmp/lecture/<job_id>/
 
 - 台本の設計指針（プロンプトに明記）:
   - 想定視聴者は AI・ソフトウェア技術に関心のあるエンジニア。
+    想定視聴者は変えず、前提知識は高校生レベルまでとする。専門用語は初出前または
+    初出と同じセリフで、日常語の定義と具体例・比喩を使って導入する。
     リスナー個人の属性には言及しない（公開面の規約は現行 prompt_presets と同じ）。
   - 1 シーン 1 論点。スライドは要点の再掲ではなくセリフの「板書」。
   - **図解優先**: 一次資料に論点を直接支える図があれば`figure`、なければ意味に合う
@@ -203,8 +221,9 @@ output: tmp/lecture/<job_id>/
     `困りごと → 問い → 一文の答え → 全体図 → 代表例 → 原理 → 一次資料・実測 →
     失敗例・限界 → 判断`とし、末尾で冒頭の困りごとを回収する。既存チャンネルからは
     問題起点の構成だけを参考にし、台詞・人物像・世界観は模倣しない。
-  - 8〜14 シーン、各シーン2〜6セリフ。セリフ合計の目安は3,000〜4,500字
-    （≒ 5〜8 分）。Python検証と構造化出力schemaの両方で上下限を強制する。
+  - 8〜14 シーン、各シーン2〜6セリフ。セリフ合計は3,000〜4,500字
+    （≒ 5〜8 分）。総文字数は`script_gen._validate()`のPythonコードで上下限を強制し、
+    1セリフ80字以内と配列数は構造化出力schemaとPythonの両方で検証する。
 - **セリフ同期の段階表示** (`show_items`): bullets / outro / diagram は「そのセリフの間に
   見えている項目数」(単調非減少、最後は総数)、compare は 1=左のみ / 2=両方。
   title / code / quote / figure には付けない。検証は script_gen、計画の組み立ては reveal.py。
@@ -380,6 +399,9 @@ uv run lecture render <job_dir>                 # script.json 以降だけ再実
 ```
 tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 ├── source.txt               # 抽出本文（デバッグ用）
+├── source-understanding.json # 主要主張・根拠・限界・前提用語
+├── teaching-outline.json    # 場面の問い・理解目標・接続理由
+├── scene-draft.json         # 教え方レビュー前の場面台本
 ├── source_figures/          # 台本が選んだ一次資料図（外部URLなしで再描画可能）
 │   └── figure_01.png ...
 ├── script.json              # 台本（編集して render で再合成可能）

@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["audience", "target_total_chars", "scenes"],
+  "properties": {
+    "audience": {"type": "string"},
+    "target_total_chars": {
+      "type": "integer",
+      "minimum": 3600,
+      "maximum": 4200
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scene_number",
+          "question",
+          "learning_goal",
+          "content",
+          "claim_ids",
+          "introduce_terms",
+          "tooru_action",
+          "emotional_beat",
+          "visual_template",
+          "visual_reason",
+          "transition_reason"
+        ],
+        "properties": {
+          "scene_number": {"type": "integer", "minimum": 1, "maximum": 14},
+          "question": {"type": "string"},
+          "learning_goal": {"type": "string"},
+          "content": {"type": "string"},
+          "claim_ids": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "introduce_terms": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "tooru_action": {
+            "type": "string",
+            "enum": [
+              "相談",
+              "予想",
+              "誤解",
+              "反例",
+              "用語質問",
+              "例への適用",
+              "判断",
+              "回収"
+            ]
+          },
+          "emotional_beat": {"type": "string"},
+          "visual_template": {
+            "type": "string",
+            "enum": [
+              "title",
+              "bullets",
+              "compare",
+              "code",
+              "quote",
+              "diagram",
+              "figure",
+              "outro"
+            ]
+          },
+          "visual_reason": {"type": "string"},
+          "transition_reason": {"type": "string"}
+        }
+      }
+    }
+  }
+}

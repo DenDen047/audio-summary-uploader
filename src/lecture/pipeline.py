@@ -92,6 +92,7 @@ def generate_lecture(
 ) -> LectureArtifacts:
     """URL から動画・サムネイル・投稿情報を同じジョブフォルダへ出力する。"""
     source = fetch_content(url)
+    stage_outputs: dict[str, dict] = {}
     if script_path is None:
         script = generate_script(
             source,
@@ -100,6 +101,7 @@ def generate_lecture(
             review_model=review_model,
             review_effort=review_effort,
             generation_timeout_seconds=generation_timeout_seconds,
+            stage_outputs=stage_outputs,
         )
     else:
         script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -114,6 +116,11 @@ def generate_lecture(
     source_output = job_dir / "source.txt"
     script_output = job_dir / "script.json"
     source_output.write_text(source.text, encoding="utf-8")
+    for filename, payload in stage_outputs.items():
+        (job_dir / filename).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
     selected_figures = _selected_source_figure_indices(script)
     materialize_source_figures(
         source,

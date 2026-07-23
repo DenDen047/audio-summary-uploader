@@ -1,0 +1,4 @@
+interface:
+  display_name: "講義資料を理解する"
+  short_description: "元資料から主張・根拠・限界・前提用語を整理して講義用JSONを作成する"
+  default_prompt: "Use -understand-source to extract grounded teaching facts from this lecture source."

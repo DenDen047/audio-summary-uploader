@@ -18,9 +18,20 @@ from lecture.reveal import (
 from lecture.thumbnail_backdrop import THUMBNAIL_VISUAL_PROMPT_MAX_CHARS
 from summary.citation import sanitize_public_text
 
-PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script.md"
-REVIEW_PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script_review.md"
-SCHEMA_PATH = Path(__file__).parent / "prompts" / "lecture_script.schema.json"
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+SOURCE_UNDERSTANDING_PROMPT_PATH = (
+    PROMPTS_DIR / "lecture_source_understanding.md"
+)
+TEACHING_OUTLINE_PROMPT_PATH = PROMPTS_DIR / "lecture_teaching_outline.md"
+PROMPT_PATH = PROMPTS_DIR / "lecture_script.md"
+TEACHING_REVIEW_PROMPT_PATH = PROMPTS_DIR / "lecture_teaching_review.md"
+SOURCE_UNDERSTANDING_SCHEMA_PATH = (
+    PROMPTS_DIR / "lecture_source_understanding.schema.json"
+)
+TEACHING_OUTLINE_SCHEMA_PATH = (
+    PROMPTS_DIR / "lecture_teaching_outline.schema.json"
+)
+SCHEMA_PATH = PROMPTS_DIR / "lecture_script.schema.json"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CLAUDE_MODEL = "opus"
 DEFAULT_CLAUDE_EFFORT = "xhigh"
@@ -82,7 +93,9 @@ POSES = {
     },
 }
 GENERATION_TIMEOUT_SECONDS = 3600
+DIALOGUE_CHARS_RANGE = (3000, 4500)
 _PUBLIC_SOURCE_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+_UNRESOLVED_PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_]+\}\}")
 _POLITE_SENTENCE_END_RE = re.compile(
     r"(?:です|ます|ません|ました|ましょう|でしょう|ください|ございます|"
     r"おります|いたします)(?:か|ね|よ|よね|かね)?$"
@@ -98,22 +111,72 @@ def generate_script(
     review_model: str = DEFAULT_CODEX_MODEL,
     review_effort: str = DEFAULT_CODEX_EFFORT,
     generation_timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
+    stage_outputs: dict[str, dict] | None = None,
 ) -> dict:
     _assert_subscription_auth()
 
-    prompt = (
-        PROMPT_PATH.read_text(encoding="utf-8")
-        .replace("{{TITLE}}", source.title)
-        .replace("{{TEXT}}", source.text)
-        .replace("{{FIGURES}}", _source_figures_prompt(source))
+    understanding_prompt = _render_stage_prompt(
+        SOURCE_UNDERSTANDING_PROMPT_PATH,
+        {
+            "TITLE": source.title,
+            "SOURCE_KIND": source.kind,
+            "TEXT": source.text,
+        },
+    )
+    understanding, understanding_metadata = _generate_with_claude(
+        understanding_prompt,
+        model,
+        effort,
+        schema_path=SOURCE_UNDERSTANDING_SCHEMA_PATH,
+        role="source-understanding",
+        stage_label="資料理解",
+        timeout_seconds=generation_timeout_seconds,
+    )
+    _sanitize_generated_content(understanding, source.url)
+
+    outline_prompt = _render_stage_prompt(
+        TEACHING_OUTLINE_PROMPT_PATH,
+        {
+            "UNDERSTANDING": json.dumps(
+                understanding, ensure_ascii=False, indent=2
+            ),
+            "FIGURES": _source_figures_prompt(source),
+        },
+    )
+    outline, outline_metadata = _generate_with_claude(
+        outline_prompt,
+        model,
+        effort,
+        schema_path=TEACHING_OUTLINE_SCHEMA_PATH,
+        role="teaching-order-planning",
+        stage_label="教える順番",
+        timeout_seconds=generation_timeout_seconds,
+    )
+    _sanitize_generated_content(outline, source.url)
+
+    prompt = _render_stage_prompt(
+        PROMPT_PATH,
+        {
+            "TITLE": source.title,
+            "TEXT": source.text,
+            "FIGURES": _source_figures_prompt(source),
+            "UNDERSTANDING": json.dumps(
+                understanding, ensure_ascii=False, indent=2
+            ),
+            "OUTLINE": json.dumps(outline, ensure_ascii=False, indent=2),
+        },
     )
 
     script, primary_metadata = _generate_with_claude(
         prompt,
         model,
         effort,
+        role="scene-writing",
+        stage_label="場面生成",
         timeout_seconds=generation_timeout_seconds,
     )
+    _sanitize_generated_content(script, source.url)
+    scene_draft = script
     _normalize_generated_reveals(script, "Claude初稿")
     errors = _validate(script, available_figure_count=len(source.figures))
     if errors:
@@ -123,8 +186,12 @@ def generate_script(
             retry_prompt,
             model,
             effort,
+            role="scene-writing",
+            stage_label="場面再生成",
             timeout_seconds=generation_timeout_seconds,
         )
+        _sanitize_generated_content(script, source.url)
+        scene_draft = script
         _normalize_generated_reveals(script, "Claude再生成")
         errors = _validate(script, available_figure_count=len(source.figures))
         if errors:
@@ -138,6 +205,8 @@ def generate_script(
         script,
         review_model,
         review_effort,
+        understanding=understanding,
+        outline=outline,
         timeout_seconds=generation_timeout_seconds,
         errors=errors or None,
     )
@@ -150,6 +219,8 @@ def generate_script(
             script,
             review_model,
             review_effort,
+            understanding=understanding,
+            outline=outline,
             timeout_seconds=generation_timeout_seconds,
             errors=errors,
         )
@@ -158,9 +229,32 @@ def generate_script(
         if errors:
             raise RuntimeError(f"Codex再審査後も台本が不正: {errors}")
 
-    script["generation"] = _generation_metadata(primary_metadata, review_metadata)
+    script["generation"] = _generation_metadata(
+        primary_metadata,
+        review_metadata,
+        earlier_stages=(understanding_metadata, outline_metadata),
+    )
     _finalize(script, source)
+    if stage_outputs is not None:
+        stage_outputs.update(
+            {
+                "source-understanding.json": understanding,
+                "teaching-outline.json": outline,
+                "scene-draft.json": scene_draft,
+            }
+        )
     return script
+
+
+def _render_stage_prompt(path: Path, values: dict[str, str]) -> str:
+    """MDを単一ソースとして置換し、未展開の入力をAIへ渡さない。"""
+    prompt = path.read_text(encoding="utf-8")
+    for key, value in values.items():
+        prompt = prompt.replace(f"{{{{{key}}}}}", value)
+    unresolved = sorted(set(_UNRESOLVED_PLACEHOLDER_RE.findall(prompt)))
+    if unresolved:
+        raise RuntimeError(f"{path.name} に未展開プレースホルダー: {unresolved}")
+    return prompt
 
 
 def _build_claude_retry_prompt(
@@ -191,10 +285,14 @@ def _generate_with_claude(
     model: str,
     effort: str,
     *,
+    schema_path: Path = SCHEMA_PATH,
+    role: str = "scene-writing",
+    stage_label: str = "台本初稿",
     timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
 ) -> tuple[dict, dict]:
     logger.info(
-        "Claude Codeで台本初稿を生成中 (model={}, effort={}, {}文字)...",
+        "Claude Codeで{}を生成中 (model={}, effort={}, {}文字)...",
+        stage_label,
         model,
         effort,
         len(prompt),
@@ -214,7 +312,7 @@ def _generate_with_claude(
             "json",
             "--no-session-persistence",
             "--json-schema",
-            _claude_schema(),
+            _claude_schema(schema_path),
         ],
         input=prompt,
         capture_output=True,
@@ -226,12 +324,12 @@ def _generate_with_claude(
         raise RuntimeError(
             f"Claude Codeが失敗 (exit {result.returncode}): {result.stderr[-1000:]}"
         )
-    return _parse_claude_output(result.stdout, model, effort)
+    return _parse_claude_output(result.stdout, model, effort, role=role)
 
 
-def _claude_schema() -> str:
+def _claude_schema(path: Path = SCHEMA_PATH) -> str:
     """Claude CLI非対応のメタ宣言だけ除き、検証規則は維持する。"""
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(path.read_text(encoding="utf-8"))
     schema.pop("$schema", None)
     return json.dumps(schema, ensure_ascii=False)
 
@@ -242,23 +340,29 @@ def _review_with_codex(
     model: str,
     effort: str,
     *,
+    understanding: dict | None = None,
+    outline: dict | None = None,
     timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
     errors: list[str] | None = None,
 ) -> tuple[dict, dict]:
-    prompt = (
-        REVIEW_PROMPT_PATH.read_text(encoding="utf-8")
-        .replace("{{TITLE}}", source.title)
-        .replace("{{TEXT}}", source.text)
-        .replace("{{FIGURES}}", _source_figures_prompt(source))
-        .replace(
-            "{{SCRIPT}}",
-            json.dumps(script, ensure_ascii=False, indent=2),
-        )
+    prompt = _render_stage_prompt(
+        TEACHING_REVIEW_PROMPT_PATH,
+        {
+            "TITLE": source.title,
+            "TEXT": source.text,
+            "FIGURES": _source_figures_prompt(source),
+            "UNDERSTANDING": json.dumps(
+                understanding or {}, ensure_ascii=False, indent=2
+            ),
+            "OUTLINE": json.dumps(outline or {}, ensure_ascii=False, indent=2),
+            "SCRIPT": json.dumps(script, ensure_ascii=False, indent=2),
+            "VALIDATION_ERRORS": (
+                "\n".join(f"- {error}" for error in errors)
+                if errors
+                else "なし"
+            ),
+        },
     )
-    if errors:
-        prompt += "\n\n# 必ず解消する機械検証エラー\n" + "\n".join(
-            f"- {error}" for error in errors
-        )
     logger.info(
         "Codexで台本を最終審査中 (model={}, effort={}, {}文字)...",
         model,
@@ -309,7 +413,7 @@ def _review_with_codex(
             "models_used": [actual_model],
             "effort": effort,
             "authentication": "chatgpt-subscription",
-            "role": "technical-and-editorial-review",
+            "role": "teaching-and-technical-review",
         }
 
 
@@ -317,6 +421,8 @@ def _parse_claude_output(
     raw: str,
     requested_model: str,
     effort: str,
+    *,
+    role: str = "scene-writing",
 ) -> tuple[dict, dict]:
     envelope = json.loads(raw)
     structured = envelope.get("structured_output")
@@ -337,7 +443,7 @@ def _parse_claude_output(
         "models_used": used_models,
         "effort": effort,
         "authentication": "claude-max-subscription",
-        "role": "draft-and-character-writing",
+        "role": role,
     }
 
 
@@ -353,8 +459,18 @@ def _codex_model_from_stderr(stderr: str) -> str | None:
     return None
 
 
-def _generation_metadata(primary: dict, review: dict) -> dict:
-    models = list(dict.fromkeys(primary["models_used"] + review["models_used"]))
+def _generation_metadata(
+    primary: dict,
+    review: dict,
+    *,
+    earlier_stages: tuple[dict, ...] = (),
+) -> dict:
+    stages = [*earlier_stages, primary, review]
+    models = list(
+        dict.fromkeys(
+            model for stage in stages for model in stage["models_used"]
+        )
+    )
     quality_mode = primary["effort"]
     if primary["effort"] != review["effort"]:
         quality_mode = f"{primary['effort']}+{review['effort']}"
@@ -366,6 +482,7 @@ def _generation_metadata(primary: dict, review: dict) -> dict:
         "script_models_used": models,
         "primary": primary,
         "review": review,
+        "stages": stages,
         "metered_api": False,
         "quality_mode": quality_mode,
     }
@@ -534,6 +651,19 @@ def _validate(
         )
         if template in REVEAL_TEMPLATES and reveal_fields_valid:
             errors.extend(_validate_reveal(i, slide, lines))
+
+    total_chars = 0
+    for scene in scenes:
+        for line in scene.get("lines", []):
+            text = line.get("text") if isinstance(line, dict) else None
+            if isinstance(text, str):
+                total_chars += len(text)
+    minimum_chars, maximum_chars = DIALOGUE_CHARS_RANGE
+    if not minimum_chars <= total_chars <= maximum_chars:
+        errors.append(
+            "セリフ総文字数は"
+            f"{minimum_chars:,}〜{maximum_chars:,}字にする (現在{total_chars:,}字)"
+        )
 
     errors.extend(_validate_world(scenes))
 
