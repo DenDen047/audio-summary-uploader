@@ -1,7 +1,10 @@
-"""URLから本文と一次資料の図候補を抽出する。HTML / PDF / GitHubに対応。"""
+"""URLから本文と一次資料の図候補を抽出する。HTML / PDF / GitHub / YouTubeに対応。"""
 
+import html
 import json
 import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -35,7 +38,7 @@ class SourceContent:
     url: str
     title: str
     text: str
-    kind: str  # "html" | "pdf" | "github"
+    kind: str  # "html" | "pdf" | "github" | "youtube"
     figures: tuple[SourceFigure, ...] = ()
 
 
@@ -45,6 +48,9 @@ def fetch_content(url: str) -> SourceContent:
         if not path.is_file() or path.suffix.lower() != ".pdf":
             raise RuntimeError(f"講義動画で扱えないローカル情報源: {path}")
         return _extract_pdf(str(path), path.read_bytes())
+
+    if _is_youtube_url(url):
+        return _fetch_youtube_transcript(url)
 
     github = re.match(r"https?://github\.com/([\w.-]+)/([\w.-]+)/?$", url)
     if github:
@@ -67,6 +73,143 @@ def fetch_content(url: str) -> SourceContent:
     if spark_share:
         return _extract_spark_share(url, resp.text)
     return _extract_html(url, resp.text)
+
+
+def _is_youtube_url(url: str) -> bool:
+    host = urlparse(url).netloc.lower().removeprefix("www.")
+    return host in {"youtube.com", "m.youtube.com", "youtu.be"}
+
+
+def _fetch_youtube_transcript(url: str) -> SourceContent:
+    binary = shutil.which("yt-dlp")
+    if binary is None:
+        raise RuntimeError(
+            "YouTube入力にはyt-dlpが必要です。pixi global環境を確認してください"
+        )
+    result = subprocess.run(
+        [
+            binary,
+            "--no-playlist",
+            "--skip-download",
+            "--dump-single-json",
+            "--no-warnings",
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "YouTubeのメタデータ取得に失敗しました。動画の公開状態を確認してください"
+        )
+    metadata = json.loads(result.stdout)
+    title = metadata.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise RuntimeError("YouTube動画のタイトルを取得できませんでした")
+
+    transcript = ""
+    for track in _youtube_caption_tracks(metadata)[:3]:
+        response = httpx.get(
+            track["url"],
+            follow_redirects=True,
+            timeout=60,
+        )
+        if response.status_code != 200:
+            continue
+        transcript = _parse_youtube_captions(response.text, track["ext"])
+        if len(transcript) >= 200:
+            break
+    if len(transcript) < 200:
+        raise RuntimeError(
+            "YouTube字幕を取得できませんでした。字幕または自動字幕がある動画だけ扱えます"
+        )
+    clean_title = sanitize_public_text(title.strip())
+    logger.info("YouTube字幕を抽出: {} ({}文字)", clean_title, len(transcript))
+    return SourceContent(
+        url=url,
+        title=clean_title,
+        text=_truncate(transcript),
+        kind="youtube",
+    )
+
+
+def _youtube_caption_tracks(metadata: dict) -> list[dict[str, str]]:
+    language = metadata.get("language")
+    preferred_languages = [
+        value
+        for value in (language, "ja", "ja-orig", "en", "en-orig")
+        if isinstance(value, str)
+    ]
+    candidates: list[tuple[int, int, dict[str, str]]] = []
+    for group_index, group_name in enumerate(
+        ("subtitles", "automatic_captions")
+    ):
+        group = metadata.get(group_name)
+        if not isinstance(group, dict):
+            continue
+        for language_code, tracks in group.items():
+            if language_code == "live_chat" or not isinstance(tracks, list):
+                continue
+            try:
+                language_rank = preferred_languages.index(language_code)
+            except ValueError:
+                language_rank = len(preferred_languages)
+            for track in tracks:
+                if not isinstance(track, dict):
+                    continue
+                extension = track.get("ext")
+                track_url = track.get("url")
+                if extension not in {"json3", "vtt"} or not isinstance(
+                    track_url, str
+                ):
+                    continue
+                extension_rank = 0 if extension == "json3" else 1
+                candidates.append(
+                    (
+                        group_index * 100 + language_rank,
+                        extension_rank,
+                        {"url": track_url, "ext": extension},
+                    )
+                )
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return [track for _, _, track in candidates]
+
+
+def _parse_youtube_captions(raw: str, extension: str) -> str:
+    if extension == "json3":
+        payload = json.loads(raw)
+        chunks = []
+        for event in payload.get("events", []):
+            if not isinstance(event, dict):
+                continue
+            segments = event.get("segs")
+            if not isinstance(segments, list):
+                continue
+            text = "".join(
+                segment.get("utf8", "")
+                for segment in segments
+                if isinstance(segment, dict)
+            )
+            if text.strip():
+                chunks.append(text)
+        return _normalize_text(" ".join(chunks))
+
+    lines = []
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if (
+            not line
+            or line == "WEBVTT"
+            or line.isdigit()
+            or "-->" in line
+            or line.startswith(("Kind:", "Language:", "NOTE", "STYLE"))
+        ):
+            continue
+        text = html.unescape(re.sub(r"<[^>]+>", "", line)).strip()
+        if text and (not lines or lines[-1] != text):
+            lines.append(text)
+    return _normalize_text(" ".join(lines))
 
 
 def _fetch_github_readme(url: str, owner: str, repo: str) -> SourceContent:

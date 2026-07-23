@@ -44,11 +44,12 @@
 ## 2. パイプライン全体像
 
 ```
-URL（記事 / 論文 / GitHub / Spark メール共有）またはローカル PDF
+URL（記事 / 論文 / GitHub / Spark メール共有 / YouTube）またはローカル PDF
     │
     ▼
 1. fetch.py         URL → 本文テキスト＋キャプション付き図の抽出
-                   （HTML/Spark: httpx+bs4 / PDF: pymupdf）
+                   （HTML/Spark: httpx+bs4 / PDF: pymupdf /
+                    YouTube: yt-dlpの字幕・自動字幕）
     │
     ▼
 2. script_gen.py    4段階の独立成果物を順番に生成
@@ -109,6 +110,9 @@ output: tmp/lecture/<job_id>/
   `Mozilla/5.0`を送り、入れ子を含む非表示プリヘッダー、メールアドレス、共有URLを本文から除去する。
 - ローカル情報源は PDF のみ受け付け、HTTP を経由せず直接抽出する。
 - GitHub リポジトリ URL は README を raw.githubusercontent.com から取得。
+- YouTube URLは`yt-dlp --dump-single-json --skip-download`で字幕候補を取得し、投稿者字幕を
+  優先、なければ自動字幕を使う。`json3`、次に`vtt`を最大3候補まで試し、字幕が200文字
+  未満または存在しない動画はFail Fastする。動画本体はダウンロードしない。
 - 台本が`figure_index`で選んだ図だけを、元ページと同一ホストから最大15MBで取得し、
   `source_figures/figure_NN.<ext>`へ保存する。PNG / JPEG / WebP / SVGに限定し、後から
   `lecture render`だけを再実行できるよう外部URLへ依存しない。

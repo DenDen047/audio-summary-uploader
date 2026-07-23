@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 import httpx
@@ -158,6 +159,52 @@ def test_fetch_content_extracts_captioned_html_figures() -> None:
             caption="Figure 1: Geometry と Language の関係",
         ),
     )
+
+
+def test_fetch_content_reads_youtube_automatic_captions() -> None:
+    video_url = "https://www.youtube.com/watch?v=example"
+    metadata = {
+        "title": "Transcript Example",
+        "language": "en",
+        "automatic_captions": {
+            "en": [
+                {
+                    "ext": "json3",
+                    "url": "https://captions.example/transcript",
+                }
+            ]
+        },
+    }
+    caption_text = (
+        "This transcript explains a concrete technical example, the evidence "
+        "behind it, and the limits of the result for a general audience. "
+    ) * 3
+    captions = {
+        "events": [{"segs": [{"utf8": caption_text}]}],
+    }
+    metadata_result = CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout=json.dumps(metadata),
+        stderr="",
+    )
+    response = httpx.Response(200, json=captions)
+
+    with (
+        patch("lecture.fetch.shutil.which", return_value="/opt/yt-dlp"),
+        patch(
+            "lecture.fetch.subprocess.run", return_value=metadata_result
+        ) as run,
+        patch("lecture.fetch.httpx.get", return_value=response) as get,
+    ):
+        source = fetch_content(video_url)
+
+    assert source.url == video_url
+    assert source.title == "Transcript Example"
+    assert source.kind == "youtube"
+    assert "concrete technical example" in source.text
+    assert run.call_args.args[0][-1] == video_url
+    assert get.call_args.args[0] == "https://captions.example/transcript"
 
 
 def test_materialize_source_figures_downloads_only_selected_indices(
