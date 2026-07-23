@@ -63,7 +63,13 @@ def state_with_jobs(tmp_state: Path) -> None:
                 "status": "generating",
                 "notebook_id": "nb-1",
                 "task_id": "task-1",
-                "metadata": {"title": "Article One", "description": "", "og_image_url": None, "site_name": "Example", "language": "ja"},
+                "metadata": {
+                    "title": "Article One",
+                    "description": "",
+                    "og_image_url": None,
+                    "site_name": "Example",
+                    "language": "ja",
+                },
                 "audio_path": None,
                 "thumbnail_path": None,
                 "video_path": None,
@@ -81,7 +87,13 @@ def state_with_jobs(tmp_state: Path) -> None:
                 "status": "uploaded",
                 "notebook_id": "nb-2",
                 "task_id": "task-2",
-                "metadata": {"title": "Article Two", "description": "", "og_image_url": None, "site_name": "Example", "language": "ja"},
+                "metadata": {
+                    "title": "Article Two",
+                    "description": "",
+                    "og_image_url": None,
+                    "site_name": "Example",
+                    "language": "ja",
+                },
                 "audio_path": "/tmp/audio.mp3",
                 "thumbnail_path": "/tmp/thumb.png",
                 "video_path": "/tmp/video.mp4",
@@ -99,7 +111,13 @@ def state_with_jobs(tmp_state: Path) -> None:
                 "status": "failed",
                 "notebook_id": "nb-3",
                 "task_id": "task-3",
-                "metadata": {"title": "Article Three", "description": "", "og_image_url": None, "site_name": None, "language": None},
+                "metadata": {
+                    "title": "Article Three",
+                    "description": "",
+                    "og_image_url": None,
+                    "site_name": None,
+                    "language": None,
+                },
                 "audio_path": None,
                 "thumbnail_path": None,
                 "video_path": None,
@@ -185,7 +203,10 @@ class TestAPI:
     """API エンドポイントのテスト."""
 
     def test_add_urls_empty(self, client: TestClient) -> None:
-        resp = client.post("/api/add", data={"urls": "", "prompt": "default", "audio_length": "default"})
+        resp = client.post(
+            "/api/add",
+            data={"urls": "", "prompt": "default", "audio_length": "default"},
+        )
         assert resp.status_code == 400
 
     def test_add_urls(self, client: TestClient, tmp_state: Path) -> None:

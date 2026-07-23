@@ -55,13 +55,10 @@ def settings(tmp_state: Path, tmp_path: Path) -> Settings:
     )
 
 
-def _mock_generation_status(status: str = "COMPLETED", task_id: str = "test-task-123"):
-    """GenerationStatus のモックを作成."""
+def _mock_generation_status(status: str = "COMPLETED"):
+    """GenerationStatus のモックを作成（実装が読むのは .status のみ）."""
     gs = MagicMock()
     gs.status = status
-    gs.task_id = task_id
-    gs.is_complete = status == "COMPLETED"
-    gs.is_failed = status == "FAILED"
     return gs
 
 
