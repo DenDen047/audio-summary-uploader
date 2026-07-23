@@ -81,6 +81,23 @@ def mock_backend():
     return backend
 
 
+@pytest.fixture(autouse=True)
+def mock_image_profile_resolution():
+    """フェーズテストでは Gemini の実セッション確認を行わない."""
+    default_storage = (
+        Path.home()
+        / ".notebooklm"
+        / "profiles"
+        / "default"
+        / "storage_state.json"
+    )
+    with patch(
+        "summary.pipeline.resolve_google_storage_state",
+        new=AsyncMock(return_value=default_storage),
+    ):
+        yield
+
+
 @pytest.mark.asyncio()
 async def test_submit_sets_generating(
     settings: Settings, mock_backend: AsyncMock
@@ -187,6 +204,66 @@ async def test_collect_transitions_to_video_ready(
     assert len(jobs) == 1
     assert jobs[0]["status"] == "video_ready"
     assert jobs[0]["collected_at"] is not None
+
+
+@pytest.mark.asyncio()
+async def test_collect_falls_back_to_active_notebook_profile_for_visuals(
+    settings: Settings, mock_backend: AsyncMock, tmp_path: Path
+) -> None:
+    """Web UI の NotebookLM ジョブでも生成背景を動画変換へ渡す."""
+    settings.notebooklm.image_profile = "imagegen"
+    state_path = Path(settings.general.state_file)
+    _write_state(state_path, [_make_job()])
+
+    audio_path = tmp_path / "audio.mp3"
+    audio_path.write_bytes(b"fake audio")
+    mock_backend.download_audio.return_value = audio_path
+
+    default_storage = (
+        Path.home()
+        / ".notebooklm"
+        / "profiles"
+        / "default"
+        / "storage_state.json"
+    )
+    thumb_path = tmp_path / "thumb.png"
+    background_path = tmp_path / "background.png"
+    video_path = tmp_path / "video.mp4"
+
+    with (
+        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch(
+            "summary.pipeline.resolve_google_storage_state",
+            new=AsyncMock(return_value=default_storage),
+        ) as mock_resolve,
+        patch(
+            "summary.pipeline._compose_topic_thumbnail",
+            new=AsyncMock(return_value=thumb_path),
+        ) as mock_thumbnail,
+        patch(
+            "summary.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[background_path]),
+        ) as mock_backgrounds,
+        patch(
+            "summary.pipeline.convert_to_video",
+            new=AsyncMock(return_value=video_path),
+        ) as mock_video,
+    ):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "video_ready"
+    candidate_paths = mock_resolve.await_args.args[0]
+    assert [path.parent.name for path in candidate_paths] == [
+        "imagegen",
+        "default",
+    ]
+    assert mock_thumbnail.await_args.kwargs["storage_state_path"] == default_storage
+    assert mock_backgrounds.await_args.kwargs["storage_state_path"] == default_storage
+    assert mock_video.await_args.kwargs["background_paths"] == [background_path]
+
+    job = _load_state(state_path)["jobs"][0]
+    assert job["image_profile_used"] == "default"
+    assert job["background_paths"] == [str(background_path)]
 
 
 @pytest.mark.asyncio()

@@ -126,6 +126,23 @@ def _settings(tmp_path: Path) -> Settings:
     )
 
 
+@pytest.fixture(autouse=True)
+def mock_image_profile_resolution():
+    """出典テストでは Gemini の実セッション確認を行わない."""
+    storage_state = (
+        Path.home()
+        / ".notebooklm"
+        / "profiles"
+        / "default"
+        / "storage_state.json"
+    )
+    with patch(
+        "summary.pipeline.resolve_google_storage_state",
+        new=AsyncMock(return_value=storage_state),
+    ):
+        yield
+
+
 def _spark_job() -> dict:
     return {
         "url": SPARK_URL, "slug": "spark1", "audio_length": "short",

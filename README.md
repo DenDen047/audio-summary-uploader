@@ -382,9 +382,9 @@ uv run summary status
 
 **Phase 2: collect** — 生成完了したジョブに対して並列で実行
 4. 音声ファイル (.mp3) をダウンロード
-5. OGP 画像 + タイトルでサムネイル画像を生成
-6. FFmpeg で静止画 + MP3 → MP4 動画に変換
-7. NotebookLM のノートブックを削除
+5. NotebookLM の全チャット処理後にノートブックを削除
+6. 話題連動のAIサムネイル原画と複数の動画背景を生成（画像専用認証が失効時は通常認証へ自動退避）
+7. FFmpeg でタイトル画像・複数背景・MP3 → MP4 動画に変換
 
 **Phase 3: upload** — 順次実行（quota制限あり）
 8. YouTube Data API v3 で動画をアップロード（プレイリストに自動追加）

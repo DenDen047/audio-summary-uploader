@@ -20,6 +20,7 @@ from summary.image_gen import (
     build_thumbnail_base_prompt,
     generate_thumbnail_image,
     load_google_cookies,
+    resolve_google_storage_state,
 )
 
 
@@ -115,3 +116,25 @@ async def test_generate_returns_none_without_cookies(tmp_path: Path) -> None:
             "見出し", tmp_path / "t.png", width=1280, height=720
         )
     assert result is None
+
+
+@pytest.mark.asyncio()
+async def test_resolve_storage_state_falls_back_to_active_profile(
+    tmp_path: Path,
+) -> None:
+    """画像専用 profile が失効しても利用可能な NotebookLM profile を選ぶ."""
+    image_profile = tmp_path / "imagegen" / "storage_state.json"
+    notebook_profile = tmp_path / "default" / "storage_state.json"
+
+    async def is_available(path: Path) -> bool:
+        return path == notebook_profile
+
+    with patch(
+        "summary.image_gen._storage_state_is_available",
+        side_effect=is_available,
+    ):
+        selected = await resolve_google_storage_state(
+            [image_profile, notebook_profile]
+        )
+
+    assert selected == notebook_profile

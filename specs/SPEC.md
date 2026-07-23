@@ -51,7 +51,7 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     ├─ Audio Overview 生成（日本語指定）          │
 │     ├─ chat で日本語タイトル/メール出典/論文略称  │
 │     ├─ 音声ファイル (.mp3) ダウンロード           │
-│     └─ 動画変換完了後にノートブック削除           │
+│     └─ 全 chat 完了後、画像生成前にノートブック削除│
 │                                                 │
 │  4. カテゴリ判定＋サムネイル生成                  │
 │     └─ 話題連動AIベース画像＋3層テキストを        │
@@ -463,16 +463,23 @@ YouTube サムネ（1280×720px）は **固定マスコットを参照画像と�
 - 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する
   （`generate_background_image`）。失敗時は静止背景に縮退。サムネのベース生成とは独立に試みる。
   簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
-- cookie 源 = **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定 `imagegen`）の
+- cookie 源は **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定 `imagegen`）を
+  第一候補とし、利用可否を画像生成前に `account_status` で確認する。専用プロファイルが失効していれば、
+  直前の NotebookLM ジョブで認証済みの `default` プロファイルへ自動フォールバックする。通常プロファイル
+  への退避は NotebookLM chat とノートブック削除を全て終えた後に限り、Gemini の cookie ローテーション後に
+  NotebookLM RPC が残らない順序を守る。使用したプロファイル名と背景一覧は state の
+  `image_profile_used` / `background_paths` に記録する。
+- 各プロファイルの cookie は
   `~/.notebooklm/profiles/<profile>/storage_state.json` の `__Secure-1PSID` / `__Secure-1PSIDTS`
-  （`.google.com`）。値はログに出さない。本体（default）とセッションを分離する（同一セッション共有は
-  cookie チェーンを壊す）。初回: `uv run notebooklm -p imagegen login`（NotebookLM と同アカウント。
+  （`.google.com`）。値はログに出さない。通常時は本体（default）とセッションを分離する（同一セッション
+  共有は cookie チェーンを壊し得る）。初回: `uv run notebooklm -p imagegen login`（NotebookLM と同アカウント。
   `-p/--profile` はサブコマンドの前に置くグローバルオプション）。
 - **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間でローテーションする。init 後に
   `account_status` を確認し、認証済みなら 1PSIDTS を即時ローテートして永続キャッシュ
   （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存。以降 storage_state.json が
-  失効してもキャッシュ側で認証できる。長期未実行でキャッシュも失効した場合は `UNAUTHENTICATED` を検知して
-  WARN（`uv run notebooklm login` を案内）→静止背景に縮退。
+  失効してもキャッシュ側で認証できる。長期未実行で専用プロファイルもキャッシュも失効した場合は
+  `UNAUTHENTICATED` を検知し、`default` が利用可能なら継続する。全候補が利用不可のときだけ WARN
+  （`uv run notebooklm login` を案内）→静止背景に縮退。
 
 **フォールバック（`thumbnail.generate_thumbnail`, 方式B）:**
 - AI ベース画像もマスコット素材も無い場合のみ、ランダムなグラデーション背景＋日本語見出し
@@ -627,7 +634,8 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
 5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
 6. アップロード後、`UploadResult(youtube_url, thumbnail_set)` を返却（`thumbnail_set=false` は要再適用）
-7. NotebookLM のノートブックは collect フェーズの動画変換完了時点で削除済み（`run-single` のみアップロード完了後に削除）
+7. NotebookLM のノートブックは collect / `run-single` とも、全 chat と音声ダウンロードの完了後、
+   画像生成へ入る前に削除済み
 
 手順 2〜3（サムネイル設定・プレイリスト追加）の失敗は WARN ログに留め、ジョブは
 `uploaded` として扱う。動画本体は `videos.insert` で既にアップロード済みのため、
@@ -709,7 +717,9 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 3. `mode="notebooklm"` で `notebook_id` / `task_id` が無いジョブは明示的なエラーで `failed` に遷移
 4. NotebookLMジョブに対して並列で `check_audio_status()` を呼び出し
 5. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
-6. 完了したジョブ: 音声DL → サムネイル → 動画変換 → ノートブック削除 → `status="video_ready"`（`notebook_id` をクリア）
+6. 完了したジョブ: 音声DL → chat 後処理 → ノートブック削除 → 利用可能な画像プロファイルを選択
+   → AIサムネイル・複数背景 → 動画変換 → `status="video_ready"`（`notebook_id` をクリア）。
+   専用画像プロファイルが失効していれば `default` へ自動退避し、生成背景を動画変換へ渡す
 7. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
 8. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
@@ -763,6 +773,11 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
       },
       "audio_path": "./tmp/audio/a1b2c3d4e5f6.mp3",
       "thumbnail_path": "./tmp/thumbnails/a1b2c3d4e5f6_thumb.png",
+      "image_profile_used": "default",
+      "background_paths": [
+        "./tmp/thumbnails/a1b2c3d4e5f6_bg0.png",
+        "./tmp/thumbnails/a1b2c3d4e5f6_bg1.png"
+      ],
       "video_path": "./tmp/videos/a1b2c3d4e5f6.mp4",
       "youtube_url": "https://youtu.be/xyz789",
       "error": null,

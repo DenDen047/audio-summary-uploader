@@ -130,12 +130,15 @@ htmx で 5 秒ごとに更新。
   → submit_urls() ... mode に応じて生成ジョブを開始
   → collect_audio(poll=True)
       lecture: 台本 + 音声 + スライド + 動画 + サムネ + 投稿情報を生成
-      notebooklm: 完了待ち + DL + 動画変換
+      notebooklm: 完了待ち + DL + 画像認証選択 + AIサムネ/複数背景 + 動画変換
   → upload_videos() ... YouTube アップロード
 ```
 
 これは既存の `run_pipeline()` をそのまま呼ぶ。ユーザーから見ると、ジョブのステータスが
 「動画を生成中...」→「YouTube にアップロード中...」→ ✅ と遷移するだけ。
+NotebookLM の画像専用プロファイルが失効している場合は、全 NotebookLM 操作を終えた後に
+通常プロファイルへ自動退避する。使用プロファイルと動画へ渡した背景一覧は
+`image_profile_used` / `background_paths` として state に保存する。
 
 ### 並行実行の制御
 

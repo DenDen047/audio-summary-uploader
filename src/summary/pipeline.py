@@ -43,6 +43,7 @@ from summary.image_gen import (
     ThumbnailStyle,
     generate_background_image,
     generate_thumbnail_image,
+    resolve_google_storage_state,
     storage_state_for_profile,
 )
 from summary.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
@@ -458,6 +459,7 @@ async def _generate_thumb_base(
     settings: Settings,
     topic: str,
     style: ThumbnailStyle | None = None,
+    storage_state_path: Path | None = None,
 ) -> Path | None:
     """サムネ用の話題連動・文字なしベース画像を AI 生成する(best-effort).
 
@@ -481,9 +483,8 @@ async def _generate_thumb_base(
         # ポーズ・小物・配色を話題ごとに変える。素材が無ければ記述だけで生成する。
         reference_image=_MASCOT_BASE if _MASCOT_BASE.exists() else None,
         pose=_THUMB_POSE_VARIATIONS[pose_idx],
-        storage_state_path=storage_state_for_profile(
-            settings.notebooklm.image_profile
-        ),
+        storage_state_path=storage_state_path
+        or storage_state_for_profile(settings.notebooklm.image_profile),
     )
 
 
@@ -496,6 +497,8 @@ async def _compose_topic_thumbnail(
     thumb_copy: ThumbCopy,
     thumbnail_path: Path,
     site_name: str | None,
+    storage_state_path: Path | None = None,
+    ai_enabled: bool = True,
 ) -> Path:
     """話題連動ベース画像 → 固定マスコット → グラデーションの順に縮退しつつ、
     3層テキストを合成したサムネの Path を返す.
@@ -504,9 +507,14 @@ async def _compose_topic_thumbnail(
     (429/cookie 失効の影響を受けない)。
     """
     base_image: Path | None = None
-    if not settings.general.simple_video_mode:
+    if not settings.general.simple_video_mode and ai_enabled:
         base_image = await _generate_thumb_base(
-            slug, tmp_dir, settings, topic=headline, style=style
+            slug,
+            tmp_dir,
+            settings,
+            topic=headline,
+            style=style,
+            storage_state_path=storage_state_path,
         )
     if base_image is None and _MASCOT_BASE.exists():
         base_image = _MASCOT_BASE
@@ -532,6 +540,7 @@ async def _generate_backgrounds(
     audio_path: Path,
     topic: str | None,
     style: ThumbnailStyle | None = None,
+    storage_state_path: Path | None = None,
 ) -> list[Path]:
     """動画の背景ローテーション用のテキストなし・話題関連AI背景を生成する.
 
@@ -552,9 +561,8 @@ async def _generate_backgrounds(
             style=style or DEFAULT_STYLE,
             topic=topic,
             variation=_BG_VARIATIONS[i % len(_BG_VARIATIONS)],
-            storage_state_path=storage_state_for_profile(
-                settings.notebooklm.image_profile
-            ),
+            storage_state_path=storage_state_path
+            or storage_state_for_profile(settings.notebooklm.image_profile),
         )
         if bg is None:
             consecutive_failures += 1
@@ -568,6 +576,21 @@ async def _generate_backgrounds(
         consecutive_failures = 0
         paths.append(bg)
     return paths
+
+
+async def _resolve_image_storage_state(settings: Settings) -> Path | None:
+    """画像生成に使える専用 profile または NotebookLM profile を選ぶ."""
+    if settings.general.simple_video_mode:
+        return None
+    selected = await resolve_google_storage_state(
+        [
+            storage_state_for_profile(settings.notebooklm.image_profile),
+            storage_state_for_profile("default"),
+        ]
+    )
+    if selected is None:
+        logger.warning("利用可能なAI画像 profile が無いため静止画像へフォールバック")
+    return selected
 
 
 # --- 状態管理 ---
@@ -586,6 +609,8 @@ def _migrate_state(state: dict) -> dict:
             job.setdefault("script_path", None)
             job.setdefault("upload_metadata", None)
             job.setdefault("upload_metadata_path", None)
+            job.setdefault("image_profile_used", None)
+            job.setdefault("background_paths", [])
         return state
     old_processed = state.get("processed", [])
     jobs: list[dict[str, Any]] = []
@@ -611,6 +636,8 @@ def _migrate_state(state: dict) -> dict:
             "script_path": None,
             "upload_metadata": None,
             "upload_metadata_path": None,
+            "image_profile_used": None,
+            "background_paths": [],
             "youtube_url": entry.get("youtube_url"),
             "error": entry.get("error"),
             "submitted_at": entry.get("processed_at"),
@@ -729,6 +756,8 @@ def _find_or_create_job(
         "script_path": None,
         "upload_metadata": None,
         "upload_metadata_path": None,
+        "image_profile_used": None,
+        "background_paths": [],
         "youtube_url": None,
         "thumbnail_pending": False,
         "error": None,
@@ -1149,8 +1178,8 @@ async def _collect_single(
     paper_shortname: str | None = None
     if category == "paper" and not user_title:
         paper_shortname = await _extract_paper_shortname(backend, notebook_id)
-        # 既にタイトルに略称が含まれていれば二重に付けない（YouTube 検索は本文全体を
-        # 索引するので、含まれていれば発見性は満たされる。先頭【】は欠落時に付ける形式）。
+        # 既にタイトルに略称が含まれていれば二重に付けない
+        # （先頭【】は検索用の略称が欠落している場合だけ付ける形式）。
         if paper_shortname and paper_shortname.lower() not in metadata.title.lower():
             metadata.title = f"【{paper_shortname}】{metadata.title}"
             logger.info("論文略称を付与: {}", paper_shortname)
@@ -1167,18 +1196,33 @@ async def _collect_single(
     # 論文略称があれば主役ワード（top）を略称で固定し、縮小時も判別しやすくする。
     if paper_shortname and len(paper_shortname) <= _THUMB_TOP_MAX_LEN:
         thumb_copy = replace(thumb_copy, top=paper_shortname)
+
+    # 通常 profile への退避は、このジョブの NotebookLM 操作を全て終えた後だけ行う。
+    # Gemini 側の cookie ローテーションが NotebookLM の後続 RPC を壊す余地をなくすため、
+    # ノートブックも画像生成より先に削除する。
+    await backend.delete_notebook(notebook_id)
+    _update_job_state(
+        state_path,
+        url,
+        {"notebook_id": None, "audio_path": str(audio_path)},
+    )
+    image_storage_state_path = await _resolve_image_storage_state(settings)
+
     thumbnail_path = await _compose_topic_thumbnail(
         slug, tmp_dir, settings, headline, style, thumb_copy,
         thumbnail_path, metadata.site_name,
+        storage_state_path=image_storage_state_path,
+        ai_enabled=image_storage_state_path is not None,
     )
 
     # 動画背景も話題連動で AI 生成（best-effort、失敗時は静止背景に縮退）。
     # サムネのベース生成とは独立に試みる。
     background_paths: list[Path] = []
-    if not settings.general.simple_video_mode:
+    if image_storage_state_path is not None:
         background_paths = await _generate_backgrounds(
             slug, tmp_dir, settings, audio_path,
             topic=headline, style=style,
+            storage_state_path=image_storage_state_path,
         )
     video_path = await convert_to_video(
         audio_path=audio_path,
@@ -1186,9 +1230,6 @@ async def _collect_single(
         output_path=tmp_dir / "videos" / f"{slug}.mp4",
         background_paths=background_paths,
     )
-
-    # ノートブック削除
-    await backend.delete_notebook(notebook_id)
 
     # state 更新 (ディスクから再読込して競合を防ぐ)
     _update_job_state(state_path, url, {
@@ -1199,6 +1240,12 @@ async def _collect_single(
         "category": category,
         "audio_path": str(audio_path),
         "thumbnail_path": str(thumbnail_path),
+        "image_profile_used": (
+            image_storage_state_path.parent.name
+            if image_storage_state_path is not None
+            else None
+        ),
+        "background_paths": [str(path) for path in background_paths],
         "video_path": str(video_path),
         "collected_at": _now_iso(),
     })
@@ -1664,8 +1711,8 @@ async def process_single_url(
     paper_shortname: str | None = None
     if category == "paper":
         paper_shortname = await _extract_paper_shortname(backend, notebook_id)
-        # 既にタイトルに略称が含まれていれば二重に付けない（YouTube 検索は本文全体を
-        # 索引するので、含まれていれば発見性は満たされる。先頭【】は欠落時に付ける形式）。
+        # 既にタイトルに略称が含まれていれば二重に付けない
+        # （先頭【】は検索用の略称が欠落している場合だけ付ける形式）。
         if paper_shortname and paper_shortname.lower() not in metadata.title.lower():
             metadata.title = f"【{paper_shortname}】{metadata.title}"
             logger.info("論文略称を付与: {}", paper_shortname)
@@ -1676,18 +1723,26 @@ async def process_single_url(
     # 論文略称があれば主役ワード（top）を略称で固定し、縮小時も判別しやすくする。
     if paper_shortname and len(paper_shortname) <= _THUMB_TOP_MAX_LEN:
         thumb_copy = replace(thumb_copy, top=paper_shortname)
+
+    # 画像生成が通常 profile へ退避しても、以後 NotebookLM RPC は発生しない順序にする。
+    await backend.delete_notebook(notebook_id)
+    image_storage_state_path = await _resolve_image_storage_state(settings)
+
     thumbnail_path = await _compose_topic_thumbnail(
         slug, tmp_dir, settings, headline, style, thumb_copy,
         thumbnail_path, metadata.site_name,
+        storage_state_path=image_storage_state_path,
+        ai_enabled=image_storage_state_path is not None,
     )
 
     # 9. 動画変換（話題連動のAI背景があれば背景ローテーション、無ければ静止背景）。
     # サムネのベース生成とは独立に試みる。
     background_paths: list[Path] = []
-    if not settings.general.simple_video_mode:
+    if image_storage_state_path is not None:
         background_paths = await _generate_backgrounds(
             slug, tmp_dir, settings, audio_path,
             topic=headline, style=style,
+            storage_state_path=image_storage_state_path,
         )
     video_path = await convert_to_video(
         audio_path=audio_path,
@@ -1718,9 +1773,6 @@ async def process_single_url(
     )
 
     result = await upload_video(creds, params)
-
-    # 11. NotebookLM ノートブック削除
-    await backend.delete_notebook(notebook_id)
 
     return ProcessResult(
         url=entry.url,

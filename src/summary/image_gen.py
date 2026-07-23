@@ -139,6 +139,68 @@ async def _close_client(client: object) -> None:
         pass
 
 
+async def _storage_state_is_available(storage_state_path: Path) -> bool:
+    """storage_state の Google セッションで Gemini を利用できるか確認する."""
+    try:
+        psid, psidts = load_google_cookies(storage_state_path)
+    except Exception as exc:  # noqa: BLE001 - 壊れた profile は次候補へ進む
+        logger.warning(
+            "AI画像認証: profile={} の cookie 読み込みに失敗: {}",
+            storage_state_path.parent.name,
+            exc,
+        )
+        return False
+    if not psid:
+        return False
+
+    try:
+        from gemini_webapi import GeminiClient
+        from gemini_webapi.constants import AccountStatus
+    except ImportError:
+        logger.warning("AI画像: gemini-webapi 未インストール")
+        return False
+
+    os.environ.setdefault("GEMINI_COOKIE_PATH", str(_GEMINI_COOKIE_CACHE_DIR))
+    client = GeminiClient(psid, psidts)
+    try:
+        await client.init(timeout=60)
+        return client.account_status == AccountStatus.AVAILABLE
+    except Exception as exc:  # noqa: BLE001 - 非公式APIの失敗は次候補へ進む
+        logger.warning(
+            "AI画像認証: profile={} の確認に失敗: {}: {}",
+            storage_state_path.parent.name,
+            type(exc).__name__,
+            exc,
+        )
+        return False
+    finally:
+        await _close_client(client)
+
+
+async def resolve_google_storage_state(
+    candidate_paths: list[Path],
+) -> Path | None:
+    """候補順に Gemini で利用可能な Google profile を返す.
+
+    画像専用 profile は NotebookLM 本体との cookie 競合を避けられるため優先する。
+    ただし Web UI は通常 profile だけを継続的に更新するので、専用 profile が失効
+    した場合は直近の NotebookLM ジョブで認証済みの通常 profile へ退避する。
+    """
+    seen: set[Path] = set()
+    for path in candidate_paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        if await _storage_state_is_available(path):
+            logger.info("AI画像認証: profile={} を使用", path.parent.name)
+            return path
+        logger.warning(
+            "AI画像認証: profile={} は利用不可、次候補を確認",
+            path.parent.name,
+        )
+    return None
+
+
 def build_background_prompt(
     style: ThumbnailStyle = DEFAULT_STYLE,
     topic: str | None = None,
