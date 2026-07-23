@@ -133,6 +133,8 @@ def generate_script(
         timeout_seconds=generation_timeout_seconds,
     )
     _sanitize_generated_content(understanding, source.url)
+    if stage_outputs is not None:
+        stage_outputs["source-understanding.json"] = understanding
 
     outline_prompt = _render_stage_prompt(
         TEACHING_OUTLINE_PROMPT_PATH,
@@ -153,6 +155,8 @@ def generate_script(
         timeout_seconds=generation_timeout_seconds,
     )
     _sanitize_generated_content(outline, source.url)
+    if stage_outputs is not None:
+        stage_outputs["teaching-outline.json"] = outline
 
     prompt = _render_stage_prompt(
         PROMPT_PATH,
@@ -176,6 +180,8 @@ def generate_script(
     )
     _sanitize_generated_content(script, source.url)
     scene_draft = script
+    if stage_outputs is not None:
+        stage_outputs["scene-draft.json"] = scene_draft
     _normalize_generated_reveals(script, "Claude初稿")
     errors = _validate(script, available_figure_count=len(source.figures))
     if errors:
@@ -199,6 +205,8 @@ def generate_script(
         else:
             _sanitize_generated_content(script, source.url)
             scene_draft = script
+            if stage_outputs is not None:
+                stage_outputs["scene-draft.json"] = scene_draft
             _normalize_generated_reveals(script, "Claude再生成")
             errors = _validate(
                 script, available_figure_count=len(source.figures)
@@ -244,14 +252,6 @@ def generate_script(
         earlier_stages=(understanding_metadata, outline_metadata),
     )
     _finalize(script, source)
-    if stage_outputs is not None:
-        stage_outputs.update(
-            {
-                "source-understanding.json": understanding,
-                "teaching-outline.json": outline,
-                "scene-draft.json": scene_draft,
-            }
-        )
     return script
 
 
