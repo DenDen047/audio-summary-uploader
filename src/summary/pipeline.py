@@ -71,40 +71,22 @@ _AUTH_ERROR_KEYWORDS = ("authentication", "expired", "re-authenticate", "login")
 _SPARK_TITLE_PLACEHOLDER = "メール要約（タイトル取得中）"
 # 複数ソースを1音声にまとめる場合の仮タイトル（最終タイトルは ② chat で生成）
 _MULTI_TITLE_PLACEHOLDER = "複数ソースのまとめ"
+# NotebookLM chat に投げる定型プロンプト（本文は prompts/ 配下の md で管理）
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(name: str) -> str:
+    return (_PROMPTS_DIR / name).read_text(encoding="utf-8").strip()
+
+
 # メール系ソースの出典抽出に使う chat 質問（受信者情報は出させない）
-_EMAIL_META_QUESTION = (
-    "以下のソースはメール（ニュースレター）です。"
-    "メールの『件名・送信者の表示名・送信元ドメイン・送信日(YYYY-MM-DD)』だけを"
-    "JSONで返してください。キー: title, sender, domain, date。分からない項目はnull。"
-    "受信者(宛先)の名前やアドレスは絶対に含めないでください。JSONのみ出力。"
-)
+_EMAIL_META_QUESTION = _load_prompt("email_meta.md")
 # 日本語タイトル生成に使う chat 質問。
 # タイトルポリシーの根拠は specs/SPEC.md「YouTube タイトルの形式」を参照。
-_JP_TITLE_QUESTION = (
-    "このソースの内容にふさわしい日本語の YouTube 動画タイトルを"
-    "1つだけ提案してください。"
-    "条件:"
-    "(1) 全角35字以内。スマホではタイトルが先頭約20字で切り詰められるため、"
-    "最も引きのある情報（意外性・数字・視聴者の得）を先頭20字以内に入れる。"
-    "(2) 内容を何も知らない一般視聴者がタップしたくなる言葉を選ぶ。"
-    "学術用語・研究分野名は一般に通じる言葉に言い換える"
-    "（広く知られた製品名・サービス名はそのまま使ってよい）。"
-    "(3) 同じ意味の言葉を繰り返さない。同義語があれば1文字でも短い方を選ぶ。"
-    "(4) 「〜を解説」「〜について」のような弱い表現で締めず、"
-    "問いかけや言い切りで好奇心を引く。問いの形にする場合は、"
-    "より多くの人が反応する前提の問いを選ぶ。"
-    "(5) 内容には忠実にし、ソースに無いことで煽らない。"
-    "(6) 鉤括弧や引用符で全体を囲まない。絵文字や [1] のような注釈を付けない。"
-    "タイトル本文のみを1行で出力してください。"
-)
+_JP_TITLE_QUESTION = _load_prompt("jp_title.md")
 # 論文の通称・略称抽出に使う chat 質問（無ければ none）。有名論文の解説を探す
 # 学生・研究者向けに、SAM/YOLO 等の略称をタイトル・サムネに載せて検索性を上げる。
-_PAPER_SHORTNAME_QUESTION = (
-    "この論文（またはその提案手法・モデル）に、研究コミュニティで広く使われている"
-    "略称・通称はありますか？例: SAM, YOLO, BERT, NeRF, 3DGS。"
-    "あれば略称だけを英字1語で、無ければ none とだけ答えてください。"
-    "説明文・引用符・注釈は付けないでください。"
-)
+_PAPER_SHORTNAME_QUESTION = _load_prompt("paper_shortname.md")
 # 固定マスコット素材（毎回の生成で参照画像として渡すキャラの元。文字はこの上に合成）
 _MASCOT_BASE = (
     Path(__file__).resolve().parent.parent.parent
@@ -122,18 +104,7 @@ _THUMB_POSE_VARIATIONS = [
 ]
 # サムネ用3層テキスト（上=製品名/導入・中=説明・下=ベネフィット）生成に使う chat 質問。
 # 伸びているAI解説チャンネルの「型」に合わせ、1秒で伝わるよう短く・専門用語を避ける。
-_THUMB_COPY_QUESTION = (
-    "このソースの内容から、YouTube サムネイル用のテキストを JSON で返してください。"
-    "伸びているAI解説チャンネル風に、パッと見て1秒で伝わる短い言葉にしてください。"
-    "キー: "
-    "top（動画の主役ワード。製品名・技術名・トピックを全角7字以内。専門用語より一般に通じる語）、"
-    "mid（補足の一言。全角9字以内。短いほど大きく表示され読みやすい）、"
-    "bottom（思わずクリックしたくなるベネフィット/煽り。全角8字以内・体言止め。"
-    "可能なら数字を入れる。例:『神ツール10選』『衝撃の実力』）、"
-    "highlight（bottom の中で最も強調したい1語。bottom に含まれる文字列にする）。"
-    "タイトルの丸写しは避け、興味を引く言い換えにする。"
-    "引用符・絵文字・注釈は付けない。JSONのみ出力。"
-)
+_THUMB_COPY_QUESTION = _load_prompt("thumb_copy.md")
 # サムネテキストが生成できない時のバナー用フォールバックラベル
 _CATEGORY_BANNER: dict[str, str] = {
     "paper": "論文解説",
@@ -147,11 +118,7 @@ _THUMB_MID_MAX_LEN = 10
 _THUMB_BOTTOM_MAX_LEN = 11
 
 # カテゴリ内容判定に使う chat 質問（曖昧カテゴリのみ）
-_CATEGORY_QUESTION = (
-    "このソースの内容は次のどれに最も近いですか。英語のキーで1語だけ答えてください: "
-    "paper(研究・論文), news(ニュース・時事), engineering(技術・開発・実装), "
-    "business(ビジネス・お金・キャリア・副業), default(その他)。キーのみ出力。"
-)
+_CATEGORY_QUESTION = _load_prompt("category.md")
 # タイトル先頭から剥がす絵文字・記号と、全体を囲う引用符ペア
 _TITLE_LEADING_STRIP = "🎧🎙️📻🔊 　"
 _TITLE_QUOTE_PAIRS = (

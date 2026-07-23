@@ -17,6 +17,14 @@ from pathlib import Path
 from loguru import logger
 from PIL import Image
 
+# 画像生成プロンプトの本文は prompts/ 配下の md で管理
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(name: str) -> str:
+    return (_PROMPTS_DIR / name).read_text(encoding="utf-8").strip()
+
+
 # NotebookLM が保存している Google ログイン cookie の場所（同一アカウント）
 _DEFAULT_STORAGE_STATE = (
     Path.home() / ".notebooklm" / "profiles" / "default" / "storage_state.json"
@@ -94,28 +102,16 @@ def build_thumbnail_base_prompt(
     """
     pose_part = (
         f"Give the mascot this NEW dynamic pose (do NOT copy the reference pose): "
-        f"{pose}. "
+        f"{pose}."
         if pose
         else "Give the mascot a NEW dynamic pose reacting to the topic "
-        "(do NOT copy the reference pose). "
+        "(do NOT copy the reference pose)."
     )
     return (
-        "Use the attached cartoon robot mascot as the character reference. "
-        "Keep the SAME character identity: a glossy lavender-white robot with two "
-        "ball-tipped antennae, big glowing cyan circular eyes, an expressive "
-        "shocked face, bold comic art style. "
-        f"{pose_part}"
-        f"Scene topic: 「{topic}」. Include ONE big, bold, instantly-recognizable "
-        "object representing the topic in the FOREGROUND, large enough to read at "
-        "small thumbnail size. "
-        f"Use a vibrant, high-contrast color mood themed to the topic (you may use "
-        f"{style.palette} as an accent). "
-        "16:9 YouTube thumbnail: the mascot and its prop fill the RIGHT ~65% with "
-        "an exaggerated SURPRISED expression; keep the LEFT third darker and "
-        "simple for large text overlay — do NOT place the mascot's face in the "
-        "left third. Bold outlines, cartoon style. "
-        "Absolutely NO text, NO letters, NO numbers, NO logos anywhere. "
-        "No watermark, no UI elements."
+        _load_prompt("thumbnail_base.md")
+        .replace("{{POSE_PART}}", pose_part)
+        .replace("{{TOPIC}}", topic)
+        .replace("{{PALETTE}}", style.palette)
     )
 
 
@@ -161,16 +157,10 @@ def build_background_prompt(
     )
     variation_part = f"Composition: {variation}. " if variation else ""
     return (
-        "Create a professional, atmospheric 16:9 background image for a "
-        "tech podcast video segment. "
-        f"{topic_part}"
-        f"{variation_part}"
-        f"Color mood: {style.palette}. "
-        "Absolutely NO text, NO letters, NO numbers, NO logos anywhere — "
-        "do not write the topic words in the image. Avoid diagrams, charts and "
-        "labeled screens; if any screen or document appears, its contents must "
-        "be abstract blurred shapes with no readable characters. "
-        "High contrast, cinematic lighting. No watermark, no UI elements."
+        _load_prompt("background.md")
+        .replace("{{TOPIC_PART}}", topic_part)
+        .replace("{{VARIATION_PART}}", variation_part)
+        .replace("{{PALETTE}}", style.palette)
     )
 
 
