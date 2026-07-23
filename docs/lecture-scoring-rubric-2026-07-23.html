@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>講義動画の採点基準 設計案 — 4層スコアカード v1.0</title>
+<style>
+  :root {
+    --ink: #2b2735;
+    --sub: #6b6478;
+    --bg: #faf8f5;
+    --card: #ffffff;
+    --line: #e5e0d8;
+    --mio: #b43a73;
+    --toru: #8a641e;
+    --accent: #4a5fb5;
+    --ok: #2e7d4f;
+    --ng: #c0392b;
+    --warn: #b07d10;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
+    background: var(--bg); color: var(--ink);
+    line-height: 1.85; font-size: 15px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px 80px; }
+  header {
+    background: linear-gradient(135deg, #3a3350 0%, #6d3a5c 100%);
+    color: #fff; padding: 48px 24px 40px; margin-bottom: 40px;
+  }
+  header .inner { max-width: 980px; margin: 0 auto; }
+  header .kicker { font-size: 12px; letter-spacing: 2px; opacity: .75; margin-bottom: 10px; }
+  header h1 { font-size: 28px; line-height: 1.5; font-weight: 700; }
+  header .meta { margin-top: 14px; font-size: 13px; opacity: .85; }
+  h2 {
+    font-size: 21px; margin: 56px 0 18px; padding-left: 14px;
+    border-left: 5px solid var(--accent); line-height: 1.5;
+  }
+  h3 { font-size: 16.5px; margin: 30px 0 10px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0 10px 1.6em; }
+  li { margin: 4px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  sup a { font-size: 11px; padding: 0 1px; }
+  .tldr {
+    background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--mio);
+    border-radius: 10px; padding: 22px 26px; margin: 24px 0;
+  }
+  .tldr strong { color: var(--mio); }
+  .tablebox { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin: 16px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { background: #f2eee8; font-size: 12.5px; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num { white-space: nowrap; }
+  table.metrics { table-layout: fixed; }
+  table.metrics th:nth-child(1) { width: 5%; }
+  table.metrics th:nth-child(2) { width: 16%; }
+  table.metrics th:nth-child(3) { width: 24%; }
+  table.metrics th:nth-child(4) { width: 15%; }
+  table.metrics th:nth-child(5) { width: 18%; }
+  table.metrics th:nth-child(6) { width: 22%; }
+  table.metrics td:nth-child(2) { font-weight: 600; }
+  table.metrics td.num { white-space: normal; }
+  table.kv td:first-child { white-space: nowrap; font-weight: 600; }
+  table.kv td:nth-child(3) { white-space: nowrap; }
+  table.score td:nth-child(2) { white-space: nowrap; }
+  .ok { color: var(--ok); font-weight: 700; }
+  .ng { color: var(--ng); font-weight: 700; }
+  .warn { color: var(--warn); font-weight: 700; }
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 20px 0; }
+  .layer {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; border-top: 5px solid var(--accent);
+  }
+  .layer.l1 { border-top-color: #5a8f5a; }
+  .layer.l2 { border-top-color: var(--accent); }
+  .layer.l3 { border-top-color: var(--mio); }
+  .layer.l4 { border-top-color: var(--toru); }
+  .layer .tag { font-size: 11px; letter-spacing: 1px; color: var(--sub); }
+  .layer h4 { font-size: 15px; margin: 4px 0 8px; }
+  .layer p { font-size: 13px; color: var(--sub); margin: 0; line-height: 1.7; }
+  .axis {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px 24px; margin: 16px 0;
+  }
+  .axis .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .axis h3 { margin: 0; }
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 700; border-radius: 999px;
+    padding: 2px 12px; background: #eef1fa; color: var(--accent);
+  }
+  .pill.gate { background: #fdeceb; color: var(--ng); }
+  .pill.user { background: #fbeef4; color: var(--mio); }
+  .anchors { margin-top: 10px; }
+  .anchors td:first-child { white-space: nowrap; font-weight: 700; width: 44px; }
+  .note {
+    background: #f6f3ec; border-radius: 8px; padding: 12px 16px; font-size: 13px;
+    color: #5a5245; margin: 12px 0;
+  }
+  .refs { font-size: 13px; }
+  .refs li { margin: 6px 0; word-break: break-all; }
+  .mio { color: var(--mio); font-weight: 700; }
+  .toru { color: var(--toru); font-weight: 700; }
+  code {
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px;
+    background: #f0ede6; border-radius: 4px; padding: 1px 6px;
+  }
+  .score-big {
+    font-size: 34px; font-weight: 800; color: var(--mio);
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="inner">
+    <div class="kicker">LECTURE MODE · SCORING RUBRIC PROPOSAL</div>
+    <h1>澪・透 講義動画の採点基準 設計案<br>— 機械指標＋LLM審査7軸の4層スコアカード —</h1>
+    <div class="meta">2026-07-23 · v1.1（採点ツール実装を反映） · 根拠: OSS調査レポート<sup><a href="#ref1">[1]</a></sup>の全事例深掘り（PodEval / PodAgent / OSS 5実装の一次資料）＋現行台本の実測</div>
+  </div>
+</header>
+<div class="wrap">
+
+<div class="tldr">
+  <p><strong>提案の骨子:</strong> 採点を「<strong>Layer 1 機械指標</strong>（コードで毎回自動計測）」「<strong>Layer 2 LLM審査 7軸100点</strong>（アンカー付き絶対採点）」「<strong>Layer 3 視聴審査</strong>（音声・映像）」「<strong>Layer 4 視聴者実測</strong>（理解テスト・A/B）」の4層に分ける。指摘の3点（用語が難しい・世界観の掛け合いが少ない・感情が乏しい）は、<strong>現行の検証コードとCodex審査のどちらにも対応する軸が存在しない</strong>ことを確認した。調査した評価研究（PodEval・PodAgent）にも感情・掛け合いの専用軸はなく<sup><a href="#ref2">[2]</a><a href="#ref3">[3]</a></sup>、ここは自作になる。</p>
+  <p style="margin-top:10px;"><strong>ベースライン実測:</strong> 保存済み台本「AIは1939年の数学難問を解いた？」を本基準で採点すると <span class="score-big">52<span style="font-size:16px;">/100</span></span>（詳細は§6）。機械指標も8項目中6項目が目標未達で、指摘された弱点が数値でそのまま現れる。</p>
+</div>
+
+<h2 id="s1">1. 事例調査から何を採り、何を自作するか</h2>
+<p>レポート<sup><a href="#ref1">[1]</a></sup>で参照されている評価研究2本とOSS 5実装について、一次資料（論文本文・リポジトリの実プロンプト）を読み直した。採点基準に取り込める要素は次の通り。</p>
+
+<div class="tablebox"><table>
+<tr><th>出どころ</th><th>採用する設計</th><th>出典</th></tr>
+<tr>
+  <td><strong>PodEval</strong>（評価フレームワーク研究）</td>
+  <td>①台本(text)・音声(speech)・番組全体(audio)を<strong>別々に採点する3層分離</strong>。②各層で客観指標（自動計算）と主観評価（人手）を併走させる分担。③対話自然さのMUSHRA 5段階の<strong>言語アンカー</strong>（「完全に機械的」〜「実際の自然な会話に聞こえる」）。④質問紙の「表現の好み」「引き込み」「続きを聞きたいか」「人間らしさ」。⑤重要知見: <strong>1文ずつのTTS合成は対話自然さを大きく損なう</strong>（1文合成のPodAgentが最下位、対話まるごと合成のMoonCast等が上位、NotebookLMは実在ポッドキャストに次ぐ2位）。</td>
+  <td><a href="https://arxiv.org/abs/2510.00485">[2]</a></td>
+</tr>
+<tr>
+  <td><strong>PodAgent</strong>（ACL Findings 2025）</td>
+  <td>①LLM審査の6軸: 一貫性・引き込み・多様性・情報性・<strong>話者ごとの視点の差別化</strong>・総合。②審査手順の原則: <strong>先に分析を書かせてから採点</strong>させる、比較時はA/Bを入れ替えて2回評価し平均（位置バイアス対策）。③役割分担生成が一括生成に勝る定量根拠（単一エージェント化で情報密度が約17%低下、意味的多様性がほぼ半減）。ただし採点は2本比較の相対方式（−3〜+3）なので、単発動画には軸だけ借りて絶対尺度へ読み替える。</td>
+  <td><a href="https://aclanthology.org/2025.findings-acl.1226/">[3]</a></td>
+</tr>
+<tr>
+  <td><strong>OSS 5実装の生成プロンプト</strong></td>
+  <td>プロンプトが「良い台本の条件」として明文化している基準を採点側へ移す。①<strong>強いhookで開始→徐々に複雑化→息継ぎ→締めで自然に要点回収</strong>（open-notebooklm）。②<strong>モノローグ禁止・話者は互いに反応する</strong>（SurfSense・podcast-creator）。③言い淀み・割り込み・相槌を入れるが<strong>乱用に上限</strong>（podcast-llm「sparingly」、NotebookLlamaは話者別に許可表現を限定）。④<strong>初学者役＋比喩・逸話・実例</strong>で平易化（NotebookLlama「anecdotes and analogies sprinkled throughout」）。⑤根拠のない主張の禁止、語数の目標配分。</td>
+  <td><a href="https://github.com/gabrielchua/open-notebooklm">[4]</a> <a href="https://github.com/MODSetter/SurfSense/tree/main/surfsense_backend/app/podcasts">[5]</a> <a href="https://github.com/evandempsey/podcast-llm">[6]</a> <a href="https://github.com/meta-llama/llama-cookbook/tree/main/end-to-end-use-cases/NotebookLlama">[7]</a> <a href="https://github.com/lfnovo/podcast-creator">[8]</a></td>
+</tr>
+<tr>
+  <td><strong>自作が必要な空白</strong></td>
+  <td>感情表現の質、キャラクター同士の関係性（いちゃつき）、掛け合いの深さを<strong>直接測る軸はどの事例にも存在しない</strong>（PodEvalは「表現の好み」という選好質問のみ、PodAgentは視点差別化のみで、両論文とも掛け合い専用指標が無いことを確認）。レポートの「審査は模倣でなく新規設計が必要」という結論<sup><a href="#ref1">[1]</a></sup>と一致。§4のR5・R6が自作部分。</td>
+  <td><a href="https://arxiv.org/abs/2510.00485">[2]</a> <a href="https://aclanthology.org/2025.findings-acl.1226/">[3]</a></td>
+</tr>
+</table></div>
+
+<h2 id="s2">2. 採点システム全体像 — 4層</h2>
+<p>PodEvalの3層分離に、レポートの検証指標<sup><a href="#ref1">[1]</a></sup>（理解テスト・視聴意向）を4層目として足した構成。<strong>安い層から順に毎回回し、高い層は節目だけ</strong>回す。</p>
+<div class="layers">
+  <div class="layer l1"><div class="tag">LAYER 1 · 毎生成</div><h4>機械指標（8項目）</h4><p>コードで決定論的に計測。総文字数・発話バランス・世界観イベント数・感情マーカーなど。<code>script_gen._validate</code>の拡張として実装可能。</p></div>
+  <div class="layer l2"><div class="tag">LAYER 2 · 毎生成</div><h4>LLM審査 7軸 100点</h4><p>アンカー付き絶対採点。根拠ゲート＋平易さ25・世界観20・感情15・掛け合い15・順番15・引き込み10。既存Codex審査の後段に追加。</p></div>
+  <div class="layer l3"><div class="tag">LAYER 3 · 完成動画</div><h4>視聴審査（音声・映像）</h4><p>人が動画を見て採点。対話自然さ（MUSHRA式5段階）、声と感情の一致、図解の適切さ、字幕・同期。</p></div>
+  <div class="layer l4"><div class="tag">LAYER 4 · 節目のみ</div><h4>視聴者実測</h4><p>理解テスト5問（新旧+10pt目標）、話者名を隠したA/B視聴意向70%。方式変更の採否判定に使う。</p></div>
+</div>
+<div class="note">運用原則（PodAgentの審査原則を移植<sup><a href="#ref3">[3]</a></sup>）: LLM審査は軸ごとに「まず根拠となる分析を書く→その後に採点する」形式にする。新旧方式の比較をするときだけ、PodAgent/PodEvalと同じ2本比較（A/B入れ替え2回の平均）を使う。単発動画の合否は絶対アンカー方式で判定する。</div>
+
+<h2 id="s3">3. Layer 1 — 機械指標（コードで自動計測）</h2>
+<p>既存の機械検証（敬語・tease整合、構造、80字制限、show_items等<sup><a href="#ref11">[11]</a></sup>）はそのまま維持し、以下を追加する。目標値は<strong>暫定の丸め値</strong>で、3〜5本の実測後に調整する。「現状」列は保存済み台本<sup><a href="#ref12">[12]</a></sup>の実測。</p>
+
+<div class="tablebox"><table class="metrics">
+<tr><th>#</th><th>指標</th><th>定義</th><th>暫定目標</th><th>現状実測</th><th>根拠</th></tr>
+<tr><td>M1</td><td>セリフ総文字数</td><td>全<code>text</code>の合計文字数</td><td class="num">3,000〜4,500</td><td class="num"><span class="ng">1,522 ✗</span></td><td>仕様<sup><a href="#ref9">[9]</a></sup>に明記済みだが検証コードに判定が無い（レポート指摘<sup><a href="#ref1">[1]</a></sup>のとおり）。最優先で追加。</td></tr>
+<tr><td>M2</td><td>透のセリフ比率</td><td>透のセリフ数 ÷ 全セリフ数</td><td class="num">35〜50%</td><td class="num"><span class="ng">32% ✗</span>（15/47）</td><td>モノローグ回避・往復の均衡（SurfSense・podcast-creator<sup><a href="#ref5">[5]</a><a href="#ref8">[8]</a></sup>）</td></tr>
+<tr><td>M3</td><td>透の言い換え確認率</td><td>澪の直前の説明を言い換えるだけの返答 ÷ 透の全セリフ（「〜のですね」型が代理指標）</td><td class="num">25%以下</td><td class="num"><span class="ng">約47% ✗</span>（7/15）</td><td>レポートの検証指標<sup><a href="#ref1">[1]</a></sup>。「のですね」型の代理指標で自動計測し、境界例はLayer 2（R4）の分析で上書きする</td></tr>
+<tr><td>M4</td><td>世界観イベント数</td><td>からかい（tease）と褒め→照れ（praise→shy/praised隣接ペア）の合計。別条件として名前呼びが双方向にあること</td><td class="num">シーン数÷3 以上<br>かつ tease 1〜3回</td><td class="num"><span class="ok">4/10シーン ○</span><br>（tease 1・褒め照れ 3）</td><td>現行プロンプト「2〜3シーンに一度」<sup><a href="#ref10">[10]</a></sup>の計測化。<strong>数は足りても質が定型化しうる</strong>ため、質はR5で採点</td></tr>
+<tr><td>M5</td><td>感情マーカー数</td><td>感嘆符・間投詞（えっ、うわ、あっ…）・言い淀み・笑いの出現数と分布</td><td class="num">8回以上、<br>半数以上のシーンに分布</td><td class="num"><span class="ng">感嘆符0・間投詞3 ✗</span></td><td>podcast-llm rewriter・NotebookLlamaの非流暢性導入<sup><a href="#ref6">[6]</a><a href="#ref7">[7]</a></sup>。上限も置く（乱用禁止「sparingly」）</td></tr>
+<tr><td>M6</td><td>ポーズ多様性</td><td>透の<code>understand</code>比率、各話者の使用ポーズ種類数</td><td class="num">understand 50%以下、<br>各4種類以上</td><td class="num"><span class="ng">53% ✗</span>（8/15）・透4種 澪7種</td><td>表情が感情表現の主経路（感情TTS調査<sup><a href="#ref13">[13]</a></sup>: 声の演出導入前は特に）</td></tr>
+<tr><td>M7</td><td>未定義語数</td><td>前提用語リストにあるのに、初出以前のセリフ・スライドで平易な説明が無い語</td><td class="num">0件</td><td class="num"><span class="ng">1件以上 ✗</span>（Jacobian予想が全編未説明）</td><td>レポートの定義と検証指標<sup><a href="#ref1">[1]</a></sup>。用語リスト抽出はLLM、照合はコード</td></tr>
+<tr><td>M8</td><td>定型フレーズ反復</td><td>同一話者内の口癖的な反復フレーズ数（ひらがな主体・7字以上。決まり文句と通常の丁寧語尾は除外）</td><td class="num">1件以下</td><td class="num"><span class="ok">1件 ○</span>（「少し照れますが」×2）</td><td>PodEval/PodAgentのDistinct-N（反復で低下する語彙多様性）<sup><a href="#ref2">[2]</a><a href="#ref3">[3]</a></sup>の簡易版。生成メディアの反復NG方針とも一致</td></tr>
+</table></div>
+
+<h2 id="s4">4. Layer 2 — LLM審査 7軸（アンカー付き絶対採点・100点）</h2>
+<p>各軸1〜5点で採点し、重み付けして100点に換算する。配点は指摘の3点（平易さ・世界観・感情）を厚くした: <strong>平易さ25・世界観20・感情15・掛け合い15・教える順番15・引き込み10</strong>。R1根拠は点数化せず<strong>ゲート</strong>（不合格なら公開不可）。</p>
+
+<div class="axis">
+  <div class="head"><h3>R1 根拠・正確性</h3><span class="pill gate">ゲート（配点なし）</span></div>
+  <p><strong>定義:</strong> すべての技術的断定が元資料に遡れる。推測はセリフ内で推測と分かる。危険なコマンド・数値の捏造なし。現行Codex審査<sup><a href="#ref9">[9]</a></sup>の役割をゲートとして明文化するもの。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>合格</td><td>元資料にない断定が0件。OSS共通の「根拠なき主張の禁止」<sup><a href="#ref4">[4]</a><a href="#ref5">[5]</a></sup>と同じ基準。</td></tr>
+  <tr><td>不合格</td><td>事実誤り・元資料にない断定が1件でもあれば、他の点数に関わらず公開不可。該当シーンのみ再生成。</td></tr>
+  </table></div>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R2 平易さ（高校生基準）</h3><span class="pill">25点</span><span class="pill user">指摘①対応</span></div>
+  <p><strong>定義:</strong> 高校生レベルの前提知識で全シーンを追えるか。専門用語は初出時に日常語の言い換え・比喩・実例のいずれかで導入する。想定視聴者（エンジニア）は変えず、<strong>要求する前提知識の水準を高校生レベルまで下げる</strong>という方針。中心概念には比喩か実例を最低1つ付ける（NotebookLlamaの「逸話と比喩を全体に散りばめる」<sup><a href="#ref7">[7]</a></sup>、open-notebooklmの「複雑な話題を一般聴衆に届く形に」<sup><a href="#ref4">[4]</a></sup>）。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>全用語が初出時に平易に導入され、中心概念に比喩・実例がある。専門用語を知らなくても各シーンの結論が理解できる。</td></tr>
+  <tr><td>3</td><td>大半は平易だが、未説明の専門用語が1〜2語残る。または説明はあるが抽象的で、比喩・実例が無い。</td></tr>
+  <tr><td>1</td><td>未説明の専門用語が連発され、それを前提に話が進む。（例: 現行台本の「Jacobian予想」——何の分野の何についての予想か一度も説明されない<sup><a href="#ref12">[12]</a></sup>）</td></tr>
+  </table></div>
+  <p class="note">連動する機械指標: M7未定義語。審査時にLLMへ「この台本を高校1年生が読んで、各シーンの結論を自分の言葉で説明できるか」を分析させてから採点する。</p>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R3 教える順番・理解の前進</h3><span class="pill">15点</span></div>
+  <p><strong>定義:</strong> 各シーンが固有の問いを持ち、前のシーンまでの理解を前提に一歩ずつ進む。仕様の説明順（困りごと→問い→一文の答え→全体図→…→回収<sup><a href="#ref10">[10]</a></sup>）に沿い、重複と飛躍が無い。PodEvalのcoherence軸<sup><a href="#ref2">[2]</a></sup>とレポートの「学習状態」設計<sup><a href="#ref1">[1]</a></sup>に対応。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>全シーンで「このシーンで新たに分かること」が特定でき、前提が未説明のまま使われる箇所が無い。</td></tr>
+  <tr><td>3</td><td>骨格は守られているが、同じ理解目標の重複、または一段飛ばしが1〜2箇所ある。</td></tr>
+  <tr><td>1</td><td>資料の順番をなぞるだけで、視聴者の理解が積み上がる設計になっていない。</td></tr>
+  </table></div>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R4 掛け合いの質</h3><span class="pill">15点</span></div>
+  <p><strong>定義:</strong> <span class="toru">透</span>が理解を前進させる仕事（質問する・予想する・誤解する・反例を出す・別の例に当てはめる）をし、<span class="mio">澪</span>がその反応を受けて説明を一段戻す・例を変える。説明文の交互読み上げやモノローグにならない（SurfSense「互いに反応させる」<sup><a href="#ref5">[5]</a></sup>）。PodAgentの「話者ごとの視点の差別化」軸<sup><a href="#ref3">[3]</a></sup>を2人用に読み替えたもの。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>シーンの過半で透の認知イベントが会話を動かし、少なくとも1回は透の疑問で澪が説明を組み直す。</td></tr>
+  <tr><td>3</td><td>質問はあるが、透の返答の多くが澪の説明の言い換え確認。会話が無くても説明が成立してしまう。</td></tr>
+  <tr><td>1</td><td>透は相槌と復唱のみ。掛け合いを外しても情報が変わらない。</td></tr>
+  </table></div>
+  <p class="note">連動する機械指標: M2発話バランス・M3言い換え確認率。</p>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R5 キャラクター・世界観</h3><span class="pill">20点</span><span class="pill user">指摘②対応</span></div>
+  <p><strong>定義:</strong> <span class="toru">透</span>の無邪気な憧れと<span class="mio">澪</span>の大人の余裕が、<strong>技術の話の流れの中で</strong>自然に現れるか。いちゃつき（からかい→動揺、褒め→照れ、名前呼び、距離感の演出）が2〜3シーンに1回あり、<strong>毎回ちがう形</strong>で起きる。既存事例に対応軸が無い自作軸（§1）。禁止側は現行プロンプト<sup><a href="#ref10">[10]</a></sup>のまま: 説明と無関係な恋愛会話・毎回同じ口癖・過剰な色気は減点。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>甘酸っぱいやり取りが2〜3シーンに1回、説明内容と絡んで起きる（例: 透の的確な指摘を澪が褒めて透が照れる、澪のからかいが透の誤解の指摘を兼ねる）。表現が毎回異なり、視聴者が2人の関係の進展を感じられる。</td></tr>
+  <tr><td>3</td><td>イベント数は足りるが定型の繰り返し（毎回同じ照れ方・同じ台詞回し）、または説明の流れから浮いている。</td></tr>
+  <tr><td>1</td><td>役割どおりの業務的な会話のみで、2人の関係性が台本から消えている。</td></tr>
+  </table></div>
+  <p class="note">連動する機械指標: M4世界観イベント数（下限チェック）・M8定型反復。<strong>数はM4で保証し、質はこの軸で採点する</strong>——現行台本はM4合格でも、照れ3回がすべて「そ、…」＋「少し照れますが」の同型で、ここが3点止まりになる。</p>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R6 感情表現</h3><span class="pill">15点</span><span class="pill user">指摘③対応</span></div>
+  <p><strong>定義:</strong> 驚き・喜び・困惑・安心が<strong>言葉そのものに</strong>出ているか（感嘆・間投詞・言い淀み・声に出る笑い）。感情の山が各章に1つ以上あり、立ち上がりと戻りがあって、ポーズ（表情）と語調が一致する。話者別の使い分けを守る: <span class="toru">透</span>は言い淀み・感嘆を厚く、<span class="mio">澪</span>は落ち着きを基調にpraise/teaseで感情の山を作る（NotebookLlamaの話者別許可表現<sup><a href="#ref7">[7]</a></sup>と感情TTS調査のdelivery設計<sup><a href="#ref13">[13]</a></sup>に整合）。乱用は禁止（podcast-llm「sparingly」<sup><a href="#ref6">[6]</a></sup>）。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>各章に感情の山があり、ポーズと言葉が一致（flusteredのセリフは実際に慌てた言葉遣い）。感嘆・言い淀みは要所のみで、説明部は落ち着いている。</td></tr>
+  <tr><td>3</td><td>感情語はあるが平板・定型（照れの表現が毎回同じ等）、またはポーズだけ変わって言葉が説明調のまま。</td></tr>
+  <tr><td>1</td><td>全編が説明調で感情の起伏が無い。（現行台本: 全47セリフに感嘆符0<sup><a href="#ref12">[12]</a></sup>）</td></tr>
+  </table></div>
+  <p class="note">連動する機械指標: M5感情マーカー・M6ポーズ多様性。音声側の演技（VOICEVOXスタイル切替）はLayer 3で別途採点し、ここでは台本の言葉だけを見る。</p>
+</div>
+
+<div class="axis">
+  <div class="head"><h3>R7 引き込み</h3><span class="pill">10点</span></div>
+  <p><strong>定義:</strong> 冒頭のhook（透の困りごとが具体的で他人事でない）、緩急と息継ぎ、締めでの自然な要点回収と前向きな終わり方。open-notebooklmのペーシング基準<sup><a href="#ref4">[4]</a></sup>（強いhook→徐々に複雑化→息継ぎ→高揚した締め）と、PodEvalの引き込み・聴取継続意向<sup><a href="#ref2">[2]</a></sup>に対応。</p>
+  <div class="tablebox"><table class="anchors">
+  <tr><td>5</td><td>冒頭30秒で「自分も引っかかりそうだ」と思わせ、難所の後に息継ぎがあり、締めが冒頭を回収して次も見たくなる。</td></tr>
+  <tr><td>3</td><td>hookはあるが、中盤が単調、または締めが要点の列挙で終わる。</td></tr>
+  <tr><td>1</td><td>定義や資料紹介の読み上げから始まり、平坦なまま唐突に終わる。</td></tr>
+  </table></div>
+</div>
+
+<h2 id="s5">5. Layer 3・Layer 4 — 完成動画の審査と視聴者実測</h2>
+<h3>Layer 3: 視聴審査（完成動画を人が見る）</h3>
+<div class="tablebox"><table class="kv">
+<tr><th>項目</th><th>方法</th><th>根拠</th></tr>
+<tr><td>対話の自然さ</td><td>PodEvalのMUSHRA言語アンカーを5段階に翻訳して使う: 1=完全に機械的で会話に聞こえない / 2=不自然さが目立ち機械的な調子が多い / 3=ある程度自然だがリハーサル的で繋ぎがぎこちない / 4=概ね自然で実際の会話に近い / 5=人同士の自然な会話に聞こえる</td><td><a href="https://arxiv.org/abs/2510.00485">[2]</a></td></tr>
+<tr><td>声と感情の一致</td><td>感情の山のセリフを抜き出し、声の演技がポーズ・内容と合っているかをセリフ単位でpass/fail判定（PodAgentの音声-役割マッチングの合格率方式<sup><a href="#ref3">[3]</a></sup>を流用）。VOICEVOXスタイル演出<sup><a href="#ref13">[13]</a></sup>導入後の効果測定を兼ねる</td><td><a href="https://aclanthology.org/2025.findings-acl.1226/">[3]</a> <a href="#ref13">[13]</a></td></tr>
+<tr><td>図解の適切さ</td><td>図型と意味の一致（対立=matrix、因果=flow…）、一次資料図の優先、図とセリフの同期。既存の図解優先ポリシーのチェックリスト化</td><td><a href="#ref9">[9]</a></td></tr>
+<tr><td>字幕・読み・同期</td><td>読み間違い、字幕の改行・見切れ、口パクのずれの有無</td><td><a href="#ref9">[9]</a></td></tr>
+</table></div>
+<div class="note"><strong>既知の天井:</strong> 現行は1セリフずつVOICEVOX合成しており、PodEvalはまさにこの1文単位合成が対話自然さを損なうことを示した<sup><a href="#ref2">[2]</a></sup>。台本採点が満点でも対話自然さには構造的な上限がある。まず台本層を改善し、音声はVOICEVOXスタイル演出（Phase 1）→AivisSpeech（Phase 2）<sup><a href="#ref13">[13]</a></sup>の順で別実験として測る。</div>
+
+<h3>Layer 4: 視聴者実測（方式変更の採否判定・節目のみ)</h3>
+<ul>
+  <li><strong>理解テスト:</strong> 動画内容の確認5問。新方式が旧方式より正答率+10pt以上（レポートの検証指標<sup><a href="#ref1">[1]</a></sup>）。</li>
+  <li><strong>視聴意向A/B:</strong> 話者名を隠した2本比較で、70%以上が新方式を「続きを見たい」と選ぶ<sup><a href="#ref1">[1]</a></sup>。比較時はPodAgentの手順どおりA/Bを入れ替えて2回聞かせる<sup><a href="#ref3">[3]</a></sup>。</li>
+</ul>
+
+<h2 id="s6">6. ワーク例 — 現行台本のベースライン採点</h2>
+<p>保存済み台本「AIは1939年の数学難問を解いた？見出しを検証する」<sup><a href="#ref12">[12]</a></sup>（10シーン47セリフ）を本基準で採点した。Layer 1は実測値、Layer 2は提案者（Claude）による手動採点例で、LLM審査を組んだら置き換える。</p>
+<div class="tablebox"><table class="kv score">
+<tr><th>軸</th><th>配点</th><th>採点</th><th>得点</th><th>根拠（実測）</th></tr>
+<tr><td>R1 根拠・正確性</td><td>ゲート</td><td class="ok">合格（参考）</td><td>—</td><td>記事の主張と数学的事実を区別する慎重な内容。ただし元資料との突合は未実施のため参考判定</td></tr>
+<tr><td>R2 平易さ</td><td>25</td><td class="ng">2/5</td><td class="num">10</td><td>主題の「Jacobian予想」が何の予想か全編で一度も説明されない。「証拠の層」「断定の強さ」も抽象的。比喩・実例0件</td></tr>
+<tr><td>R5 世界観</td><td>20</td><td class="warn">3/5</td><td class="num">12</td><td>イベント数は4回で下限クリア。しかし照れ3回がすべて同型（「そ、…」×2、「少し照れますが」×2）で、tease 1回のみ。関係の進展が見えない</td></tr>
+<tr><td>R6 感情表現</td><td>15</td><td class="ng">2/5</td><td class="num">6</td><td>感嘆符0、間投詞を含むセリフ3つのみ。透が「驚く・喜ぶ」場面でも言葉は説明調のまま</td></tr>
+<tr><td>R4 掛け合い</td><td>15</td><td class="ng">2/5</td><td class="num">6</td><td>透の実質的な質問は3/15。言い換え確認が約半分（7/15）。透26発話中質問3という前回台本<sup><a href="#ref1">[1]</a></sup>と同じ構図</td></tr>
+<tr><td>R3 教える順番</td><td>15</td><td class="ok">4/5</td><td class="num">12</td><td>困りごと→問い→一文の答え→全体図→原理→限界→回収の骨格は良好。シーン6と2に部分的な重複</td></tr>
+<tr><td>R7 引き込み</td><td>10</td><td class="warn">3/5</td><td class="num">6</td><td>冒頭の戸惑いは具体的で良い。中盤に息継ぎと山場が無く、締めは静かな確認で終わる</td></tr>
+<tr><td colspan="3"><strong>合計</strong></td><td class="num"><span class="score-big">52</span>/100</td><td>機械指標はM1・M2・M3・M5・M6が未達、M7は要LLM審査（Jacobian予想未説明で実質未達）、M8は1件で上限内（§3）</td></tr>
+</table></div>
+<p>指摘の3点がそのまま最低スコア群（R2平易さ・R6感情・R4掛け合い）に現れており、採点基準として妥当に機能する見込み。逆に、現行パイプラインが手厚い構造・口調・説明順（R3）は既に高い。</p>
+
+<h2 id="s7">7. 運用への組み込み</h2>
+<ol>
+  <li><strong>今すぐ（実装済み）:</strong> Layer 1は<code>uv run python scripts/score_lecture.py &lt;job_dir&gt;</code>で計測し、<code>--emit-judge-prompt</code>でLayer 2審査プロンプト（<code>scripts/prompts/lecture_score_judge.md</code>）を生成できる。Claude Codeでは<code>.claude/skills/lecture-scoring</code>スキルが両層を実行する。既存台本と次の2〜3本を採点し、レポート推奨(1)の「変更前の表」<sup><a href="#ref1">[1]</a></sup>としてベースラインを残す（M7のみLLM審査、M3は「のですね」型の代理指標で自動計測）。</li>
+  <li><strong>台本工程の改善後（レポートの週6〜7に対応）:</strong> Layer 2を「教え方レビュー」としてパイプラインに組む。既存Codex審査（技術）とは別呼び出しにし、軸ごとに分析→採点→不合格シーンだけ再生成。誤検出が多ければ自動書き直しは止めて採点表示に留める（レポートの撤退条件<sup><a href="#ref1">[1]</a></sup>）。</li>
+  <li><strong>仕様の同期（実装時に必須）:</strong> R2を採用する場合、現行プロンプトの「想定視聴者はエンジニア」<sup><a href="#ref10">[10]</a></sup>に「前提知識は高校生レベルまで、専門用語は必ず導入する」を追記し、M1の総文字数判定を<code>_validate</code>へ追加する。仕様とコードの同時更新（CLAUDE.mdのSpec-Code Consistency）。</li>
+  <li><strong>音声・映像（Layer 3）:</strong> VOICEVOXスタイル演出<sup><a href="#ref13">[13]</a></sup>を入れた時点から「声と感情の一致」を測り始める。それまでは台本層の改善に集中する（原因の切り分け<sup><a href="#ref1">[1]</a></sup>）。</li>
+</ol>
+
+<h2 id="s8">8. 限界と未決事項（誠実な開示）</h2>
+<ul>
+  <li><strong>暫定目標値:</strong> M1〜M8の数値とR軸の配点は丸めた暫定値。3〜5本の実測とユーザーの体感評価で調整する。</li>
+  <li><strong>未定義語の自動化:</strong> 用語抽出は完全には機械化できず、LLM抽出＋コード照合のハイブリッドになる。誤検出率は運用しながら確認。</li>
+  <li><strong>世界観の「質」:</strong> M4は下限の保証のみで、いちゃつきの質はLLM審査（R5）と最終的には人の目に依存する。R5のアンカーが安定するまで、ユーザーの体感とLLM採点のずれを数本分突き合わせる工程が必要。</li>
+  <li><strong>採点の再現性:</strong> LLM審査は同一台本でも点がぶれうる。PodAgent方式（分析先行・複数回平均)で緩和するが、ゲート判定（R1）以外は傾向把握用と割り切る。</li>
+  <li><strong>相対比較との使い分け:</strong> PodEval・PodAgentの採点は2本比較の相対方式であり、本提案の絶対アンカーは独自の読み替え。方式変更の採否はLayer 4の相対比較で最終判定する。</li>
+</ul>
+
+<h2 id="s9">参照文献</h2>
+<ol class="refs">
+  <li id="ref1">audio-summary-uploader. NotebookLM風音声解説の公開実装調査. 2026-07-23. <a href="notebooklm-audio-overview-oss-survey-2026-07-23.html">notebooklm-audio-overview-oss-survey-2026-07-23.html</a></li>
+  <li id="ref2">Xiao, Y. et al. PodEval: A Multimodal Evaluation Framework for Podcast Audio Generation. 2025. <a href="https://arxiv.org/abs/2510.00485">arXiv:2510.00485</a> / 評価プロンプト・MUSHRA設定: <a href="https://github.com/yujxx/PodEval">github.com/yujxx/PodEval</a>（<code>Text_Eval/eval_dialogue_compare.prompt</code>, <code>Subjective_Listening_Tests/configs/</code>）</li>
+  <li id="ref3">Xiao, Y. et al. PodAgent: A Comprehensive Framework for Podcast Generation. Findings of ACL 2025. <a href="https://aclanthology.org/2025.findings-acl.1226/">aclanthology.org/2025.findings-acl.1226</a>（LLM審査6軸: Fig.5、音声-役割マッチング: §4.3、単一エージェント比較: Table 2）</li>
+  <li id="ref4">Gabriel Chua. open-notebooklm <code>prompts.py</code>（ペーシング・hook・要点再提示）. <a href="https://github.com/gabrielchua/open-notebooklm/blob/main/prompts.py">github.com/gabrielchua/open-notebooklm</a></li>
+  <li id="ref5">MODSetter. SurfSense <code>plan_outline.py</code> / <code>draft_segment.py</code>（語数配分・相互反応・接地）. <a href="https://github.com/MODSetter/SurfSense/tree/main/surfsense_backend/app/podcasts/generation/prompts">github.com/MODSetter/SurfSense</a></li>
+  <li id="ref6">Evan Dempsey. podcast-llm rewriter プロンプト（言い淀み・割り込み・乱用上限）. <a href="https://github.com/evandempsey/podcast-llm/blob/main/podcast_llm/writer.py">writer.py</a> / <a href="https://smith.langchain.com/hub/evandempsey/podcast_rewriter">LangChain Hub: podcast_rewriter</a></li>
+  <li id="ref7">Meta. NotebookLlama Step-2/Step-3（初学者役・比喩逸話・話者別許可表現）. <a href="https://github.com/meta-llama/llama-cookbook/tree/main/end-to-end-use-cases/NotebookLlama">github.com/meta-llama/llama-cookbook</a></li>
+  <li id="ref8">lfnovo. podcast-creator <code>outline.jinja</code> / <code>transcript.jinja</code>（meaningful contribution・モノローグ回避）. <a href="https://github.com/lfnovo/podcast-creator/tree/main/prompts/podcast">github.com/lfnovo/podcast-creator</a></li>
+  <li id="ref9">audio-summary-uploader. 講義動画パイプライン仕様書 §3.2（分量・審査・図解優先）. <a href="../specs/LECTURE_SPEC.md">specs/LECTURE_SPEC.md</a></li>
+  <li id="ref10">audio-summary-uploader. 台本生成・審査プロンプト. <a href="../src/lecture/prompts/lecture_script.md">src/lecture/prompts/lecture_script.md</a> / <a href="../src/lecture/prompts/lecture_script_review.md">lecture_script_review.md</a></li>
+  <li id="ref11">audio-summary-uploader. 機械検証の現状（<code>_validate</code> / <code>_validate_world</code>）. <a href="../src/lecture/script_gen.py">src/lecture/script_gen.py</a></li>
+  <li id="ref12">保存済み台本サンプル「AIは1939年の数学難問を解いた？見出しを検証する」. <code>tmp/lecture/20260722-234425-ai1939/script.json</code>（数値は2026-07-23実測）</li>
+  <li id="ref13">audio-summary-uploader. 澪と透の講義動画に感情を宿す — 音声合成技術調査 v2.0. <a href="emotional-japanese-tts-landscape-2026-07-20.html">emotional-japanese-tts-landscape-2026-07-20.html</a></li>
+</ol>
+
+</div>
+</body>
+</html>

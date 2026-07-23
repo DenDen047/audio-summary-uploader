@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NotebookLM風音声解説の公開実装調査</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #172033;
+      --muted: #667085;
+      --border: #dde3ec;
+      --accent: #3157c8;
+      --accent-soft: #eef3ff;
+      --code-bg: #f5f7fb;
+      --nugget-bg: #fff8e6;
+      --nugget-border: #e5a11a;
+      --counter-bg: #fff0f1;
+      --counter-border: #d94c5c;
+      --ok-bg: #ecfdf5;
+      --ok-border: #0d9f6e;
+      --risk-bg: #fff7ed;
+      --risk-border: #e77922;
+      --surface: #fafbfc;
+      --shadow: 0 10px 30px rgba(30, 48, 86, 0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1424;
+        --fg: #e9edf5;
+        --muted: #a7b0c0;
+        --border: #263249;
+        --accent: #8ba7ff;
+        --accent-soft: #192747;
+        --code-bg: #172137;
+        --nugget-bg: #2b2413;
+        --nugget-border: #f0b43a;
+        --counter-bg: #301a21;
+        --counter-border: #ef7481;
+        --ok-bg: #102c25;
+        --ok-border: #34c99b;
+        --risk-bg: #322313;
+        --risk-border: #f19a4d;
+        --surface: #111b2e;
+        --shadow: none;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--fg);
+      background: var(--bg);
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      font-size: 16px;
+      line-height: 1.78;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 48px;
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 34px 28px 96px;
+    }
+    header.doc {
+      grid-column: 1 / -1;
+      padding: 10px 0 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    header.doc h1 {
+      max-width: 900px;
+      margin: 0 0 8px;
+      font-size: clamp(1.8rem, 4vw, 2.55rem);
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    header.doc .sub {
+      max-width: 820px;
+      color: var(--muted);
+      font-size: 1.05rem;
+    }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px 14px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 9px;
+      color: var(--accent);
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+    nav.toc {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+      font-size: 0.88rem;
+    }
+    nav.toc h2 {
+      margin: 0 0 9px;
+      color: var(--muted);
+      font-size: 0.73rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+    nav.toc ol { margin: 0; padding: 0; list-style: none; }
+    nav.toc li { margin: 4px 0; }
+    nav.toc a {
+      display: block;
+      padding: 4px 8px;
+      color: var(--fg);
+      border-left: 2px solid transparent;
+      text-decoration: none;
+    }
+    nav.toc a:hover,
+    nav.toc a:focus-visible {
+      color: var(--accent);
+      border-left-color: var(--accent);
+      outline: none;
+    }
+    main { min-width: 0; }
+    section { margin: 0 0 58px; scroll-margin-top: 24px; }
+    section h2 {
+      margin: 0 0 18px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--border);
+      font-size: 1.48rem;
+      line-height: 1.4;
+    }
+    section h3 {
+      margin: 32px 0 10px;
+      font-size: 1.16rem;
+      line-height: 1.45;
+    }
+    section h4 {
+      margin: 23px 0 7px;
+      font-size: 1.02rem;
+    }
+    p { margin: 0 0 1em; }
+    a { color: var(--accent); }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--code-bg);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 0.9em;
+    }
+    .nugget,
+    .counter-nugget {
+      margin: 14px 0;
+      padding: 18px 20px;
+      border-left: 5px solid;
+      border-radius: 0 10px 10px 0;
+      box-shadow: var(--shadow);
+    }
+    .nugget {
+      background: var(--nugget-bg);
+      border-color: var(--nugget-border);
+      font-size: 1.1rem;
+      font-weight: 750;
+    }
+    .counter-nugget {
+      background: var(--counter-bg);
+      border-color: var(--counter-border);
+    }
+    .callout,
+    .risk,
+    .ok {
+      margin: 15px 0;
+      padding: 13px 16px;
+      border-left: 4px solid;
+      border-radius: 0 8px 8px 0;
+    }
+    .callout { background: var(--accent-soft); border-color: var(--accent); }
+    .risk { background: var(--risk-bg); border-color: var(--risk-border); }
+    .ok { background: var(--ok-bg); border-color: var(--ok-border); }
+    .action-card {
+      margin: 13px 0 22px;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    .action-card h4 { margin-top: 0; }
+    .action-card ul { margin-bottom: 0; }
+    .pill {
+      display: inline-block;
+      margin-right: 6px;
+      padding: 1px 8px;
+      color: var(--accent);
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      vertical-align: 0.08em;
+    }
+    .table-scroll,
+    .diagram-scroll {
+      width: 100%;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    .table-scroll { margin: 16px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .wide-table { min-width: 880px; }
+    th, td {
+      padding: 9px 11px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+    th:last-child, td:last-child { border-right: 0; }
+    tr:last-child td { border-bottom: 0; }
+    th { background: var(--code-bg); font-weight: 700; }
+    .diagram-scroll {
+      margin: 16px 0 10px;
+      padding: 12px;
+    }
+    .mermaid {
+      min-width: 740px;
+      text-align: center;
+    }
+    .caption {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 0.84rem;
+      text-align: center;
+    }
+    .cite a {
+      padding: 0 2px;
+      font-size: 0.76em;
+      text-decoration: none;
+    }
+    details {
+      margin: 12px 0;
+      padding: 9px 13px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+    summary { cursor: pointer; font-weight: 700; }
+    .gaps { padding-left: 0; list-style: none; }
+    .gaps li {
+      margin: 10px 0;
+      padding: 11px 14px;
+      border-left: 3px solid var(--ok-border);
+      border-radius: 0 7px 7px 0;
+      background: var(--ok-bg);
+    }
+    .references { padding-left: 1.45rem; }
+    .references li {
+      margin: 0 0 0.75rem;
+      font-size: 0.9rem;
+      overflow-wrap: anywhere;
+    }
+    .references li:target {
+      padding: 6px;
+      border-radius: 6px;
+      background: var(--nugget-bg);
+    }
+    .footnote { color: var(--muted); font-size: 0.84rem; }
+    @media (max-width: 820px) {
+      .layout {
+        grid-template-columns: 1fr;
+        gap: 16px;
+        padding: 22px 16px 72px;
+      }
+      nav.toc {
+        position: static;
+        max-height: none;
+        padding: 12px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--surface);
+      }
+      nav.toc ol { columns: 2; }
+      nav.toc li { break-inside: avoid; }
+      section { margin-bottom: 46px; }
+    }
+    @media (max-width: 480px) {
+      nav.toc ol { columns: 1; }
+      .nugget, .counter-nugget { padding: 14px 15px; }
+      th, td { padding: 7px 9px; }
+    }
+    @media print {
+      body { color: #000; background: #fff; font-size: 11pt; }
+      .layout { display: block; width: auto; padding: 0; }
+      nav.toc { display: none; }
+      section { break-inside: auto; }
+      h2, h3, h4 { break-after: avoid; }
+      .action-card, .diagram-scroll, .table-scroll, .callout, .risk, .ok,
+      .nugget, .counter-nugget { break-inside: avoid; box-shadow: none; }
+      details { display: block; }
+      details > summary { display: none; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header class="doc">
+      <h1>NotebookLM風音声解説の公開実装調査</h1>
+      <div class="sub">公開コードを工程単位で比較し、透・澪の「内容が入りにくい」「展開が弱い」を直す設計へ翻訳する。</div>
+      <div class="meta">
+        <span class="badge">OSS・source-available 調査</span>
+        <span>2026-07-23時点</span>
+        <span>公開実装 10系統・学術実装 2件</span>
+        <span>一次資料 23件</span>
+        <span>読了 約18分</span>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="目次">
+      <h2>目次</h2>
+      <ol>
+        <li><a href="#glossary">用語</a></li>
+        <li><a href="#tldr">TL;DR</a></li>
+        <li><a href="#conclusion">結論と着手順</a></li>
+        <li><a href="#question">問い</a></li>
+        <li><a href="#map">全体マップ</a></li>
+        <li><a href="#analysis">実装分析</a></li>
+        <li><a href="#gaps">残された空白</a></li>
+        <li><a href="#references">参照文献</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <section id="glossary">
+        <h2>Glossary <span class="footnote">この文書で使う固有名詞</span></h2>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>用語</th><th>意味</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Audio Overview</strong></td><td>Google NotebookLMが資料から作る音声解説。Deep Diveでは2人のホストが資料を整理し、関係を結びながら解説する。</td></tr>
+              <tr><td><strong>Open Notebook</strong></td><td>複数資料、1〜4話者、話者プロフィール、台本構成の制御を備えたセルフホスト型NotebookLM代替。</td></tr>
+              <tr><td><strong>podcast-creator</strong></td><td>Open Notebookの音声生成を担う独立ライブラリ。全体構成と章別台本を分ける。</td></tr>
+              <tr><td><strong>SurfSense</strong></td><td>資料管理とポッドキャスト生成を備えた公開プロジェクト。生成前に人がbriefを承認できる。</td></tr>
+              <tr><td><strong>Podcast-LLM</strong></td><td>全体構成、質問と回答の反復、小区間の書き直しを明示的に分けたポッドキャスト生成器。非商用ライセンス。</td></tr>
+              <tr><td><strong>Podcastfy</strong></td><td>短尺の一括生成と、長尺の資料分割・逐次生成を備えた音声生成ライブラリ。</td></tr>
+              <tr><td><strong>NotebookLlama</strong></td><td>Metaの公開レシピ。台本初稿と音声向けの演出稿を別モデルで作る。</td></tr>
+              <tr><td><strong>PDF2Audio</strong></td><td>PDFから会話台本と音声を作る研究プロトタイプ。内部メモと台本を一度に構造化出力する。</td></tr>
+              <tr><td><strong>PodAgent</strong></td><td>Host・Guest・Writerの役割分担と、話者選択・音声表現を研究した学術実装。</td></tr>
+              <tr><td><strong>PodEval</strong></td><td>台本、音声表現、番組全体を分けて評価する研究用の評価枠組み。</td></tr>
+              <tr><td><strong>OSS / source-available</strong></td><td>OSSは利用・改変・再配布の自由を認めるライセンスのソフトウェア。source-availableはコードを読めても、非商用などの制限があり、標準的なOSSに含まれないもの。</td></tr>
+              <tr><td><strong>学習状態</strong></td><td>各場面の前後で「視聴者が何を理解できるようになったか」を表す項目。<strong>この文書の設計用語で、特定OSSの正式名称ではない。</strong></td></tr>
+              <tr><td><strong>場面の問い</strong></td><td>次の説明を必要にする未解決の疑問。<strong>この文書の設計用語で、章見出しの読み上げを避けるために置く。</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tldr">
+        <h2>TL;DR (Nugget)</h2>
+        <p class="nugget">今回の主訴に対してNotebookLM風OSSから透・澪へ移植しやすい差は台本工程にあり、構成、章別生成、推敲を分けると展開を制御しやすい。</p>
+        <p class="counter-nugget">ただし段階を増やすだけでは不十分で、根拠照合と理解しやすさの評価がなければ、冗長さや事実のずれを増やす。</p>
+      </section>
+
+      <section id="conclusion">
+        <h2>結論: 結局、何をすればいいのか</h2>
+
+        <h3>前提となる気づき</h3>
+        <ol>
+          <li><strong>現行は形式品質に強い</strong>: 事実確認、口調、スライド、字幕同期は手厚い。一方、資料の論点整理、教える順番、会話、演出を一度に作らせている。<sup class="cite"><a href="#ref-20" title="現行仕様">[20]</a></sup><sup class="cite"><a href="#ref-21" title="現行プロンプト">[21]</a></sup><sup class="cite"><a href="#ref-22" title="現行実装">[22]</a></sup></li>
+          <li><strong>移植価値が高いのは段階分離</strong>: 参考になる実装は、全体構成を台本と別に保存し、章ごとに前の文脈を渡して書く。<sup class="cite"><a href="#ref-4" title="podcast-creator graph">[4]</a></sup><sup class="cite"><a href="#ref-7" title="SurfSense podcasts">[7]</a></sup><sup class="cite"><a href="#ref-10" title="Podcast-LLM pipeline">[10]</a></sup></li>
+          <li><strong>公開実装にも共通の穴がある</strong>: 根拠の照合、未定義語、理解の飛躍、相槌の多さを診断する専用審査は乏しい。ここは模倣せず、新しく設計する。</li>
+        </ol>
+
+        <h3>来週月曜から始める3個のこと</h3>
+        <div class="action-card">
+          <h4><span class="pill">1</span>現行台本の品質を数値で残す</h4>
+          <ul>
+            <li><strong>何をするか</strong>: セリフ総文字数、質問数、説明の言い換えだけの返答数、未定義語、資料の主要主張の採用率を記録する。</li>
+            <li><strong>なぜか</strong>: 保存済み3台本は2,210〜2,779字で、仕様の3,000〜4,500字を下回るが、固定コードは総文字数を検証せずログへ出すだけである。<sup class="cite"><a href="#ref-20" title="Lecture specification">[20]</a></sup><sup class="cite"><a href="#ref-22" title="script_gen.py">[22]</a></sup><sup class="cite"><a href="#ref-23" title="保存済み台本">[23]</a></sup></li>
+            <li><strong>どこから始めるか</strong>: 既存3台本を同じ基準で採点し、変更前の表を1枚作る。</li>
+            <li><strong>この推奨が崩れる前提</strong>: 目標尺を3,000字未満へ正式に変える場合は、文字数の基準を先に仕様とそろえる。</li>
+          </ul>
+        </div>
+        <div class="action-card">
+          <h4><span class="pill">2</span>台本より先に「資料理解」と「教える順番」を作る</h4>
+          <ul>
+            <li><strong>何をするか</strong>: 主要主張、根拠箇所、限界、前提用語を持つファイルと、各場面の問い、理解目標、次へ進む理由を持つ構成ファイルを追加する。</li>
+            <li><strong>なぜか</strong>: Open Notebook、SurfSense、Podcast-LLMは全体構成を独立させてから小区間を書く。<sup class="cite"><a href="#ref-4" title="podcast-creator graph">[4]</a></sup><sup class="cite"><a href="#ref-8" title="SurfSense outline prompt">[8]</a></sup><sup class="cite"><a href="#ref-10" title="Podcast-LLM pipeline">[10]</a></sup></li>
+            <li><strong>どこから始めるか</strong>: 同じ資料から現行台本と新しい構成だけを作り、人が説明順を比較する。音声工程はまだ変えない。</li>
+            <li><strong>この推奨が崩れる前提</strong>: 1〜2分で一つの問いと一つの根拠だけを扱うなら、独立した構成ファイルは省ける。</li>
+          </ul>
+        </div>
+        <div class="action-card">
+          <h4><span class="pill">3</span>「技術レビュー」と別に「教え方レビュー」を試す</h4>
+          <ul>
+            <li><strong>何をするか</strong>: 未定義語、根拠のない発言、唐突な接続、重複、長い独白、透の確認だけの返答を診断し、問題のある場面だけ書き直す。</li>
+            <li><strong>なぜか</strong>: NotebookLlamaの演出用書き直しは自然さを足すが、内容の飛躍を診断しない。PodAgentは役割を分けた生成が一括生成より台本評価を改善したと報告する。<sup class="cite"><a href="#ref-13" title="Meta NotebookLlama">[13]</a></sup><sup class="cite"><a href="#ref-18" title="PodAgent">[18]</a></sup></li>
+            <li><strong>どこから始めるか</strong>: 既存台本1本を診断だけ行う編集者プロンプトへ通し、指摘の妥当性を人が確認する。</li>
+            <li><strong>この推奨が崩れる前提</strong>: 誤検出が多く、人の修正時間を減らせないなら、自動書き直しは止めて採点表示だけにする。</li>
+          </ul>
+        </div>
+
+        <h3>その後（週4〜13）の優先順位</h3>
+        <ul>
+          <li><strong>週4〜5</strong>: 全体構成に沿って場面ごとに会話を生成し、直前の要点と視聴者の理解済み項目だけを引き継ぐ。</li>
+          <li><strong>週6〜7</strong>: 技術的な根拠と、説明順・未定義語・重複を別々に採点し、落ちた場面だけを再生成する。</li>
+          <li><strong>週8〜9</strong>: 内容確定後に、間、強調、感情、読みを付ける。NotebookLlamaの段階分離を、事実を変えない制約付きで取り入れる。<sup class="cite"><a href="#ref-13" title="Meta NotebookLlama">[13]</a></sup></li>
+          <li><strong>週10〜11</strong>: 同じ3資料で旧方式と新方式を匿名比較し、理解テストと「続きを聞きたいか」を測る。</li>
+          <li><strong>週12〜13</strong>: 改善した場面だけを基に、透の質問パターンと構成の粒度を調整する。</li>
+        </ul>
+
+        <h3>やらないこと (anti-pattern)</h3>
+        <ul>
+          <li><strong>フィラーや割り込みだけを増やす</strong>: 自然さの演出は、説明の順序が悪い台本を分かりやすくしない。<sup class="cite"><a href="#ref-13" title="NotebookLlama rewrite">[13]</a></sup><sup class="cite"><a href="#ref-15" title="open-notebooklm prompts">[15]</a></sup></li>
+          <li><strong>話者を機械的に交互にする</strong>: run-llama版は厳密な交互発話を検証するが、役割に応じた長さや質問の必要性までは保証しない。<sup class="cite"><a href="#ref-16" title="run-llama audio.py">[16]</a></sup></li>
+          <li><strong>資料を先頭から分割した順に話す</strong>: Podcastfyの長尺方式は局所的なつながりを保つが、教材としての順番を先に設計しない。<sup class="cite"><a href="#ref-14" title="Podcastfy">[14]</a></sup></li>
+          <li><strong>Podcast-LLMのコードをそのまま商用利用する</strong>: CC BY-NC 4.0なので、考え方だけを参考にし、コード流用はライセンスを別途確認する。<sup class="cite"><a href="#ref-10" title="Podcast-LLM repository">[10]</a></sup></li>
+        </ul>
+
+        <h3>検証指標</h3>
+        <p class="footnote">以下は実測後に調整する暫定合格線。</p>
+        <ul>
+          <li><strong>理解</strong>: 5問の内容確認で、新方式の正答率が旧方式より10ポイント以上高い。</li>
+          <li><strong>視聴意向</strong>: 話者名を隠した比較で、10人以上の70%以上が新方式を「続きを聞きたい」と選ぶ。</li>
+          <li><strong>台本品質</strong>: 未定義語と根拠のない主張を0件にし、透の確認だけの返答を透の全発話の25%以下へ抑える。</li>
+        </ul>
+      </section>
+
+      <section id="question">
+        <h2>問い</h2>
+        <p class="callout"><strong>NotebookLM風の公開実装は、分かりやすい二人語りをどの工程・設計で作っており、そのうち透・澪へ移植価値が高い仕組みは何か。</strong></p>
+        <p class="footnote">読者: audio-summary-uploaderの台本生成方式を改善する開発者。</p>
+      </section>
+
+      <section id="map">
+        <h2>全体マップ</h2>
+        <div class="diagram-scroll" role="img" aria-label="現行方式、公開実装の強いパターン、透と澪への推奨方式を比較する工程図">
+          <div class="mermaid">
+flowchart TB
+  subgraph CURRENT["現行の透・澪"]
+    direction LR
+    C1["資料&lt;br/&gt;先頭4万字"] --&gt; C2["一括生成&lt;br/&gt;内容選択・会話・スライド・演出"]
+    C2 --&gt; C3["構造と口調の検証"]
+    C3 --&gt; C4["技術・編集レビュー"]
+  end
+  subgraph OSS["公開実装から組み合わせたパターン"]
+    direction LR
+    O1["資料"] --&gt; O2["全体構成"]
+    O2 --&gt; O3["章ごとの生成"]
+    O3 -.-&gt; O4["会話として推敲&lt;br/&gt;実装により任意"]
+  end
+  subgraph PROPOSED["透・澪への推奨"]
+    direction LR
+    P1["主要主張・根拠・前提用語"] --&gt; P2["理解目標つきの全体構成"]
+    P2 --&gt; P3["場面ごとの会話"]
+    P3 --&gt; P4{"根拠と理解しやすさを審査"}
+    P4 -- "不合格" --&gt; P3
+    P4 -- "合格" --&gt; P5["読み方・間・強調を付与"]
+    P5 --&gt; P6["音声とスライド"]
+  end
+  C4 -. "不足: 学びの進み方を測らない" .-&gt; P1
+  O4 -. "段階分離を移植" .-&gt; P2
+  classDef current fill:#fff1f2,stroke:#e11d48,color:#4c0519,stroke-width:2px;
+  classDef observed fill:#eff6ff,stroke:#2563eb,color:#172554,stroke-width:2px;
+  classDef proposed fill:#ecfdf5,stroke:#059669,color:#022c22,stroke-width:2px;
+  class C1,C2,C3,C4 current;
+  class O1,O2,O3,O4 observed;
+  class P1,P2,P3,P4,P5,P6 proposed;
+          </div>
+        </div>
+        <p class="caption">赤: 現行、青: 複数の公開実装から組み合わせた段階、緑: 透・澪へ提案する合格条件つき工程。</p>
+        <p>現行方式にも初稿と最終審査の二段階はある。しかし初稿が、資料の選択、説明順、人物会話、スライド、読み、表情、動画メタデータまで一括で決めるため、最終審査は完成済みの大きなJSONを書き直す形になる。<sup class="cite"><a href="#ref-21" title="現行プロンプト">[21]</a></sup><sup class="cite"><a href="#ref-22" title="現行実装">[22]</a></sup></p>
+        <p>移植すべきなのは工程数そのものではなく、各工程が別の成果物と合格条件を持つ設計である。資料理解では根拠を落とさない。全体構成では学びの順番を決める。場面生成では会話にする。最終段階では内容を変えず、読み方だけを整える。</p>
+      </section>
+
+      <section id="analysis">
+        <h2>論点ごとの分析</h2>
+
+        <h3>論点1: NotebookLMの見える品質と、見えない実装を分ける</h3>
+        <p>Googleの公開説明から確認できるのは、Deep Diveが2人のホストで資料を整理し、論点間の関係を結び、会話として提示すること、さらに利用者が焦点、対象者、長さなどを指定できることまでである。<sup class="cite"><a href="#ref-1" title="NotebookLM Help: Audio Overview">[1]</a></sup><sup class="cite"><a href="#ref-2" title="Google Audio Overviews blog">[2]</a></sup> 内部のプロンプト、モデル構成、段階数、評価器は公開されていない。OSSのREADMEで「NotebookLM風」と書かれていても、Googleの内部方式を再現した証拠にはならない。</p>
+        <div class="risk"><strong>反例:</strong> 出力の見た目だけなら、強い一発プロンプトと高品質な音声合成でもNotebookLMらしい会話は作れる。gabrielchua版は、強い導入、徐々に複雑にする、理解の休憩、自然な要点再提示を一つのプロンプトへ詰め、二稿目で自然さを上げる。<sup class="cite"><a href="#ref-15" title="open-notebooklm prompts and utils">[15]</a></sup></div>
+        <div class="ok"><strong>含意:</strong> NotebookLMのプロンプト当てを目標にせず、「説明順を制御できる」「根拠を追える」「失敗箇所だけ直せる」という検証可能な設計を採る。</div>
+
+        <h3>論点2: 実装は六つの型に分かれる</h3>
+        <div class="table-scroll">
+          <table class="wide-table">
+            <thead>
+              <tr><th>型</th><th>主な実装</th><th>台本工程</th><th>前の文脈</th><th>内容審査</th><th>透・澪への価値</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>一括生成</td><td>PDF2Audio、PageLM、run-llama版</td><td>資料から構造化会話を一度に生成</td><td>なし</td><td>なし</td><td>プロンプトの部品だけ参考</td></tr>
+              <tr><td>一括生成＋汎用書き直し</td><td>gabrielchua版</td><td>初稿→「自然で魅力的に」書き直し</td><td>初稿全体</td><td>なし</td><td>導入、複雑さの段階、短い発話</td></tr>
+              <tr><td>資料分割＋逐次生成</td><td>Podcastfy</td><td>資料chunkごとに会話を追加</td><td>既生成会話全体</td><td>話者タグ修正のみ</td><td>長文の継続方法</td></tr>
+              <tr><td>全体構成＋章別生成</td><td>Open Notebook、SurfSense</td><td>outline→segment transcript</td><td>全体構成＋既生成台本または直前要約</td><td>JSON検証のみ</td><td><strong>本命の基本構造</strong></td></tr>
+              <tr><td>全体構成＋質問回答＋推敲</td><td>Podcast-LLM</td><td>outline→質問役と回答役で小区間生成→Writer</td><td>会話履歴と関連資料</td><td>会話推敲はあるが根拠審査は弱い</td><td>質問役と編集役の分離</td></tr>
+              <tr><td>内容稿＋演出稿</td><td>Meta NotebookLlama</td><td>台本初稿→音声向けの演出書き直し</td><td>初稿全体</td><td>なし</td><td>内容確定後の音声演出</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details open>
+          <summary>Open Notebook / podcast-creator — 全体構成と章別台本</summary>
+          <p>Open Notebookは話者数やプロフィールを設定でき、その基盤は全体のoutlineを先にJSON化し、各segmentを順番に生成する。各章の生成時には全体構成と既生成台本を渡し、話者プロフィールに沿った意味のある貢献を求める。<sup class="cite"><a href="#ref-3" title="Open Notebook">[3]</a></sup><sup class="cite"><a href="#ref-4" title="podcast-creator graph">[4]</a></sup><sup class="cite"><a href="#ref-5" title="outline prompt">[5]</a></sup><sup class="cite"><a href="#ref-6" title="transcript prompt">[6]</a></sup></p>
+        </details>
+        <details>
+          <summary>SurfSense — 人の承認、尺から語数、直前要約</summary>
+          <p>言語、形式、話者、尺、焦点を人が承認してから、尺を語数へ変換して全体構成を作る。各章には直前会話をレンダリングした末尾800文字を渡す。人が意図を固定できる点は強いが、各呼び出しの資料は先頭12,000文字へ切られ、内容審査はない。<sup class="cite"><a href="#ref-7" title="SurfSense podcasts">[7]</a></sup><sup class="cite"><a href="#ref-8" title="outline prompt">[8]</a></sup><sup class="cite"><a href="#ref-9" title="segment prompt">[9]</a></sup></p>
+        </details>
+        <details>
+          <summary>Podcast-LLM — 質問役、回答役、検索、短い単位の書き直し</summary>
+          <p>outlineの小節ごとに質問役と回答役を別呼び出しし、回答時に関連資料4chunkを検索する。最後に初稿を4要素ずつ書き直すため、質問の展開と会話の仕上げが分離している。最終書き直しは自然さと流れが中心で、各主張を根拠へ戻して判定する処理ではない。<sup class="cite"><a href="#ref-10" title="Podcast-LLM pipeline">[10]</a></sup><sup class="cite"><a href="#ref-11" title="Podcast-LLM writer">[11]</a></sup></p>
+        </details>
+        <details>
+          <summary>Podcastfy — 長文を資料順に分けて継続</summary>
+          <p>短尺は一括生成する。長尺は資料を最大8chunkへ分け、それまでの全会話を次の呼び出しへ渡す。重複と唐突な接続は抑えやすいが、全体構成を先に作らないため、教材としての順序は資料順に引っ張られる。現行の後処理は話者タグ修正が中心である。<sup class="cite"><a href="#ref-14" title="Podcastfy">[14]</a></sup></p>
+        </details>
+        <details>
+          <summary>NotebookLlama / PDF2Audio / 小型クローン — 強いプロンプトと演出</summary>
+          <p>NotebookLlamaはPDFの清掃、台本初稿、演出書き直し、話者別音声を分ける。PDF2Audioは用語定義、背景、類推、具体例、粗い構成を内部メモで考えさせ、人がフィードバックして再生成できる。gabrielchua版、run-llama版、PageLMは構成の多くを一回の構造化会話生成へ寄せる。<sup class="cite"><a href="#ref-12" title="PDF2Audio">[12]</a></sup><sup class="cite"><a href="#ref-13" title="NotebookLlama">[13]</a></sup><sup class="cite"><a href="#ref-15" title="open-notebooklm">[15]</a></sup><sup class="cite"><a href="#ref-16" title="run-llama notebookllama">[16]</a></sup><sup class="cite"><a href="#ref-17" title="PageLM">[17]</a></sup></p>
+        </details>
+
+        <div class="risk"><strong>反例:</strong> 工程が少なくても、対象が短く資料が単純なら十分である。逆に、誤ったoutlineを固定すると後段すべてへ誤りが広がり、章別生成は章間の重複や声色のずれを生みうる。段階数に応じて生成時間も増える。</div>
+        <div class="ok"><strong>含意:</strong> Open Notebook型の全体構成と章別生成を土台にし、SurfSenseの尺設計、Podcast-LLMの質問役と編集役、NotebookLlamaの演出分離を必要な範囲だけ組み合わせる。</div>
+
+        <h3>論点3: 透は「相槌役」ではなく、理解を前進させる役にする</h3>
+        <p>現行プロンプトは、透を初心者の聞き役と定め、説明の飛躍を見つけるよう求めている。<sup class="cite"><a href="#ref-21" title="現行プロンプト">[21]</a></sup> しかし最新の実例では透の26発話中、澪へ明確に問いを投げる発話は3つで、多くは澪の説明や数値の言い換えになっている。<sup class="cite"><a href="#ref-23" title="2026-07-23保存台本">[23]</a></sup> 「つまり」「なるほど」「〜なのですね」が続くと、視聴者がどこでつまずくかを代弁するより、澪の説明を確認する役になりやすい。</p>
+        <p>役割は話し方ではなく、場面ごとの仕事として指定するとよい。透には、予想する、誤解する、反例を出す、前提語を尋ねる、新しい例へ当てはめる、のいずれかを持たせる。澪には、その反応を受けて説明を一段戻す、例を変える、限界を示す、を持たせる。PodAgentはHost、複数Guest、Writerを分け、直接GPT-4で生成する方式より内容評価を改善したと報告している。<sup class="cite"><a href="#ref-18" title="PodAgent">[18]</a></sup></p>
+        <div class="risk"><strong>反例:</strong> 毎場面で透に誤解や反論をさせると、会話が芝居がかり、説明が遅くなる。すでに理解済みの箇所では短い確認を許し、確認だけの返答が全体を占めないよう比率で管理する方がよい。</div>
+        <div class="ok"><strong>含意:</strong> 各場面に「透が起こす認知イベント」と「場面後に理解できること」を一つずつ持たせる。厳密な交互発話ではなく、必要な役割が果たされたかを検証する。</div>
+
+        <h3>論点4: 現行方式は品質審査が弱いのではなく、審査対象が遅すぎる</h3>
+        <p>現行はClaude Opusで初稿を作り、固定コードで8〜14シーン、各2〜6発話、80字以内、話者、表情、スライド項目などを検証し、Codexが元資料と初稿を受けて技術・編集面を審査する。<sup class="cite"><a href="#ref-20" title="Lecture specification">[20]</a></sup><sup class="cite"><a href="#ref-21" title="現行review prompt">[21]</a></sup><sup class="cite"><a href="#ref-22" title="script_gen.py">[22]</a></sup> 事実、公開安全性、形式については、多くのOSSより強い。</p>
+        <p>問題は、理解しやすさを決める全体構成が独立成果物ではないことにある。レビューも完成済みJSONを対象とし、説明順の基準は固定の章立てである。構成段階で「なぜ次へ進むのか」「前提語が説明済みか」「資料のどの根拠を使うか」を検査できない。<sup class="cite"><a href="#ref-21" title="現行プロンプト">[21]</a></sup><sup class="cite"><a href="#ref-22" title="現行実装">[22]</a></sup></p>
+
+        <h4>最小の中間成果物</h4>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>成果物</th><th>必須項目</th><th>合格条件</th></tr></thead>
+            <tbody>
+              <tr><td><strong>資料理解</strong></td><td>中心の問い、一文の答え、主要主張、根拠箇所、限界、前提用語</td><td>すべての主要主張に根拠があり、使う用語の前提が列挙されている</td></tr>
+              <tr><td><strong>教える順番</strong></td><td>各場面の問い、場面前後の理解、使う主要主張、次へ進む理由、透の役割、目標文字数</td><td>根拠のない場面がなく、前提語を使う前に説明し、同じ理解目標を重ねていない</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>場面生成はこの二つと直前場面の要約を入力にし、台本を出力する。教え方レビューは、未定義語、唐突な接続、重複、長い独白、確認だけの返答を数え、重大な違反があれば該当場面だけを再生成する。「未定義語」は、前提用語にあるのに、それ以前のセリフやスライドで平易な説明がない語とする。主要主張の採用率は、台本が参照した主要主張の数を、資料理解にある必須の主要主張数で割って求める。</p>
+
+        <p>仕様にはセリフ合計3,000〜4,500字をPythonとスキーマで強制するとあるが、現在の検証関数には総文字数の判定がなく、完成後にログへ出すだけである。<sup class="cite"><a href="#ref-20" title="Lecture specification">[20]</a></sup><sup class="cite"><a href="#ref-22" title="script_gen.py">[22]</a></sup> 保存済み3台本は2,210字、2,327字、2,779字で、すべて下限未満だった。<sup class="cite"><a href="#ref-23" title="保存済み台本">[23]</a></sup> これは分かりにくさの原因を直接証明しないが、仕様上想定した説明量と実出力がずれている。</p>
+        <div class="risk"><strong>反例:</strong> 文字数を増やすだけでは理解は改善しない。未定義語、反復、余談が増えれば逆効果である。</div>
+        <div class="ok"><strong>含意:</strong> まず仕様と検証のずれを直し、その後に構成を独立させる。審査を増やすのではなく、資料理解、全体構成、場面、音声演出の各段階で、少数の明確な合格条件を置く。</div>
+
+        <h3>論点5: 台本評価と音声評価を分ける</h3>
+        <p>NotebookLlamaは、情報を含む初稿を大きなモデルで作り、別モデルで割り込み、笑い、間、強調などを加えてから、話者別の音声合成へ渡す。<sup class="cite"><a href="#ref-13" title="Meta NotebookLlama">[13]</a></sup> この分離は有用だが、演出稿が内容を変えない保証は弱い。透・澪では、内容稿を確定した後に、読み、間、強調、表情だけを付ける制約が必要である。</p>
+        <p>PodEvalは、台本内容、話し方、番組全体の聞き心地を別々に評価する。研究報告では、NotebookLMは対話自然さで実在ポッドキャストに次いだ。一方、全編聴取意向は全方式で低く、NotebookLMと実在ポッドキャストは同程度だった。単文ごとの音声合成は対話の自然さを損なう可能性も示された。<sup class="cite"><a href="#ref-19" title="PodEval">[19]</a></sup></p>
+        <div class="risk"><strong>反例:</strong> 今回の主訴は内容と展開であり、最初から音声モデルを入れ替えると原因を切り分けにくい。</div>
+        <div class="ok"><strong>含意:</strong> 最初の比較実験では同じ音声合成を使い、台本工程だけを変える。台本の改善が確認できてから、音声演出を別の実験として評価する。</div>
+      </section>
+
+      <section id="gaps">
+        <h2>残された空白（誠実な開示）</h2>
+        <ul class="gaps">
+          <li><strong>NotebookLMの内部方式</strong>: Googleは出力形式とカスタマイズ項目を公開しているが、台本生成の内部工程は公開していない。OSSとの一致は検証できない。<sup class="cite"><a href="#ref-1" title="NotebookLM Help">[1]</a></sup><sup class="cite"><a href="#ref-2" title="Google blog">[2]</a></sup></li>
+          <li><strong>同一資料での音声比較</strong>: 今回は一次コードと保存済み透・澪台本を比較した。各OSSを同じ日本語資料と同じ音声で実行する聴取実験はまだ行っていない。</li>
+          <li><strong>日本語対話の韻律</strong>: 句読点、無音長、相槌の重なりが理解へ与える影響は台本だけでは測れない。台本改善後に音声A/Bが必要である。<sup class="cite"><a href="#ref-19" title="PodEval">[19]</a></sup></li>
+          <li><strong>ライセンスと保守性</strong>: 実装アイデアの調査が中心で、依存関係の脆弱性や長期保守コストまでは監査していない。Podcast-LLMは非商用、PageLMはcommunity licenseである。<sup class="cite"><a href="#ref-10" title="Podcast-LLM license">[10]</a></sup><sup class="cite"><a href="#ref-17" title="PageLM license">[17]</a></sup></li>
+          <li><strong>外部レビューの制約</strong>: この環境ではGeminiとClaudeの認証が利用できなかった。公開一次資料、複数の独立したコード読解、読者目線レビューで補ったが、異なるモデルによる概念レビューは未実施である。</li>
+        </ul>
+      </section>
+
+      <section id="references">
+        <h2>参照文献</h2>
+        <ol class="references">
+          <li id="ref-1">Google. <a href="https://support.google.com/notebooklm/answer/16212820">NotebookLM Help: Generate Audio Overview</a>. 2026年参照。</li>
+          <li id="ref-2">Google. <a href="https://blog.google/innovation-and-ai/products/notebooklm-audio-overviews/">NotebookLM Audio Overviews</a>. 2024.</li>
+          <li id="ref-3">lfnovo. <a href="https://github.com/lfnovo/open-notebook">Open Notebook</a>.</li>
+          <li id="ref-4">lfnovo. <a href="https://github.com/lfnovo/podcast-creator/blob/main/src/podcast_creator/graph.py">podcast-creator: graph.py</a>.</li>
+          <li id="ref-5">lfnovo. <a href="https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/outline.jinja">podcast-creator: outline.jinja</a>.</li>
+          <li id="ref-6">lfnovo. <a href="https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/transcript.jinja">podcast-creator: transcript.jinja</a>.</li>
+          <li id="ref-7">MODSetter. <a href="https://github.com/MODSetter/SurfSense/tree/main/surfsense_backend/app/podcasts">SurfSense podcast specification and service</a>.</li>
+          <li id="ref-8">MODSetter. <a href="https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/plan_outline.py">SurfSense: plan_outline.py</a>.</li>
+          <li id="ref-9">MODSetter. <a href="https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/draft_segment.py">SurfSense: draft_segment.py</a>.</li>
+          <li id="ref-10">Evan Dempsey. <a href="https://github.com/evandempsey/podcast-llm">Podcast-LLM</a>.</li>
+          <li id="ref-11">Evan Dempsey. <a href="https://github.com/evandempsey/podcast-llm/blob/main/podcast_llm/writer.py">Podcast-LLM: writer.py</a>.</li>
+          <li id="ref-12">Lam Research Group, MIT. <a href="https://github.com/lamm-mit/PDF2Audio/blob/main/app.py">PDF2Audio: app.py</a>.</li>
+          <li id="ref-13">Meta. <a href="https://github.com/meta-llama/llama-cookbook/tree/main/recipes/quickstart/NotebookLlama">NotebookLlama recipe</a>.</li>
+          <li id="ref-14">Tharindu N. <a href="https://github.com/souzatharsis/podcastfy/tree/main/podcastfy">Podcastfy content generation and conversation config</a>.</li>
+          <li id="ref-15">Gabriel Chua. <a href="https://github.com/gabrielchua/open-notebooklm">open-notebooklm: prompts.py and utils.py</a>.</li>
+          <li id="ref-16">run-llama. <a href="https://github.com/run-llama/notebookllama/blob/main/src/notebookllama/audio.py">notebookllama: audio.py</a>.</li>
+          <li id="ref-17">CaviraOSS. <a href="https://github.com/CaviraOSS/PageLM">PageLM</a>.</li>
+          <li id="ref-18">Xiao, Y. et al. <a href="https://aclanthology.org/2025.findings-acl.1226/">PodAgent: A Comprehensive Framework for Podcast Generation</a>. Findings of ACL 2025.</li>
+          <li id="ref-19">Xiao, Y. et al. <a href="https://arxiv.org/abs/2510.00485">PodEval: A Multimodal Evaluation Framework for Podcast Audio Generation</a>. 2025.</li>
+          <li id="ref-20">audio-summary-uploader. <a href="../specs/LECTURE_SPEC.md">Lecture specification, section 3.2</a>.</li>
+          <li id="ref-21">audio-summary-uploader. <a href="../src/lecture/prompts/lecture_script.md">Current lecture script prompt</a> and <a href="../src/lecture/prompts/lecture_script_review.md">review prompt</a>.</li>
+          <li id="ref-22">audio-summary-uploader. <a href="../src/lecture/script_gen.py">Current script generation and validation</a>.</li>
+          <li id="ref-23">audio-summary-uploader. <a href="../tmp/lecture-debug/">Saved script samples, 2026-07-22 to 2026-07-23</a>.</li>
+        </ol>
+        <p class="footnote">調査日: 2026-07-23。GitHub CLIの認証が失効していたため、公開GitHubページと取得した公開ソースを一次資料として読んだ。人気度は設計品質の根拠にせず、コード上の工程だけを比較した。</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: 'loose',
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+      flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 32, rankSpacing: 38 }
+    });
+  </script>
+</body>
+</html>
