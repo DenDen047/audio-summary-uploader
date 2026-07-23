@@ -11,7 +11,11 @@ from loguru import logger
 
 from automator.citation import sanitize_public_text
 from lecture.fetch import SourceContent
-from lecture.reveal import REVEAL_TEMPLATES, total_units
+from lecture.reveal import (
+    REVEAL_TEMPLATES,
+    normalize_reveal_counts,
+    total_units,
+)
 from lecture.thumbnail_backdrop import THUMBNAIL_VISUAL_PROMPT_MAX_CHARS
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "lecture_script.md"
@@ -22,13 +26,33 @@ DEFAULT_CLAUDE_MODEL = "opus"
 DEFAULT_CLAUDE_EFFORT = "xhigh"
 DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
 DEFAULT_CODEX_EFFORT = "xhigh"
-TEMPLATES = {"title", "bullets", "compare", "code", "quote", "outro"}
+TEMPLATES = {
+    "title",
+    "bullets",
+    "compare",
+    "code",
+    "quote",
+    "diagram",
+    "figure",
+    "outro",
+}
+DIAGRAM_TYPES = {
+    "flow",
+    "tree",
+    "layers",
+    "timeline",
+    "cycle",
+    "matrix",
+    "table",
+}
 TEMPLATE_FIELDS = {
     "title": ("subheading", "source_label"),
     "bullets": ("items",),
     "compare": ("left_title", "left_items", "right_title", "right_items"),
     "code": ("code", "caption"),
     "quote": ("quote", "attribution"),
+    "diagram": ("diagram_type", "items"),
+    "figure": ("figure_index", "caption", "attribution"),
     "outro": ("items",),
 }
 SPEAKERS = {"zunda", "metan"}
@@ -57,8 +81,13 @@ POSES = {
         "praised",
     },
 }
-GENERATION_TIMEOUT_SECONDS = 900
+GENERATION_TIMEOUT_SECONDS = 3600
 _PUBLIC_SOURCE_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+_POLITE_SENTENCE_END_RE = re.compile(
+    r"(?:です|ます|ません|ました|ましょう|でしょう|ください|ございます|"
+    r"おります|いたします)(?:か|ね|よ|よね|かね)?$"
+)
+_POLITE_INTERJECTIONS = {"はい", "ええ", "ありがとうございます", "すみません"}
 
 
 def generate_script(
@@ -68,6 +97,7 @@ def generate_script(
     effort: str = DEFAULT_CLAUDE_EFFORT,
     review_model: str = DEFAULT_CODEX_MODEL,
     review_effort: str = DEFAULT_CODEX_EFFORT,
+    generation_timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
 ) -> dict:
     _assert_subscription_auth()
 
@@ -75,31 +105,44 @@ def generate_script(
         PROMPT_PATH.read_text(encoding="utf-8")
         .replace("{{TITLE}}", source.title)
         .replace("{{TEXT}}", source.text)
+        .replace("{{FIGURES}}", _source_figures_prompt(source))
     )
 
-    script, primary_metadata = _generate_with_claude(prompt, model, effort)
-    errors = _validate(script)
+    script, primary_metadata = _generate_with_claude(
+        prompt,
+        model,
+        effort,
+        timeout_seconds=generation_timeout_seconds,
+    )
+    _normalize_generated_reveals(script, "Claude初稿")
+    errors = _validate(script, available_figure_count=len(source.figures))
     if errors:
         logger.warning("Claude初稿の検証エラー、1回だけ再生成する: {}", errors)
-        retry_prompt = (
-            prompt
-            + "\n\n# 前回の出力の問題点（修正すること）\n\n"
-            + "\n".join(f"- {e}" for e in errors)
-        )
+        retry_prompt = _build_claude_retry_prompt(prompt, script, errors)
         script, primary_metadata = _generate_with_claude(
-            retry_prompt, model, effort
+            retry_prompt,
+            model,
+            effort,
+            timeout_seconds=generation_timeout_seconds,
         )
-        errors = _validate(script)
+        _normalize_generated_reveals(script, "Claude再生成")
+        errors = _validate(script, available_figure_count=len(source.figures))
         if errors:
-            raise RuntimeError(f"Claude再生成後も台本が不正: {errors}")
+            logger.warning(
+                "Claude再生成後に残った検証エラーをCodex審査へ引き継ぐ: {}",
+                errors,
+            )
 
     script, review_metadata = _review_with_codex(
         source,
         script,
         review_model,
         review_effort,
+        timeout_seconds=generation_timeout_seconds,
+        errors=errors or None,
     )
-    errors = _validate(script)
+    _normalize_generated_reveals(script, "Codex審査")
+    errors = _validate(script, available_figure_count=len(source.figures))
     if errors:
         logger.warning("Codex審査後の検証エラー、1回だけ再審査する: {}", errors)
         script, review_metadata = _review_with_codex(
@@ -107,9 +150,11 @@ def generate_script(
             script,
             review_model,
             review_effort,
+            timeout_seconds=generation_timeout_seconds,
             errors=errors,
         )
-        errors = _validate(script)
+        _normalize_generated_reveals(script, "Codex再審査")
+        errors = _validate(script, available_figure_count=len(source.figures))
         if errors:
             raise RuntimeError(f"Codex再審査後も台本が不正: {errors}")
 
@@ -120,10 +165,35 @@ def generate_script(
     return script
 
 
+def _build_claude_retry_prompt(
+    prompt: str,
+    script: dict,
+    errors: list[str],
+) -> str:
+    """失敗台本を保持したまま、指摘箇所だけ直す再生成プロンプトを作る。"""
+    return (
+        prompt
+        + "\n\n# 前回の出力の問題点（すべて修正すること）\n\n"
+        + "\n".join(f"- {error}" for error in errors)
+        + "\n\n# 前回の台本JSON\n\n"
+        + json.dumps(script, ensure_ascii=False, indent=2)
+        + "\n\n問題のない箇所は維持し、修正後の完全なJSONを返してください。"
+    )
+
+
+def _normalize_generated_reveals(script: dict, stage: str) -> None:
+    """表示番号は機械的状態なので、全文再生成より限定修復を優先する。"""
+    repaired = normalize_reveal_counts(script)
+    if repaired:
+        logger.warning("{}のshow_itemsを機械修復: {}件", stage, repaired)
+
+
 def _generate_with_claude(
     prompt: str,
     model: str,
     effort: str,
+    *,
+    timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
 ) -> tuple[dict, dict]:
     logger.info(
         "Claude Maxで台本初稿を生成中 (model={}, effort={}, {}文字)...",
@@ -152,7 +222,7 @@ def _generate_with_claude(
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
-        timeout=GENERATION_TIMEOUT_SECONDS,
+        timeout=timeout_seconds,
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -175,12 +245,14 @@ def _review_with_codex(
     model: str,
     effort: str,
     *,
+    timeout_seconds: int = GENERATION_TIMEOUT_SECONDS,
     errors: list[str] | None = None,
 ) -> tuple[dict, dict]:
     prompt = (
         REVIEW_PROMPT_PATH.read_text(encoding="utf-8")
         .replace("{{TITLE}}", source.title)
         .replace("{{TEXT}}", source.text)
+        .replace("{{FIGURES}}", _source_figures_prompt(source))
         .replace(
             "{{SCRIPT}}",
             json.dumps(script, ensure_ascii=False, indent=2),
@@ -224,7 +296,7 @@ def _review_with_codex(
             capture_output=True,
             text=True,
             cwd=REPO_ROOT,
-            timeout=GENERATION_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -353,7 +425,21 @@ def _parse_json(raw: str) -> dict:
     return json.loads(raw[start : end + 1])
 
 
-def _validate(script: dict) -> list[str]:
+def _source_figures_prompt(source: SourceContent) -> str:
+    """画像URLを公開せず、AIが一次資料の図を番号で選べる一覧を作る。"""
+    if not source.figures:
+        return "利用可能な図はありません。"
+    return "\n".join(
+        f"{index}. {figure.caption}"
+        for index, figure in enumerate(source.figures, 1)
+    )
+
+
+def _validate(
+    script: dict,
+    *,
+    available_figure_count: int | None = None,
+) -> list[str]:
     errors = []
     for key in (
         "title",
@@ -391,9 +477,14 @@ def _validate(script: dict) -> list[str]:
             f"{THUMBNAIL_VISUAL_PROMPT_MAX_CHARS}文字以内の文字列にする"
         )
     scenes = script.get("scenes", [])
-    if not isinstance(scenes, list) or len(scenes) < 3:
-        errors.append(f"scenes が少なすぎる ({len(scenes)} 個)")
+    if not isinstance(scenes, list):
+        errors.append("scenes は8〜14個の配列にする")
         return errors
+    if not scenes:
+        errors.append("scenes は8〜14個にする (現在0個)")
+        return errors
+    if not 8 <= len(scenes) <= 14:
+        errors.append(f"scenes は8〜14個にする (現在{len(scenes)}個)")
 
     for i, scene in enumerate(scenes, 1):
         slide = scene.get("slide", {})
@@ -402,14 +493,31 @@ def _validate(script: dict) -> list[str]:
             errors.append(f"scene {i}: 不明な template '{template}'")
         else:
             errors.extend(_validate_slide_fields(i, slide, template))
+            if template == "diagram":
+                errors.extend(_validate_diagram(i, slide))
+            if template == "figure" and available_figure_count is not None:
+                figure_index = slide.get("figure_index")
+                if (
+                    type(figure_index) is int
+                    and figure_index > available_figure_count
+                ):
+                    errors.append(
+                        f"scene {i}: figure_index {figure_index} は利用可能な図 "
+                        f"{available_figure_count} 件の範囲外"
+                    )
         background_mood = slide.get("background_mood")
         if background_mood not in {"explain", "safety", "warm"}:
             errors.append(f"scene {i}: background_mood '{background_mood}' が不正")
         if not slide.get("heading"):
             errors.append(f"scene {i}: heading がない")
         lines = scene.get("lines", [])
-        if not lines:
-            errors.append(f"scene {i}: lines が空")
+        if not isinstance(lines, list):
+            errors.append(f"scene {i}: lines は2〜6個の配列にする")
+            lines = []
+        elif not 2 <= len(lines) <= 6:
+            errors.append(
+                f"scene {i}: lines は2〜6個にする (現在{len(lines)}個)"
+            )
         for j, line in enumerate(lines, 1):
             if line.get("speaker") not in SPEAKERS:
                 errors.append(
@@ -437,6 +545,8 @@ def _validate(script: dict) -> list[str]:
         if template in REVEAL_TEMPLATES and reveal_fields_valid:
             errors.extend(_validate_reveal(i, slide, lines))
 
+    errors.extend(_validate_world(scenes))
+
     if scenes[0].get("slide", {}).get("template") != "title":
         errors.append("最初のシーンが title でない")
     if scenes[-1].get("slide", {}).get("template") != "outro":
@@ -455,12 +565,79 @@ def _validate(script: dict) -> list[str]:
     return errors
 
 
+def _validate_world(scenes: list[dict]) -> list[str]:
+    """澪と透の固定世界観を、生成モデルの解釈だけに委ねず検証する。"""
+    errors = []
+    first_lines = scenes[0].get("lines", []) if scenes else []
+    if first_lines:
+        first = first_lines[0]
+        if (
+            first.get("speaker") != "zunda"
+            or first.get("zunda_pose") not in {"confused", "flustered"}
+        ):
+            errors.append(
+                "scene 1 line 1: 導入は困っている透の相談から始める"
+            )
+        elif "澪先生" not in first.get("text", ""):
+            errors.append(
+                "scene 1 line 1: 透は『澪先生』と呼びかけて相談を始める"
+            )
+        if not any(
+            line.get("speaker") == "metan" for line in first_lines[1:]
+        ):
+            errors.append("scene 1: 透の相談を受け止める澪の返答が必要")
+
+    for i, scene in enumerate(scenes, 1):
+        for j, line in enumerate(scene.get("lines", []), 1):
+            speaker = line.get("speaker")
+            text = line.get("text", "")
+            if not isinstance(text, str) or not text.strip():
+                continue
+            reading = line.get("reading")
+            utterances = [text]
+            if isinstance(reading, str) and reading.strip():
+                utterances.append(reading)
+            polite = all(_is_polite_utterance(value) for value in utterances)
+            if speaker == "zunda" and not polite:
+                errors.append(f"scene {i} line {j}: 透は常に敬語で話す")
+            if speaker != "metan":
+                continue
+            teasing = line.get("metan_pose") == "tease"
+            if teasing and polite:
+                errors.append(
+                    f"scene {i} line {j}: 澪がからかう時は敬語を使わない"
+                )
+            elif not teasing and not polite:
+                errors.append(
+                    f"scene {i} line {j}: 澪の非敬語はからかう時だけにする"
+                )
+    return errors
+
+
+def _is_polite_utterance(text: str) -> bool:
+    """各文末が敬語かを保守的に判定し、明白な口調崩れだけを弾く。"""
+    # 引用内の常体は話者本人の口調ではないため、文末判定から外す。
+    spoken = re.sub(r"「[^」]*」|『[^』]*』", "引用", text)
+    sentences = [
+        sentence.strip(" \t\n\r」』）)]…")
+        for sentence in re.split(r"[。！？!?]+", spoken)
+        if sentence.strip(" \t\n\r」』）)]…")
+    ]
+    return bool(sentences) and all(
+        sentence in _POLITE_INTERJECTIONS
+        or _POLITE_SENTENCE_END_RE.search(sentence) is not None
+        for sentence in sentences
+    )
+
+
 def _validate_slide_fields(i: int, slide: dict, template: str) -> list[str]:
     """描画で例外になる欠損を、AI再生成可能な検証エラーへ変換する。"""
     errors = []
     for field in TEMPLATE_FIELDS[template]:
         value = slide.get(field)
-        if isinstance(value, list):
+        if field == "figure_index":
+            valid = type(value) is int and value >= 1
+        elif isinstance(value, list):
             valid = bool(value) and all(
                 isinstance(item, str) and item.strip() for item in value
             )
@@ -471,8 +648,55 @@ def _validate_slide_fields(i: int, slide: dict, template: str) -> list[str]:
     return errors
 
 
+def _validate_diagram(i: int, slide: dict) -> list[str]:
+    """図型とノード数を固定し、HTMLテンプレートの意味を曖昧にしない。"""
+    errors = []
+    diagram_type = slide.get("diagram_type")
+    items = slide.get("items")
+    if diagram_type not in DIAGRAM_TYPES:
+        errors.append(f"scene {i}: diagram_type '{diagram_type}' が不正")
+    if not isinstance(items, list):
+        return errors
+    if not 2 <= len(items) <= 6:
+        errors.append(f"scene {i}: diagram の items は2〜6個にする")
+    if diagram_type == "matrix" and len(items) != 4:
+        errors.append(f"scene {i}: matrix の items は4個にする")
+    if diagram_type == "matrix":
+        for field in ("left_title", "right_title"):
+            value = slide.get(field)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"scene {i}: matrix では slide.{field} が必要")
+        if any(isinstance(item, str) and "|" in item for item in items):
+            errors.append(
+                f"scene {i}: 定量比較は matrix ではなく table を使う"
+            )
+        if any(
+            isinstance(item, str)
+            and item.strip().startswith(("横軸", "縦軸"))
+            for item in items
+        ):
+            errors.append(f"scene {i}: matrix の items に軸名を含めない")
+    if diagram_type == "table":
+        rows = [
+            [cell.strip() for cell in item.split("|")]
+            for item in items
+            if isinstance(item, str)
+        ]
+        column_counts = {len(row) for row in rows}
+        if (
+            len(rows) != len(items)
+            or len(column_counts) != 1
+            or not 2 <= next(iter(column_counts), 0) <= 4
+            or any(not cell for row in rows for cell in row)
+        ):
+            errors.append(
+                f"scene {i}: table は同じ2〜4列を | で区切った行にする"
+            )
+    return errors
+
+
 def _validate_reveal(i: int, slide: dict, lines: list[dict]) -> list[str]:
-    """bullets/outro/compare の show_items (段階表示) を検証する。"""
+    """項目型スライドの show_items (段階表示) を検証する。"""
     errors = []
     units = total_units(slide)
     previous = 0

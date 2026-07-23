@@ -1,9 +1,10 @@
-"""URL から本文テキストを抽出する。HTML / PDF / GitHub README に対応。"""
+"""URLから本文と一次資料の図候補を抽出する。HTML / PDF / GitHubに対応。"""
 
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -12,11 +13,21 @@ from loguru import logger
 from automator.citation import is_spark_share_url, sanitize_public_text
 
 MAX_TEXT_CHARS = 40_000
+MAX_SOURCE_FIGURES = 12
+MAX_FIGURE_BYTES = 15 * 1024 * 1024
 _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+# Spark treats full browser UAs as client-rendered pages and omits the SSR email.
+_SPARK_UA = "Mozilla/5.0"
 _SPARK_STREAM_MARKER = (
     "window.__reactRouterContext.streamController.enqueue("
 )
 _SPARK_ROUTE = "routes/thread/web-thread"
+
+
+@dataclass(frozen=True)
+class SourceFigure:
+    url: str
+    caption: str
 
 
 @dataclass
@@ -25,6 +36,7 @@ class SourceContent:
     title: str
     text: str
     kind: str  # "html" | "pdf" | "github"
+    figures: tuple[SourceFigure, ...] = ()
 
 
 def fetch_content(url: str) -> SourceContent:
@@ -38,8 +50,13 @@ def fetch_content(url: str) -> SourceContent:
     if github:
         return _fetch_github_readme(url, github.group(1), github.group(2))
 
+    spark_share = is_spark_share_url(url)
+    user_agent = _SPARK_UA if spark_share else _UA
     resp = httpx.get(
-        url, headers={"User-Agent": _UA}, follow_redirects=True, timeout=60
+        url,
+        headers={"User-Agent": user_agent},
+        follow_redirects=True,
+        timeout=60,
     )
     if resp.status_code != 200:
         raise RuntimeError(f"URL の取得に失敗: {url} (HTTP {resp.status_code})")
@@ -47,7 +64,7 @@ def fetch_content(url: str) -> SourceContent:
     content_type = resp.headers.get("content-type", "")
     if "application/pdf" in content_type or url.lower().endswith(".pdf"):
         return _extract_pdf(url, resp.content)
-    if is_spark_share_url(url):
+    if spark_share:
         return _extract_spark_share(url, resp.text)
     return _extract_html(url, resp.text)
 
@@ -202,7 +219,9 @@ def _extract_email_html(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
         tag.decompose()
-    for tag in soup.find_all(style=True):
+    # Descendants must be removed first: decomposing a parent invalidates the
+    # child Tag objects already returned by BeautifulSoup.
+    for tag in reversed(soup.find_all(style=True)):
         style = tag.get("style")
         if isinstance(style, str) and re.search(
             r"display\s*:\s*none", style, re.IGNORECASE
@@ -219,6 +238,7 @@ def _normalize_text(text: str) -> str:
 def _extract_html(url: str, html: str) -> SourceContent:
     soup = BeautifulSoup(html, "html.parser")
     title = soup.title.get_text(strip=True) if soup.title else url
+    figures = _extract_source_figures(url, soup)
 
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
         tag.decompose()
@@ -233,7 +253,116 @@ def _extract_html(url: str, html: str) -> SourceContent:
             f"JS レンダリングが必要な可能性: {url}"
         )
     logger.info("HTML を抽出: {} ({} 文字)", title, len(text))
-    return SourceContent(url=url, title=title, text=_truncate(text), kind="html")
+    return SourceContent(
+        url=url,
+        title=title,
+        text=_truncate(text),
+        kind="html",
+        figures=figures,
+    )
+
+
+def _extract_source_figures(
+    page_url: str,
+    soup: BeautifulSoup,
+) -> tuple[SourceFigure, ...]:
+    """本文中のキャプション付き図だけを、台本が選べる候補として抽出する。"""
+    figures: list[SourceFigure] = []
+    seen_urls: set[str] = set()
+    page_origin = urlparse(page_url).netloc
+    for figure in soup.find_all("figure"):
+        image = figure.find("img")
+        if image is None:
+            continue
+        raw_src = image.get("src") or image.get("data-src")
+        if not isinstance(raw_src, str) or not raw_src.strip():
+            continue
+        caption_tag = figure.find("figcaption")
+        raw_caption = (
+            caption_tag.get_text(" ", strip=True)
+            if caption_tag is not None
+            else image.get("alt")
+        )
+        if not isinstance(raw_caption, str) or not raw_caption.strip():
+            continue
+        figure_url = urljoin(page_url, raw_src.strip())
+        if not figure_url.startswith(("http://", "https://")):
+            continue
+        if urlparse(figure_url).netloc != page_origin:
+            continue
+        if figure_url in seen_urls:
+            continue
+        figures.append(
+            SourceFigure(
+                url=figure_url,
+                caption=_normalize_text(raw_caption),
+            )
+        )
+        seen_urls.add(figure_url)
+        if len(figures) >= MAX_SOURCE_FIGURES:
+            break
+    if figures:
+        logger.info("本文からキャプション付き図を {} 件抽出", len(figures))
+    return tuple(figures)
+
+
+def materialize_source_figures(
+    source: SourceContent,
+    destination: Path,
+    selected_indices: set[int],
+) -> tuple[Path, ...]:
+    """台本が参照した一次資料の図だけを、再レンダリング可能な形で保存する。"""
+    if not selected_indices:
+        return ()
+    source_origin = urlparse(source.url).netloc
+    selected: list[tuple[int, SourceFigure]] = []
+    for index in sorted(selected_indices):
+        if type(index) is not int or not 1 <= index <= len(source.figures):
+            raise RuntimeError(
+                f"figure_index {index} は利用可能な図 {len(source.figures)} 件の範囲外"
+            )
+        figure = source.figures[index - 1]
+        if urlparse(figure.url).netloc != source_origin:
+            raise RuntimeError(
+                "一次資料と異なるホストの図は取得しません: "
+                f"{urlparse(figure.url).netloc}"
+            )
+        selected.append((index, figure))
+
+    destination.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    suffixes = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "image/svg+xml": ".svg",
+    }
+    for index, figure in selected:
+        response = httpx.get(
+            figure.url,
+            headers={"User-Agent": _UA},
+            follow_redirects=True,
+            timeout=60,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"一次資料の図 {index} の取得に失敗 (HTTP {response.status_code})"
+            )
+        content_type = response.headers.get("content-type", "").split(";", 1)[0]
+        suffix = suffixes.get(content_type)
+        if suffix is None:
+            raise RuntimeError(
+                f"一次資料の図 {index} の形式を扱えません: {content_type or '不明'}"
+            )
+        if len(response.content) > MAX_FIGURE_BYTES:
+            raise RuntimeError(
+                f"一次資料の図 {index} が {MAX_FIGURE_BYTES} bytes を超えています"
+            )
+        path = destination / f"figure_{index:02d}{suffix}"
+        path.write_bytes(response.content)
+        paths.append(path)
+        logger.info("一次資料の図 {} を保存: {}", index, path)
+    return tuple(paths)
 
 
 def _truncate(text: str) -> str:

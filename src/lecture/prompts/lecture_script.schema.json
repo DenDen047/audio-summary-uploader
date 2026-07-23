@@ -28,6 +28,8 @@
     },
     "scenes": {
       "type": "array",
+      "minItems": 8,
+      "maxItems": 14,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -50,12 +52,17 @@
               "code",
               "caption",
               "quote",
-              "attribution"
+              "attribution",
+              "diagram_type",
+              "figure_index"
             ],
             "properties": {
               "template": {
                 "type": "string",
-                "enum": ["title", "bullets", "compare", "code", "quote", "outro"]
+                "enum": [
+                  "title", "bullets", "compare", "code", "quote",
+                  "diagram", "figure", "outro"
+                ]
               },
               "background_mood": {
                 "type": "string",
@@ -81,11 +88,24 @@
               "code": {"type": ["string", "null"]},
               "caption": {"type": ["string", "null"]},
               "quote": {"type": ["string", "null"]},
-              "attribution": {"type": ["string", "null"]}
+              "attribution": {"type": ["string", "null"]},
+              "diagram_type": {
+                "type": ["string", "null"],
+                "enum": [
+                  "flow", "tree", "layers", "timeline", "cycle",
+                  "matrix", "table", null
+                ]
+              },
+              "figure_index": {
+                "type": ["integer", "null"],
+                "minimum": 1
+              }
             }
           },
           "lines": {
             "type": "array",
+            "minItems": 2,
+            "maxItems": 6,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -99,7 +119,7 @@
               ],
               "properties": {
                 "speaker": {"type": "string", "enum": ["metan", "zunda"]},
-                "text": {"type": "string"},
+                "text": {"type": "string", "maxLength": 80},
                 "reading": {"type": "string"},
                 "metan_pose": {
                   "type": "string",

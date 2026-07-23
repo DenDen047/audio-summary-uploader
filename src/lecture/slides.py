@@ -61,6 +61,20 @@ def _background_for(slide: dict) -> tuple[str, str]:
     return mood, path.resolve().as_uri()
 
 
+def _source_figure_url(slide: dict, job_dir: Path) -> str | None:
+    if slide.get("template") != "figure":
+        return None
+    index = slide.get("figure_index")
+    if type(index) is not int or index < 1:
+        raise RuntimeError(f"figure_index が不正です: {index}")
+    matches = tuple((job_dir / "source_figures").glob(f"figure_{index:02d}.*"))
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"一次資料の図 {index} が一意に見つかりません: {matches}"
+        )
+    return matches[0].resolve().as_uri()
+
+
 def render_slides(
     script: dict,
     plans: list[ScenePlan],
@@ -90,6 +104,10 @@ def render_slides(
         for i, (scene, plan) in enumerate(zip(scenes, plans), 1):
             pngs = []
             background_mood, background_url = _background_for(scene["slide"])
+            source_figure_url = _source_figure_url(
+                scene["slide"],
+                slides_dir.parent,
+            )
             for k, visible in enumerate(plan.states, 1):
                 html = template.render(
                     slide=scene["slide"],
@@ -100,6 +118,7 @@ def render_slides(
                     body_font_url=body_font.resolve().as_uri(),
                     background_mood=background_mood,
                     background_url=background_url,
+                    source_figure_url=source_figure_url,
                 )
                 html_path = slides_dir / f"scene_{i:02d}_s{k}.html"
                 html_path.write_text(html, encoding="utf-8")

@@ -18,6 +18,7 @@ def test_load_settings_from_default() -> None:
     assert settings.lecture.script_effort == "xhigh"
     assert settings.lecture.review_model == "gpt-5.6-sol"
     assert settings.lecture.review_effort == "xhigh"
+    assert settings.lecture.generation_timeout_seconds == 3600
     assert settings.general.max_retries == 3
 
 

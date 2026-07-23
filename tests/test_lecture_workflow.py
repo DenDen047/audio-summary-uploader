@@ -25,7 +25,7 @@ from automator.pipeline import (
 )
 from automator.youtube import UploadResult
 from lecture.characters import CharacterAssets
-from lecture.fetch import SourceContent
+from lecture.fetch import SourceContent, SourceFigure
 from lecture.pipeline import (
     LectureArtifacts,
     RenderedLecture,
@@ -129,6 +129,12 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
         title="Source title",
         text="本文" * 200,
         kind="html",
+        figures=(
+            SourceFigure(
+                url="https://example.com/figure.png",
+                caption="Figure 1: 一次資料の正確なキャプション",
+            ),
+        ),
     )
     script = {
         "title": "澪先生と学ぶテスト",
@@ -144,7 +150,17 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
             "metered_api": False,
         },
         "eyecatch_before_scenes": [2],
-        "scenes": [{"slide": {}, "lines": []}],
+        "scenes": [
+            {
+                "slide": {
+                    "template": "figure",
+                    "figure_index": 1,
+                    "caption": "AIが転記した仮キャプション",
+                    "attribution": "仮出典",
+                },
+                "lines": [],
+            }
+        ],
     }
 
     def fake_render(_script: dict, job_dir: Path) -> RenderedLecture:
@@ -185,6 +201,10 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
     with (
         patch("lecture.pipeline.fetch_content", return_value=source),
         patch("lecture.pipeline.generate_script", return_value=script),
+        patch(
+            "lecture.pipeline.materialize_source_figures",
+            return_value=(),
+        ) as materialize,
         patch("lecture.pipeline.generate_thumbnail_backdrop", return_value=backdrop),
         patch("lecture.pipeline.render_lecture", side_effect=fake_render),
         patch(
@@ -202,6 +222,17 @@ def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
     assert artifacts.thumbnail_path.read_bytes() == b"thumbnail"
     assert artifacts.source_path.read_text(encoding="utf-8") == source.text
     assert json.loads(artifacts.script_path.read_text(encoding="utf-8")) == script
+    assert script["scenes"][0]["slide"]["caption"] == (
+        "Figure 1: 一次資料の正確なキャプション"
+    )
+    assert script["scenes"][0]["slide"]["attribution"] == (
+        "Source title — Figure 1"
+    )
+    materialize.assert_called_once_with(
+        source,
+        artifacts.job_dir / "source_figures",
+        {1},
+    )
     upload = json.loads(artifacts.upload_metadata_path.read_text(encoding="utf-8"))
     assert upload == {
         "source_url": source.url,
@@ -287,7 +318,9 @@ async def test_collect_generates_lecture_without_notebooklm(tmp_path: Path) -> N
     artifacts = _artifacts(tmp_path / "lecture-job")
 
     with (
-        patch("automator.pipeline.generate_lecture", return_value=artifacts),
+        patch(
+            "automator.pipeline.generate_lecture", return_value=artifacts
+        ) as generate,
         patch(
             "automator.pipeline._create_backend",
             side_effect=AssertionError("NotebookLM must not be created"),
@@ -296,6 +329,7 @@ async def test_collect_generates_lecture_without_notebooklm(tmp_path: Path) -> N
         results = await collect_audio(settings, poll=True)
 
     assert [result.status for result in results] == ["video_ready"]
+    assert generate.call_args.kwargs["generation_timeout_seconds"] == 3600
     job = json.loads(state_path.read_text(encoding="utf-8"))["jobs"][0]
     assert job["status"] == "video_ready"
     assert job["metadata"]["title"] == artifacts.title

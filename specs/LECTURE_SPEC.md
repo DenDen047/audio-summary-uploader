@@ -47,12 +47,13 @@
 URL（記事 / 論文 / GitHub / Spark メール共有）またはローカル PDF
     │
     ▼
-1. fetch.py         URL → 本文テキスト抽出（HTML/Spark: httpx+bs4 / PDF: pymupdf）
+1. fetch.py         URL → 本文テキスト＋キャプション付き図の抽出
+                   （HTML/Spark: httpx+bs4 / PDF: pymupdf）
     │
     ▼
 2. script_gen.py    Claude Maxで初稿 → ChatGPT Pro Codexで最終審査
     │                 - タイトル / 説明文 / タグ
-    │                 - scenes[]: スライド内容（テンプレ型に正規化）＋掛け合いセリフ
+    │                 - scenes[]: 一次資料図または意味別図解＋掛け合いセリフ
     │                 - サムネイルコピー＋動画固有の背景美術案
     │
     ▼
@@ -87,21 +88,27 @@ output: tmp/lecture/<job_id>/
         video.mp4 + thumbnail.png + upload_metadata.json
         thumbnail-background.svg + thumbnail-background.png
         + thumbnail-background-prompt.txt
-        （＋ source.txt, script.json, slides/, audio/）
+        （＋ source.txt, source_figures/, script.json, slides/, audio/）
 ```
 
 ## 3. モジュール仕様
 
 ### 3.1 fetch.py — 本文抽出
 
-- `fetch_content(url) -> SourceContent(title, text, kind)`
+- `fetch_content(url) -> SourceContent(title, text, kind, figures)`
 - HTML は `httpx` + `BeautifulSoup` で `<article>` 優先・なければ `<main>`・`<body>` の
-  テキストを抽出。PDF（Content-Type または拡張子判定）は `pymupdf`。
+  テキストを抽出する。同時に、本文中の`figure > img`と`figcaption`の組を最大12件抽出し、
+  台本にはURLを渡さず、番号とキャプションだけを候補として渡す。PDF
+  （Content-Type または拡張子判定）は`pymupdf`で本文を抽出し、v1では図候補を持たない。
 - Spark の `/web-share/` URL は、SSR 応答中の React Router 初期データから件名と
   `threadRaw.messages[].webMessage.parts[]` のメール本文を復元する。ブラウザ描画済みDOMには
-  依存せず、非表示プリヘッダー、メールアドレス、共有URLを本文から除去する。
+  依存しない。Sparkは完全なブラウザUAではSSR本文を省くため、共有ページ取得時だけ
+  `Mozilla/5.0`を送り、入れ子を含む非表示プリヘッダー、メールアドレス、共有URLを本文から除去する。
 - ローカル情報源は PDF のみ受け付け、HTTP を経由せず直接抽出する。
 - GitHub リポジトリ URL は README を raw.githubusercontent.com から取得。
+- 台本が`figure_index`で選んだ図だけを、元ページと同一ホストから最大15MBで取得し、
+  `source_figures/figure_NN.<ext>`へ保存する。PNG / JPEG / WebP / SVGに限定し、後から
+  `lecture render`だけを再実行できるよう外部URLへ依存しない。
 - 上限 40,000 文字で切り詰め（台本生成プロンプトの入力上限対策）。
 - 取得失敗は Fail Fast（例外で即停止）。
 
@@ -111,6 +118,8 @@ output: tmp/lecture/<job_id>/
   **Claude Code CLI** と、ChatGPT Proでログイン済みの **Codex CLI** を呼ぶ。
 - 初稿は`claude -p --safe-mode --model opus --effort xhigh --tools ""`で生成する。
   `--json-schema`で構造を強制し、外部ツール・カスタマイズ・セッション保存を無効にする。
+- Claude/Codexの各CLI呼び出しは`lecture.generation_timeout_seconds`で上限を設定する。
+  40,000文字級の入力を最高品質で処理できるよう既定値は3,600秒とする。
 - 初稿を固定コードで検証後、`codex exec --ephemeral --ignore-user-config --ignore-rules
   --sandbox read-only --model gpt-5.6-sol`へ、元情報・初稿・審査基準を渡す。
   `model_reasoning_effort=xhigh`、`approval_policy="never"`、`--output-schema`で、技術的断定、
@@ -119,9 +128,11 @@ output: tmp/lecture/<job_id>/
 - 監査情報には要求モデル、実際に使われた全モデル、各役割、effort、認証方式、
   `metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
 - 入力: 本文テキスト＋プロンプトテンプレート（`prompts/lecture_script.md`）。
-- 出力: 下記スキーマの JSON。コードフェンス除去→`json.loads`→スキーマ検証
-  （投稿タグを含む必須キー・テンプレ型・話者名・セリフ長）を行い、不正なら 1 回だけ再生成、
-  それでも駄目なら Fail Fast。
+- 出力: 下記スキーマの JSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`で
+  Claude/Codexの両方へ強制し、コードフェンス除去→`json.loads`→固定コードでも再検証する。
+  投稿タグを含む必須キー・テンプレ型・話者名・セリフ長が不正なら、前回の台本JSONと
+  行番号付きエラーを渡してClaudeで1回だけ修正する。残ったエラーは初稿ごとCodex審査へ
+  引き継ぎ、Codexでも1回だけ再審査する。それでも不正ならFail Fastする。
 
 ```json
 {
@@ -150,7 +161,7 @@ output: tmp/lecture/<job_id>/
   "scenes": [
     {
       "slide": {
-        "template": "title | bullets | compare | code | quote | outro",
+        "template": "title | bullets | compare | code | quote | diagram | figure | outro",
         "background_mood": "explain | safety | warm",
         "heading": "スライド見出し",
         "...": "テンプレ型ごとの追加フィールド（§3.3）"
@@ -173,12 +184,32 @@ output: tmp/lecture/<job_id>/
   - 想定視聴者は AI・ソフトウェア技術に関心のあるエンジニア。
     リスナー個人の属性には言及しない（公開面の規約は現行 prompt_presets と同じ）。
   - 1 シーン 1 論点。スライドは要点の再掲ではなくセリフの「板書」。
+  - **図解優先**: 一次資料に論点を直接支える図があれば`figure`、なければ意味に合う
+    `diagram`、関係性を視覚化できない残余だけを`bullets` / `quote`にする。
+  - 図型は、対立・2軸=`matrix`、派生・分類=`tree`、因果・処理順=`flow`、
+    積層依存=`layers`、時間変化=`timeline`、フィードバック=`cycle`、定量比較=`table`とする。
+    数値表をmatrixへ入れず、全説明を一つの図型へ押し込めない
+    （ultrasurveyの意味関係別マッピングに準拠）。
+  - `tree.items[0]`は親・根、残りは子とする。複数要素をまとめる主体は根へ置き、
+    枝と説明の向きが逆転しないようにする。
+  - 一次資料図の表示キャプションはAIの転記値を使わず、抽出時のキャプションへ戻す。
+    出典資料名とFigure番号を併記し、図の意味を変える加工はしない。
   - 掛け合いは 解説役（metan）× 聞き役・ツッコミ役（zunda）の役割分担。
-  - 冒頭に導入（なぜ今この話題か）、末尾に「結局何が重要か」のまとめ。
-  - 目安: 8〜14 シーン、セリフ合計 3,000〜4,500 字（≒ 5〜8 分）。
-- **セリフ同期の段階表示** (`show_items`): bullets / outro は「そのセリフの間に
+  - 透は独り言・驚き・ツッコミを含めて常に敬語で話す。澪も通常は敬語で話し、
+    `metan_pose: tease` の短いからかい一言だけ非敬語にする。からかい以外の口調崩れと、
+    敬語のままの`tease`は固定コードで検証し、不正なら再生成する。
+  - 冒頭は、困っている透が「澪先生」と相談する具体的な場面から始める。透が試したことと
+    腑に落ちない点を示し、澪が問題の正体と今回の問いを定める。説明順は原則として
+    `困りごと → 問い → 一文の答え → 全体図 → 代表例 → 原理 → 一次資料・実測 →
+    失敗例・限界 → 判断`とし、末尾で冒頭の困りごとを回収する。既存チャンネルからは
+    問題起点の構成だけを参考にし、台詞・人物像・世界観は模倣しない。
+  - 8〜14 シーン、各シーン2〜6セリフ。セリフ合計の目安は3,000〜4,500字
+    （≒ 5〜8 分）。Python検証と構造化出力schemaの両方で上下限を強制する。
+- **セリフ同期の段階表示** (`show_items`): bullets / outro / diagram は「そのセリフの間に
   見えている項目数」(単調非減少、最後は総数)、compare は 1=左のみ / 2=両方。
-  title / code / quote には付けない。検証は script_gen、計画の組み立ては reveal.py。
+  title / code / quote / figure には付けない。検証は script_gen、計画の組み立ては reveal.py。
+  AIが整数を返した場合の範囲超過・逆行・最終項目不足は、内容を再生成せず有効範囲へ
+  決定論的に正規化する。欠損や非整数は正規化せず検証エラーとして再生成へ戻す。
 - **表情・ポーズ**: 全セリフに `metan_pose` / `zunda_pose` を持たせる。セリフ開始時に
   切り替え、次のセリフ開始まで維持する。澪は視聴者向け説明、注意、軽い微笑みを、
   透は傾聴、疑問、照れ、理解、喜びを内容に応じて使い分ける。
@@ -204,11 +235,11 @@ output: tmp/lecture/<job_id>/
 
 | 領域 | 実行主体 | 理由 |
 |---|---|---|
-| 要点抽出、会話構成、スライド内容、投稿文、背景美術案 | Claude Opus | 長い一次情報から自然な初稿を組み立てる必要がある |
+| 要点抽出、会話構成、図型選択、スライド内容、投稿文、背景美術案 | Claude Opus | 長い一次情報から自然な初稿を組み立てる必要がある |
 | 技術的断定、危険なコマンド、説明順、会話、構造の最終審査 | Codex Sol | 初稿を元情報と独立に照合し、公開前の第二視点が必要である |
 | サムネイル背景 | Python / SVG / Playwright | Codexの意味モチーフを、追加費用なしで再現可能な図形へ変換する |
 | 声の波形生成 | VOICEVOX | 確定した読みを話者スタイルごとの音声へ変換する専用TTS |
-| JSON検証、スライド配置、キャラ、字幕、口パク、時間同期、動画合成 | Python / Playwright / ffmpeg | 同じ入力なら同じ位置・同じ時間で再現し、微小な見た目の揺れを防ぐ |
+| 図の取得とキャプション固定、JSON検証、スライド配置、キャラ、字幕、口パク、時間同期、動画合成 | Python / Playwright / ffmpeg | 同じ入力なら同じ位置・同じ時間で再現し、微小な見た目の揺れを防ぐ |
 
 生成AIは意味や美術のように「正解が一つでない箇所」に限定し、キャラクター同一性、文字の
 正確さ、幾何学、時間同期のように「毎回一致すべき箇所」は固定コードへ閉じ込める。AI出力と
@@ -227,10 +258,15 @@ output: tmp/lecture/<job_id>/
   読みやすい半透明の板書面を置く。見出しは丸ゴシック
   (M PLUS Rounded 1c) ＋ずんだ緑×めたんピンクの2色グラデーションマーカー
   （署名要素）。本文は Noto Sans JP。
+- titleテンプレートの出典ラベルは左右のキャラクター安全領域へ入らない最大幅に制限し、
+  長い論文名・記事名は末尾を省略表示する。
   フォントは `fonts/` の ttf を `@font-face` で読む（環境非依存）。
   日本語見出しの改行は `budoux` で分節する。
 - `code` テンプレは Pygments (monokai, インラインスタイル) でハイライトし、
   mac 風ウィンドウ枠に載せる。lexer はコード内容から判定（console / python / bash）。
+- `figure`はジョブ内に保存した一次資料の図を白いカード内へ`object-fit: contain`で表示し、
+  抽出時のキャプションと出典を併記する。`diagram`は意味別の7図型を決定論的HTML/CSSで
+  描画し、ノードをセリフに同期して順に表示する。
 - テンプレ型（固定パターン。クロノIT方式の「決まったテンプレの組み合わせ」）:
 
 | template | 用途 | フィールド |
@@ -240,6 +276,8 @@ output: tmp/lecture/<job_id>/
 | `compare` | 2 カラム対比 | heading, left_title, left_items[], right_title, right_items[] |
 | `code`    | コード/コマンド例 | heading, code, caption |
 | `quote`   | 原文引用 | heading, quote, attribution |
+| `diagram` | 関係性の図解 | heading, diagram_type (`flow/tree/layers/timeline/cycle/matrix/table`), items[] (2〜6、matrixは4)。matrixのみleft_title=横軸・right_title=縦軸。tableは先頭を見出しとし、同じ2〜4列を ` | ` で区切る |
+| `figure`  | 一次資料の図 | heading, figure_index, caption, attribution |
 | `outro`   | まとめ | heading, items[] (≤4)。チェックマーク付き箇条書き |
 
 ### 3.4 tts.py — 音声合成（VOICEVOX）
@@ -342,6 +380,8 @@ uv run lecture render <job_dir>                 # script.json 以降だけ再実
 ```
 tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 ├── source.txt               # 抽出本文（デバッグ用）
+├── source_figures/          # 台本が選んだ一次資料図（外部URLなしで再描画可能）
+│   └── figure_01.png ...
 ├── script.json              # 台本（編集して render で再合成可能）
 ├── thumbnail-background.svg # 審査済み美術案から作る編集可能なベクター原本
 ├── thumbnail-background.png # SVGをローカルでラスタライズした背景

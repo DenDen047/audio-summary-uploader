@@ -12,9 +12,14 @@ from pathlib import Path
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from automator.citation import sanitize_public_text
 from lecture.assemble import EyeCatch, assemble
 from lecture.characters import CharacterAssets, prepare_characters
-from lecture.fetch import fetch_content
+from lecture.fetch import (
+    SourceContent,
+    fetch_content,
+    materialize_source_figures,
+)
 from lecture.reveal import build_reveal_plan
 from lecture.script_gen import generate_script
 from lecture.slides import render_slides
@@ -83,6 +88,7 @@ def generate_lecture(
     script_effort: str = "xhigh",
     review_model: str = "gpt-5.6-sol",
     review_effort: str = "xhigh",
+    generation_timeout_seconds: int = 3600,
 ) -> LectureArtifacts:
     """URL から動画・サムネイル・投稿情報を同じジョブフォルダへ出力する。"""
     source = fetch_content(url)
@@ -93,6 +99,7 @@ def generate_lecture(
             effort=script_effort,
             review_model=review_model,
             review_effort=review_effort,
+            generation_timeout_seconds=generation_timeout_seconds,
         )
     else:
         script = json.loads(script_path.read_text(encoding="utf-8"))
@@ -107,6 +114,13 @@ def generate_lecture(
     source_output = job_dir / "source.txt"
     script_output = job_dir / "script.json"
     source_output.write_text(source.text, encoding="utf-8")
+    selected_figures = _selected_source_figure_indices(script)
+    materialize_source_figures(
+        source,
+        job_dir / "source_figures",
+        selected_figures,
+    )
+    _bind_source_figure_metadata(script, source)
     script_output.write_text(
         json.dumps(script, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -161,6 +175,42 @@ def generate_lecture(
         thumbnail_backdrop=backdrop,
         script_generation=script_generation,
     )
+
+
+def _selected_source_figure_indices(script: dict) -> set[int]:
+    selected: set[int] = set()
+    for scene in script.get("scenes", []):
+        slide = scene.get("slide", {})
+        if slide.get("template") != "figure":
+            continue
+        index = slide.get("figure_index")
+        if type(index) is not int or index < 1:
+            raise RuntimeError(f"figure_index が不正です: {index}")
+        selected.add(index)
+    return selected
+
+
+def _bind_source_figure_metadata(script: dict, source: SourceContent) -> None:
+    """AIの転記揺れを捨て、表示キャプションを一次資料の値へ戻す。"""
+    source_title = re.sub(
+        r"https?://\S+",
+        "",
+        sanitize_public_text(source.title),
+    ).strip()
+    if not source_title:
+        source_title = "一次資料"
+    for scene in script.get("scenes", []):
+        slide = scene.get("slide", {})
+        if slide.get("template") != "figure":
+            continue
+        index = slide.get("figure_index")
+        if type(index) is not int or not 1 <= index <= len(source.figures):
+            raise RuntimeError(
+                f"figure_index {index} は利用可能な図 {len(source.figures)} 件の範囲外"
+            )
+        figure = source.figures[index - 1]
+        slide["caption"] = sanitize_public_text(figure.caption)
+        slide["attribution"] = f"{source_title} — Figure {index}"
 
 
 def render_lecture(script: dict, job_dir: Path) -> RenderedLecture:

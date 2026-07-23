@@ -98,6 +98,8 @@
     font-size: 28px; color: var(--sub-ink);
     background: #FFFFFF; border: 2px solid var(--panel-border);
     border-radius: 999px; padding: 10px 34px;
+    max-width: 880px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; vertical-align: middle;
   }
 
   /* bullets / outro */
@@ -171,6 +173,135 @@
     word-break: keep-all; overflow-wrap: anywhere;
   }
   .attribution { font-size: 30px; color: var(--sub-ink); margin-top: 36px; text-align: right; }
+
+  /* diagram: 意味関係ごとに形を変え、AI画像ではなく編集可能なHTML/CSSで固定描画する。 */
+  .diagram { width: 100%; min-height: 390px; }
+  .diagram-node {
+    background: #FFFFFF; border: 3px solid var(--panel-border);
+    border-radius: 20px; box-shadow: 0 7px 20px rgba(42, 52, 64, 0.08);
+    font-family: "RoundedMPlus", sans-serif; text-align: center;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  .diagram-node:nth-child(odd) { border-top: 8px solid var(--metan); }
+  .diagram-node:nth-child(even) { border-top: 8px solid var(--zunda); }
+  .diagram-flow, .diagram-cycle {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+  }
+  .diagram-flow .diagram-node, .diagram-cycle .diagram-node {
+    flex: 1; min-width: 0; padding: 30px 12px; font-size: 25px; line-height: 1.4;
+  }
+  .diagram-arrow {
+    flex: 0 0 30px; color: var(--sub-ink); font-size: 42px;
+    font-family: "RoundedMPlus", sans-serif; text-align: center;
+  }
+  .diagram-cycle { position: relative; padding-bottom: 74px; }
+  .cycle-return {
+    position: absolute; left: 8%; right: 8%; bottom: 14px;
+    border-bottom: 5px solid var(--metan); height: 42px;
+    color: var(--metan); font-size: 42px; line-height: 66px; text-align: left;
+  }
+  .cycle-return::after { content: "↺ くり返す"; background: rgba(255,255,255,.82); padding: 0 18px; }
+  .diagram-tree { display: flex; flex-direction: column; align-items: center; }
+  .tree-root { width: 38%; padding: 26px; font-size: 31px; }
+  .tree-trunk { width: 5px; height: 52px; background: var(--sub-ink); }
+  .tree-branches {
+    width: 100%; display: flex; justify-content: center; gap: 22px;
+    border-top: 5px solid var(--sub-ink); padding-top: 42px;
+  }
+  .tree-branches .diagram-node {
+    flex: 1; position: relative; padding: 25px 14px; font-size: 25px;
+  }
+  .tree-branches .diagram-node::before {
+    content: ""; position: absolute; width: 5px; height: 42px;
+    background: var(--sub-ink); top: -47px; left: calc(50% - 2px);
+  }
+  .diagram-layers {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 10px;
+  }
+  .diagram-layers .diagram-node { padding: 15px 28px; font-size: 26px; }
+  .diagram-layers .diagram-node:nth-child(1) { width: 64%; }
+  .diagram-layers .diagram-node:nth-child(2) { width: 70%; }
+  .diagram-layers .diagram-node:nth-child(3) { width: 76%; }
+  .diagram-layers .diagram-node:nth-child(4) { width: 82%; }
+  .diagram-layers .diagram-node:nth-child(5) { width: 88%; }
+  .diagram-layers .diagram-node:nth-child(6) { width: 94%; }
+  .diagram-timeline {
+    display: flex; align-items: center; justify-content: space-between;
+    position: relative; padding-top: 36px;
+  }
+  .diagram-timeline::before {
+    content: ""; position: absolute; left: 4%; right: 4%; top: 70px;
+    height: 6px; background: linear-gradient(90deg, var(--metan), var(--zunda));
+  }
+  .timeline-step { flex: 1; min-width: 0; position: relative; padding-top: 66px; }
+  .timeline-dot {
+    position: absolute; top: 16px; left: calc(50% - 17px);
+    width: 34px; height: 34px; border-radius: 50%; background: #FFFFFF;
+    border: 8px solid var(--metan);
+  }
+  .timeline-step:nth-child(even) .timeline-dot { border-color: var(--zunda); }
+  .timeline-step .diagram-node {
+    margin: 0 8px; padding: 22px 10px; font-size: 23px; min-height: 94px;
+  }
+  .diagram-matrix { position: relative; padding: 48px 60px 0 96px; }
+  .matrix-x-label {
+    position: absolute; top: 0; left: 96px; right: 60px;
+    text-align: center; font-size: 24px; color: var(--sub-ink);
+  }
+  .matrix-y-label {
+    position: absolute; left: -80px; top: 210px; width: 300px;
+    transform: rotate(-90deg); font-size: 24px; color: var(--sub-ink);
+    text-align: center; white-space: nowrap;
+  }
+  .matrix-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    border-left: 5px solid var(--ink); border-bottom: 5px solid var(--ink);
+    padding: 0 0 14px 14px;
+  }
+  .matrix-grid .diagram-node { min-height: 132px; padding: 34px 18px; font-size: 27px; }
+  .diagram-table {
+    display: flex; flex-direction: column; justify-content: center;
+    min-height: 430px; padding: 12px 24px;
+  }
+  .table-row {
+    display: grid;
+    grid-template-columns: repeat(var(--table-columns), minmax(0, 1fr));
+  }
+  .table-cell {
+    min-width: 0; padding: 22px 16px; border-right: 2px solid #FFFFFF;
+    border-bottom: 2px solid #FFFFFF; background: rgba(255,255,255,.94);
+    font-size: 25px; line-height: 1.35; text-align: center;
+    word-break: keep-all; overflow-wrap: anywhere;
+  }
+  .table-row:first-child .table-cell {
+    background: linear-gradient(90deg, var(--metan), var(--zunda));
+    color: #FFFFFF; font-family: "RoundedMPlus", sans-serif; font-size: 27px;
+  }
+  .table-row:first-child .table-cell:first-child { border-radius: 18px 0 0 0; }
+  .table-row:first-child .table-cell:last-child { border-radius: 0 18px 0 0; }
+  .table-row:last-child .table-cell:first-child { border-radius: 0 0 0 18px; }
+  .table-row:last-child .table-cell:last-child { border-radius: 0 0 18px 0; }
+
+  /* figure: 一次資料の画像をローカル保存して再現性と出典表示を保つ。 */
+  .source-figure-card {
+    width: 100%; height: 500px; padding: 18px 24px 14px;
+    border: 3px solid var(--panel-border); border-radius: 22px;
+    background: #FFFFFF; box-shadow: 0 7px 22px rgba(42, 52, 64, 0.10);
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .source-figure-card img {
+    width: 100%; min-height: 0; flex: 1; object-fit: contain;
+  }
+  .source-figure-caption {
+    width: 100%; margin-top: 10px; font-size: 21px; line-height: 1.35;
+    color: var(--ink); text-align: center; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .source-figure-attribution {
+    width: 100%; margin-top: 5px; font-size: 18px; color: var(--sub-ink);
+    text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
 </style>
 </head>
 <body class="mood-{{ background_mood }}">
@@ -229,6 +360,64 @@
       <div class="mark">“</div>
       <blockquote class="quote">{{ slide.quote | budoux }}</blockquote>
       <div class="attribution">{{ slide.attribution }}</div>
+    </div>
+  </div>
+
+  {% elif slide.template == "diagram" %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    {% if slide.diagram_type in ("flow", "cycle") %}
+    <div class="diagram diagram-{{ slide.diagram_type }}">
+      {% for item in slide["items"] %}
+      <div class="diagram-node{% if visible is not none and loop.index > visible %} pending{% endif %}">{{ item | budoux }}</div>
+      {% if not loop.last %}<div class="diagram-arrow{% if visible is not none and loop.index >= visible %} pending{% endif %}">→</div>{% endif %}
+      {% endfor %}
+      {% if slide.diagram_type == "cycle" %}<div class="cycle-return{% if visible is not none and visible < slide["items"] | length %} pending{% endif %}"></div>{% endif %}
+    </div>
+    {% elif slide.diagram_type == "tree" %}
+    <div class="diagram diagram-tree">
+      <div class="diagram-node tree-root{% if visible is not none and visible < 1 %} pending{% endif %}">{{ slide["items"][0] | budoux }}</div>
+      <div class="tree-trunk{% if visible is not none and visible < 2 %} pending{% endif %}"></div>
+      <div class="tree-branches">
+        {% for item in slide["items"][1:] %}<div class="diagram-node{% if visible is not none and loop.index + 1 > visible %} pending{% endif %}">{{ item | budoux }}</div>{% endfor %}
+      </div>
+    </div>
+    {% elif slide.diagram_type == "layers" %}
+    <div class="diagram diagram-layers">
+      {% for item in slide["items"] %}<div class="diagram-node{% if visible is not none and loop.index > visible %} pending{% endif %}">{{ item | budoux }}</div>{% endfor %}
+    </div>
+    {% elif slide.diagram_type == "timeline" %}
+    <div class="diagram diagram-timeline">
+      {% for item in slide["items"] %}
+      <div class="timeline-step{% if visible is not none and loop.index > visible %} pending{% endif %}"><div class="timeline-dot"></div><div class="diagram-node">{{ item | budoux }}</div></div>
+      {% endfor %}
+    </div>
+    {% elif slide.diagram_type == "matrix" %}
+    <div class="diagram diagram-matrix">
+      <div class="matrix-x-label">横軸：{{ slide.left_title | budoux }}</div>
+      <div class="matrix-y-label">縦軸：{{ slide.right_title | budoux }}</div>
+      <div class="matrix-grid">
+        {% for item in slide["items"] %}<div class="diagram-node{% if visible is not none and loop.index > visible %} pending{% endif %}">{{ item | budoux }}</div>{% endfor %}
+      </div>
+    </div>
+    {% elif slide.diagram_type == "table" %}
+    <div class="diagram diagram-table" style="--table-columns: {{ slide['items'][0].split('|') | length }}">
+      {% for row in slide["items"] %}
+      <div class="table-row{% if visible is not none and loop.index > visible %} pending{% endif %}">
+        {% for cell in row.split("|") %}<div class="table-cell">{{ cell | trim | budoux }}</div>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% elif slide.template == "figure" %}
+  <h1 class="heading"><span class="marker">{{ slide.heading | budoux }}</span></h1>
+  <div class="content">
+    <div class="source-figure-card">
+      <img src="{{ source_figure_url }}" alt="{{ slide.caption }}">
+      <div class="source-figure-caption">{{ slide.caption }}</div>
+      <div class="source-figure-attribution">{{ slide.attribution }}</div>
     </div>
   </div>
   {% endif %}

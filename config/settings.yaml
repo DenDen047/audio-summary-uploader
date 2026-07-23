@@ -86,3 +86,5 @@ lecture:
   script_effort: "xhigh"
   review_model: "gpt-5.6-sol"
   review_effort: "xhigh"
+  # 長文入力を最高品質で生成・審査するため、各CLI呼び出しを最大60分待つ。
+  generation_timeout_seconds: 3600

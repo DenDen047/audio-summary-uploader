@@ -1264,6 +1264,7 @@ async def _collect_lecture_single(
         script_effort=settings.lecture.script_effort,
         review_model=settings.lecture.review_model,
         review_effort=settings.lecture.review_effort,
+        generation_timeout_seconds=settings.lecture.generation_timeout_seconds,
     )
     metadata = {
         "title": artifacts.title,

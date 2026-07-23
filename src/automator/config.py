@@ -90,6 +90,7 @@ class LectureConfig:
     script_effort: str = "xhigh"
     review_model: str = "gpt-5.6-sol"
     review_effort: str = "xhigh"
+    generation_timeout_seconds: int = 3600
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -100,6 +101,10 @@ class LectureConfig:
         ):
             if not getattr(self, field_name).strip():
                 raise ValueError(f"lecture.{field_name} must not be empty")
+        if self.generation_timeout_seconds <= 0:
+            raise ValueError(
+                "lecture.generation_timeout_seconds must be greater than zero"
+            )
 
 
 @dataclass
