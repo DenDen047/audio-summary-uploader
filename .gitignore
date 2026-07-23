@@ -239,10 +239,9 @@ AI_INSTRUCTIONS.md
 credentials/*.json
 credentials/gemini_cookie_cache/
 !credentials/.gitkeep
-tmp/audio/
-tmp/thumbnails/
-tmp/videos/
-tmp/lecture/
+# tmp/ は一時ファイル置き場全体を無視（デバッグ・実験の生成物が溜まりやすいため）
+tmp/*
+!tmp/.gitkeep
 state.json
 fonts/*.ttf
 fonts/.DS_Store
