@@ -158,7 +158,6 @@ def generate_script(
         PROMPT_PATH,
         {
             "TITLE": source.title,
-            "TEXT": source.text,
             "FIGURES": _source_figures_prompt(source),
             "UNDERSTANDING": json.dumps(
                 understanding, ensure_ascii=False, indent=2
@@ -182,23 +181,33 @@ def generate_script(
     if errors:
         logger.warning("Claude初稿の検証エラー、1回だけ再生成する: {}", errors)
         retry_prompt = _build_claude_retry_prompt(prompt, script, errors)
-        script, primary_metadata = _generate_with_claude(
-            retry_prompt,
-            model,
-            effort,
-            role="scene-writing",
-            stage_label="場面再生成",
-            timeout_seconds=generation_timeout_seconds,
-        )
-        _sanitize_generated_content(script, source.url)
-        scene_draft = script
-        _normalize_generated_reveals(script, "Claude再生成")
-        errors = _validate(script, available_figure_count=len(source.figures))
-        if errors:
+        try:
+            script, primary_metadata = _generate_with_claude(
+                retry_prompt,
+                model,
+                effort,
+                role="scene-writing",
+                stage_label="場面再生成",
+                timeout_seconds=generation_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
             logger.warning(
-                "Claude再生成後に残った検証エラーをCodex審査へ引き継ぐ: {}",
+                "Claude再生成がタイムアウトしたため初稿と検証エラーを"
+                "Codex審査へ引き継ぐ: {}",
                 errors,
             )
+        else:
+            _sanitize_generated_content(script, source.url)
+            scene_draft = script
+            _normalize_generated_reveals(script, "Claude再生成")
+            errors = _validate(
+                script, available_figure_count=len(source.figures)
+            )
+            if errors:
+                logger.warning(
+                    "Claude再生成後に残った検証エラーをCodex審査へ引き継ぐ: {}",
+                    errors,
+                )
 
     script, review_metadata = _review_with_codex(
         source,

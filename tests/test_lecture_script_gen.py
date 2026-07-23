@@ -1,7 +1,7 @@
 """AI台本を動画・投稿工程へ渡す前の契約テスト。"""
 
 import json
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
 from lecture.fetch import SourceContent, SourceFigure
@@ -110,7 +110,7 @@ def test_claude_retry_prompt_includes_previous_script() -> None:
     assert "scene 2 line 1: 透は常に敬語で話す" in retry_prompt
 
 
-def test_generate_script_passes_remaining_claude_errors_to_codex() -> None:
+def test_generate_script_passes_timed_out_claude_repair_to_codex() -> None:
     source = SourceContent(
         url="https://example.com/source",
         title="Source",
@@ -144,12 +144,12 @@ def test_generate_script_passes_remaining_claude_errors_to_codex() -> None:
                 (draft, metadata),
                 (draft, metadata),
                 (draft, metadata),
-                (draft, metadata),
+                TimeoutExpired(cmd=["claude"], timeout=3600),
             ],
         ),
         patch(
             "lecture.script_gen._validate",
-            side_effect=[remaining_errors, remaining_errors, []],
+            side_effect=[remaining_errors, []],
         ),
         patch(
             "lecture.script_gen._review_with_codex",

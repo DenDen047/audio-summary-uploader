@@ -147,12 +147,15 @@ output: tmp/lecture/<job_id>/
 - 段階成果物は`source-understanding.json`、`teaching-outline.json`、
   `scene-draft.json`、`script.json`としてジョブへ保存する。各AIへ元URLは渡さず、
   成果物へURL・メールアドレス・アクセストークンを残さない。
+- 場面生成へは資料理解、教える順番、図候補だけを渡し、元資料本文を重複投入しない。
+  元資料との直接照合は資料理解と最終の教え方レビューが担う。
 - 出力: 下記スキーマの JSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`で
   Claude/Codexの両方へ強制し、コードフェンス除去→`json.loads`→固定コードでも再検証する。
   投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数が不正なら、
   前回の台本JSONと
   行番号付きエラーを渡してClaudeで1回だけ修正する。残ったエラーは初稿ごとCodex審査へ
-  引き継ぎ、Codexでも1回だけ再審査する。それでも不正ならFail Fastする。
+  引き継ぐ。限定修正だけがタイムアウトした場合も、得られている初稿と検証エラーを
+  Codexへ引き継ぐ。Codexでも1回だけ再審査し、それでも不正ならFail Fastする。
 
 ```json
 {
