@@ -273,6 +273,15 @@ def test_polite_validation_ignores_plain_style_inside_a_quote() -> None:
     )
 
 
+def test_polite_validation_accepts_past_tense_and_trailing_vocative() -> None:
+    assert _is_polite_utterance(
+        "いい着眼です、透くん。中央値は45.2ミリでした。"
+    )
+    assert _is_polite_utterance(
+        "いい着眼です、とおるくん。中央値はよんじゅうごてんにミリでした。"
+    )
+
+
 def test_world_validation_checks_spoken_reading_style_too() -> None:
     scenes = [
         {

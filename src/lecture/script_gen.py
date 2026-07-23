@@ -97,9 +97,10 @@ DIALOGUE_CHARS_RANGE = (3000, 4500)
 _PUBLIC_SOURCE_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 _UNRESOLVED_PLACEHOLDER_RE = re.compile(r"\{\{[A-Z_]+\}\}")
 _POLITE_SENTENCE_END_RE = re.compile(
-    r"(?:です|ます|ません|ました|ましょう|でしょう|ください|ございます|"
+    r"(?:です|でした|ます|ません|ませんでした|ました|ましょう|でしょう|ください|ございます|"
     r"おります|いたします)(?:か|ね|よ|よね|かね)?$"
 )
+_VOCATIVE_SUFFIX_RE = re.compile(r"、(?:透くん|とおるくん|澪先生)$")
 _POLITE_INTERJECTIONS = {"はい", "ええ", "ありがとうございます", "すみません"}
 
 
@@ -738,7 +739,10 @@ def _is_polite_utterance(text: str) -> bool:
     # 引用内の常体は話者本人の口調ではないため、文末判定から外す。
     spoken = re.sub(r"「[^」]*」|『[^』]*』", "引用", text)
     sentences = [
-        sentence.strip(" \t\n\r」』）)]…")
+        _VOCATIVE_SUFFIX_RE.sub(
+            "",
+            sentence.strip(" \t\n\r」』）)]…"),
+        )
         for sentence in re.split(r"[。！？!?]+", spoken)
         if sentence.strip(" \t\n\r」』）)]…")
     ]
