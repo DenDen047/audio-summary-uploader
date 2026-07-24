@@ -7,7 +7,7 @@
 クロノITチャンネルの動画「【祝チャンネル開設半年】ぶっちゃけマークダウンって読みづらくない？」（https://youtu.be/348DdatDa4A 、2026-07-08 公開）で紹介された動画制作方針に従う。動画内で語られた方式の要点:
 
 1. **映像生成 AI は使わない**。遅い・高い・毎回結果が変わり差分修正できないため。「決まったテンプレのパターンを組み合わせるだけで講義動画としては十分成立する」。
-2. **コード生成で動画を作る**。Claude Codeで台本初稿、ChatGPT ProのCodexで技術／編集審査を行い、どちらも既存サブスクリプション内で実行する。
+2. **コード生成で動画を作る**。参照元はClaude Codeで台本初稿、ChatGPT ProのCodexで技術／編集審査を行う。現行実装は、Claude Code自身が4段階スキルと固定検証を循環して台本を仕上げ、会話履歴を持たない独立審査を生成セッションから分離する。
 3. 中身は「丁寧に噛み砕いたマークダウン」。それを **2 キャラクターの掛け合い**（音声＋字幕）とスライド映像で同時に提示する（視覚＋聴覚の 2 チャンネル）。
 4. TTS はクロノITも当初 VOICEVOX（ずんだもん）で開始し、後に規約フリー・多言語の独自キャラ＋独自 TTS に移行した。
 
@@ -44,7 +44,8 @@ URL（記事 / 論文 / GitHub / Spark メール共有 / YouTube）またはロ�
     │                 2) 教える順番: 場面の問い・理解目標・接続理由
     │                 3) 場面生成: 図解＋澪・透の掛け合い
     │                 4) 教え方レビュー: 根拠・平易さ・掛け合い・感情
-    │                 Claude Code（1〜3）→ ChatGPT Pro Codex（4）
+    │                 Claude Codeの1セッションが4スキルを順に実行
+    │                 各段階を保存→固定検証→指摘箇所だけ最大3回修正
     │
     ▼
 3. reveal.py        show_items から段階表示の計画を組み立てる
@@ -100,20 +101,21 @@ output: tmp/lecture/<job_id>/
 
 ### 3.2 script_gen.py — 4段階の台本生成
 
-- 定額サブスク内で完結させるため、APIではなくClaude Maxでログイン済みの**Claude Code CLI** と、ChatGPT Proでログイン済みの **Codex CLI** を呼ぶ。
-- 「資料理解」「教える順番」「場面生成」は、それぞれ独立したJSONを`claude -p --safe-mode --model opus --effort xhigh --tools ""`で生成する。各段階で専用`--json-schema`を使い、外部ツール・カスタマイズ・セッション保存を無効にする。
-- Claude/Codexの各CLI呼び出しは`lecture.generation_timeout_seconds`で上限を設定する。40,000文字級の入力を最高品質で処理できるよう既定値は3,600秒とする。
-- 場面初稿を固定コードで検証後、`codex exec --ephemeral --ignore-user-config --ignore-rules --sandbox read-only --model gpt-5.6-sol`へ、元情報、資料理解、教える順番、初稿、教え方レビュー基準を渡す。`model_reasoning_effort=xhigh`、`approval_policy="never"`、`--output-schema`で、技術的断定、危険なコマンド、未定義語、説明順、掛け合い、世界観、感情、澪・透の口調、字幕と読み、スライド同期を最終審査する。
-- Claude Max認証とChatGPT認証を起動前に確認し、APIキー経路へフォールバックしない。
-- 監査情報には要求モデル、実際に使われた全モデル、各役割、effort、認証方式、`metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
-- 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、パイプラインと`.claude/skills/`の対話用スキルが同じファイルを読む。対話用スキルは`.agents/skills/`からシンボリックリンクする。
+- 定額サブスク内で完結させるため、APIではなくClaude Maxでログイン済みの**Claude Code CLI**を1回呼ぶ。Claude Code自身が「資料理解」「教える順番」「場面生成」「教え方レビュー」を同一セッションで実行し、前段成果物と元資料を必要な範囲で調査し直せるようにする。
+- `script_gen.py`は元資料本文をstdinへ展開せず、元URLを除いた`run-input.json`と`source.txt`を一時作業ディレクトリへ置き、`/lecture-generate-autonomously`と作業ディレクトリだけを短い実行指示として渡す。Claude Codeはプロジェクト設定だけを読み、`Read` / `Write` / `Edit` / `Grep`と固定検証コマンドだけを許可し、MCP・外部検索・ネットワーク取得・セッション保存を無効にする。
+- `--safe-mode`はプロジェクトスキルまで無効にするため使用しない。代わりに`--setting-sources project`、限定した`--tools` / `--allowedTools`、`--strict-mcp-config`を組み合わせ、プロジェクト外のカスタマイズを読み込まない。
+- Claude Code CLI呼び出しは`lecture.generation_timeout_seconds`で上限を設定する。40,000文字級の入力を最高品質で処理し、4工程の検証修正まで完了できるよう既定値は3,600秒とする。
+- Claude Max認証を起動前に確認し、APIキー経路へフォールバックしない。生成経路で別の`claude -p`や`codex exec`を入れ子にしない。
+- 監査情報には要求モデル、実際に使われた全モデル、4工程の役割、effort、認証方式、`metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
+- 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、パイプラインから起動されたClaude Codeと`.claude/skills/`の対話用スキルが同じファイルを読む。対話用スキルと統括スキルは`.agents/skills/`からシンボリックリンクする。MDは段落や同一リスト項目を手動折り返しせず、Markdown構造に必要な改行だけを残す。
   - `lecture_source_understanding.md`
   - `lecture_teaching_outline.md`
   - `lecture_script.md`
   - `lecture_teaching_review.md`
-- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`としてジョブへ保存する。各AIへ元URLは渡さず、成果物へURL・メールアドレス・アクセストークンを残さない。
-- 場面生成へは資料理解、教える順番、図候補だけを渡し、元資料本文を重複投入しない。元資料との直接照合は資料理解と最終の教え方レビューが担う。
-- 出力: 下記スキーマの JSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`でClaude/Codexの両方へ強制し、コードフェンス除去→`json.loads`→固定コードでも再検証する。投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数が不正なら、前回の台本JSONと行番号付きエラーを渡してClaudeで1回だけ修正する。残ったエラーは初稿ごとCodex審査へ引き継ぐ。限定修正だけがタイムアウトした場合も、得られている初稿と検証エラーをCodexへ引き継ぐ。Codexでも1回だけ再審査し、それでも不正ならFail Fastする。
+- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存し、合格後にジョブへ保存する。Claude Codeへ元URLは渡さず、各段階の固定検証と公開前サニタイズの両方で、成果物へURL・メールアドレス・アクセストークンを残さない。
+- 場面生成は資料理解、教える順番、図候補を確定入力にし、元資料本文を重複した長いプロンプトとして再投入しない。同一セッション内の教え方レビューだけが、資料理解と元資料を直接照合して根拠・限界を再確認する。
+- `lecture-generate-autonomously/scripts/validate_workdir.py`は各段階のJSON Schema、主張ID、場面番号、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。Claude Codeはエラーに挙がった箇所だけを直し、同一工程は初回を含め最大3回までとする。3回目でも未達なら後続へ進まず`run-status.json`へ残存エラーを保存してFail Fastする。
+- 出力は下記スキーマのJSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`と固定コードで検証し、投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数3,000〜4,500字も固定コードで強制する。
 
 ```json
 {
@@ -123,18 +125,18 @@ output: tmp/lecture/<job_id>/
   "thumbnail_text": ["疑問・意外性", "具体的な便益"],
   "thumbnail_visual_prompt": "motif=packages; 人物や文字を含めない動画固有の背景美術案",
   "generation": {
-    "script_agent": "claude-code-cli+codex-cli",
-    "script_model_requested": "opus + gpt-5.6-sol",
-    "script_models_used": ["claude-opus-4-8", "gpt-5.6-sol"],
+    "script_agent": "claude-code-cli",
+    "script_model_requested": "opus",
+    "script_models_used": ["claude-opus-4-8"],
     "primary": {
       "authentication": "claude-max-subscription",
       "effort": "xhigh",
-      "role": "draft-and-character-writing"
+      "role": "scene-writing"
     },
     "review": {
-      "authentication": "chatgpt-subscription",
+      "authentication": "claude-max-subscription",
       "effort": "xhigh",
-      "role": "technical-and-editorial-review"
+      "role": "teaching-review-and-repair"
     },
     "metered_api": false,
     "quality_mode": "xhigh"
@@ -189,8 +191,8 @@ output: tmp/lecture/<job_id>/
 
 | 領域 | 実行主体 | 理由 |
 |---|---|---|
-| 要点抽出、会話構成、図型選択、スライド内容、投稿文、背景美術案 | Claude Opus | 長い一次情報から自然な初稿を組み立てる必要がある |
-| 技術的断定、危険なコマンド、説明順、会話、構造の最終審査 | Codex Sol | 初稿を元情報と独立に照合し、公開前の第二視点が必要である |
+| 資料理解、教える順番、場面生成、教え方レビュー、図型選択、スライド内容、投稿文、背景美術案 | Claude Code / Claude Opus | 長い一次情報と段階成果物を調査し、固定検証の指摘を局所修正する必要がある |
+| Layer 2品質審査 | 会話履歴を持たない独立サブエージェント | 生成セッション自身の自己採点を避け、`--emit-judge-prompt`で作った審査ファイルだけを評価する |
 | サムネイル背景 | Python / SVG / Playwright | Codexの意味モチーフを、追加費用なしで再現可能な図形へ変換する |
 | 声の波形生成 | VOICEVOX | 確定した読みを話者スタイルごとの音声へ変換する専用TTS |
 | 図の取得とキャプション固定、JSON検証、スライド配置、キャラ、字幕、口パク、時間同期、動画合成 | Python / Playwright / ffmpeg | 同じ入力なら同じ位置・同じ時間で再現し、微小な見た目の揺れを防ぐ |
@@ -231,7 +233,7 @@ output: tmp/lecture/<job_id>/
 - **立ち絵** (`characters.py`): 優先は `assets/characters/video_v3/{zunda,metan}.png` のカスタム立ち絵（画像生成で作成した規約フリーのオリジナルキャラ。ローズ色の解説役＝metan 声、ハニーイエローの聞き役＝zunda 声。単色クロマキーで生成して透過化）。PowerPointで手動調整した配置を基準に、澪は1232px高の素材キャンバスを`x=0, y=205`、透は1019px高の素材キャンバスを`x=1641, y=231`へ置く。画面内で見える基準寸法は澪505×875px、透186×677px。透明余白は配置情報を兼ねるため左右もトリムしない。透は大きな頭、短い胴と手足、狭いなで肩を持つ約5頭身の少年体型を画像生成段階で確定し、動画合成時に骨格を引き伸ばさない。フォールバックは VOICEVOX 公式ポートレートの上半身クロップ (高さ 500px)。減光版は作らない (非話者を暗くすると不自然なため、話者だけを動かして目立たせる)。
 - **口パク** (`characters.py`): `{name}_open.png` がある立ち絵は、閉じ画像へ位置合わせ（±6px総当たり）→ 差分の最大密度ブロブ（格子 8px、輪郭の細線ノイズを除外）から口元パッチを自動抽出する。表情・ポーズ差分には必ず同じ名前の専用口開き画像(`{name}__{pose}_open.png`) を用意し、別ポーズの口やプログラム描画の口は流用しない。正規化後の全差分が96×72pxを超える素材は、顔・髪などの再生成が混入したものとして動画生成前にエラーにする。合成時、発話区間だけパッチを点滅させて口パクにする。澪は0.56秒周期のうち0.14秒だけ開くことで、落ち着いた話速に合う控えめな動きにする。
 - **クレジット表記**: VOICEVOX 利用規約に従い、概要欄 description に`VOICEVOX:満別花丸` `VOICEVOX:もち子さん` を必ず含める（script_gen のdescription 生成後にコードで強制付与する）。アイキャッチ効果音はOtoLogic の CC BY 4.0 素材を使い、`OtoLogic` のクレジットも強制付与する。
-- **公開情報の安全化**: 入力元 URL は Claude / Codex の台本プロンプトへ渡さず、台本全体（タイトル、スライド、字幕、サムネ文言、概要欄）から入力元 URL とメールアドレスをコードで除去する。URL は state と `upload_metadata.json` の内部追跡用 `source_url` にだけ保持する。OtoLogic のライセンス表記 URL は維持する。
+- **公開情報の安全化**: 入力元URLはClaude Codeの`run-input.json`と短い実行指示へ渡さず、台本全体（タイトル、スライド、字幕、サムネ文言、概要欄）から入力元URLとメールアドレスをコードで除去する。URLはstateと`upload_metadata.json`の内部追跡用`source_url`にだけ保持する。OtoLogicのライセンス表記URLは維持する。
 
 ### 3.5 assemble.py — 合成
 
@@ -288,8 +290,8 @@ tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 
 ## 5. 失敗時の方針
 
-- 全ステージ Fail Fast（AGENTS.md 方針どおり）。リトライは script_gen のJSON 不正時 1 回のみ。固定背景が必要な運用では`background_mode: static`を明示する。
-- VOICEVOXエンジン未起動、Claude Code / Codex CLI不在、Claude Max / ChatGPT Pro未ログインは前提条件エラーとして起動方法を添えて即終了。APIキー経路へは切り替えない。
+- 全ステージFail Fast（AGENTS.md方針どおり）。Claude Codeは段階成果物を保存してから固定検証を行い、同一工程は初回を含め最大3回まで局所修正する。3回目でも未達なら停止する。固定背景が必要な運用では`background_mode: static`を明示する。
+- VOICEVOXエンジン未起動、Claude Code CLI不在、Claude Max未ログインは前提条件エラーとして起動方法を添えて即終了する。APIキー経路へは切り替えない。
 
 ## 6. 現行システムから再利用するもの / しないもの
 

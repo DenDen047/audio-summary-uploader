@@ -50,6 +50,9 @@ config/              # settings.yaml
 
 **メタルール**: ユーザーから開発スタイル・ワークフロー・ツール利用方法に関する指示があった場合、その内容をその場で `CLAUDE.md` または対応する `.claude/skills/*/SKILL.md` に反映すること。口頭で確認するだけでなく、必ずファイルに書き残す。
 
+- lecture台本のパイプライン生成は`lecture-generate-autonomously`を起点にし、Claude Code自身が4工程のスキルを読み、段階成果物を保存し、固定検証の指摘だけを最大3回修正する。工程プロンプト本文をPythonや統括スキルへ複製しない。
+- `src/lecture/prompts/`のMarkdownは、段落や同一リスト項目を手動折り返ししない。見出し、段落間、独立したリスト項目、コード・JSON例などMarkdownの構造に必要な改行だけを残す。
+
 ## Lecture Visual Explanation Policy
 
 - **Diagram first**: 講義動画では、関係・構造・手順・時間変化を図で表せる場合、箇条書きより図解を優先する。

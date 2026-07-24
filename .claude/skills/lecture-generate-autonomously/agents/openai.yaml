@@ -1,0 +1,4 @@
+interface:
+  display_name: "講義台本を自律生成"
+  short_description: "4段階スキルと固定検証を循環してlecture台本を生成"
+  default_prompt: "元資料からlecture台本を4段階で生成し、固定検証を通るまで局所修正してください。"

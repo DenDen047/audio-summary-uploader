@@ -21,7 +21,7 @@ from podcast.youtube import authenticate
 
 @click.group()
 def main() -> None:
-    """audio-summary-uploader: Gemini Notebook (旧 NotebookLM) → YouTube automation pipeline."""
+    """Gemini Notebook（旧NotebookLM）からYouTubeまでを自動化する。"""
 
 
 @main.command()

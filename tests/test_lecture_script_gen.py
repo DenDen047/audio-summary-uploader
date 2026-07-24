@@ -1,29 +1,26 @@
 """AI台本を動画・投稿工程へ渡す前の契約テスト。"""
 
 import json
-from subprocess import CompletedProcess, TimeoutExpired
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from lecture.script_gen import (
     _assert_subscription_auth,
-    _build_claude_retry_prompt,
-    _claude_schema,
+    _autonomous_task_prompt,
     _finalize,
-    _generate_with_claude,
     _generation_metadata,
     _is_polite_utterance,
-    _parse_claude_output,
-    _parse_codex_output,
-    _source_figures_prompt,
+    _run_autonomous_claude,
     _validate,
     _validate_diagram,
     _validate_world,
+    _write_autonomous_inputs,
     generate_script,
 )
 from sources.fetch import SourceContent, SourceFigure
 
 
-def test_subscription_auth_accepts_codex_status_on_stderr() -> None:
+def test_subscription_auth_accepts_claude_max() -> None:
     claude_status = CompletedProcess(
         args=[],
         returncode=0,
@@ -36,81 +33,78 @@ def test_subscription_auth_accepts_codex_status_on_stderr() -> None:
         ),
         stderr="",
     )
-    codex_status = CompletedProcess(
-        args=[],
-        returncode=0,
-        stdout="",
-        stderr="Logged in using ChatGPT\n",
-    )
-
     with (
         patch("lecture.script_gen.shutil.which", return_value="/bin/tool"),
         patch(
             "lecture.script_gen.subprocess.run",
-            side_effect=[claude_status, codex_status],
+            return_value=claude_status,
         ),
     ):
         _assert_subscription_auth()
 
 
-def test_claude_schema_removes_unsupported_draft_declaration() -> None:
-    schema = json.loads(_claude_schema())
-    line_properties = schema["properties"]["scenes"]["items"]["properties"][
-        "lines"
-    ]["items"]["properties"]
-
-    assert "$schema" not in schema
-    assert schema["additionalProperties"] is False
-    assert line_properties["text"]["maxLength"] == 80
-    slide = schema["properties"]["scenes"]["items"]["properties"]["slide"]
-    assert {"diagram", "figure"} <= set(
-        slide["properties"]["template"]["enum"]
-    )
-    assert {"diagram_type", "figure_index"} <= set(slide["required"])
-    assert schema["properties"]["scenes"]["minItems"] == 8
-    assert schema["properties"]["scenes"]["maxItems"] == 14
-    lines = schema["properties"]["scenes"]["items"]["properties"]["lines"]
-    assert lines["minItems"] == 2
-    assert lines["maxItems"] == 6
-    assert "table" in slide["properties"]["diagram_type"]["enum"]
-
-
-def test_claude_generation_uses_configured_timeout() -> None:
+def test_autonomous_generation_enables_project_skill_and_fixed_tools(
+    tmp_path,
+) -> None:
+    work_dir = tmp_path
     response = CompletedProcess(
         args=[],
         returncode=0,
-        stdout=json.dumps({"structured_output": {}}),
+        stdout=json.dumps(
+            {"modelUsage": {"claude-opus": {}}},
+            ensure_ascii=False,
+        ),
         stderr="",
     )
 
     with patch(
-        "lecture.script_gen.subprocess.run", return_value=response
+        "lecture.script_gen.subprocess.run",
+        return_value=response,
     ) as run:
-        _generate_with_claude(
-            "prompt",
+        metadata = _run_autonomous_claude(
+            work_dir,
             "opus",
             "xhigh",
             timeout_seconds=3600,
         )
 
-    assert run.call_args.kwargs["timeout"] == 3600
+    command = run.call_args.args[0]
+    prompt = run.call_args.kwargs["input"]
+    assert "--safe-mode" not in command
+    assert command[command.index("--setting-sources") + 1] == "project"
+    assert "Read,Write,Edit,Grep,Bash" in command
+    assert "validate_workdir.py" in command[command.index("--allowedTools") + 1]
+    assert prompt.startswith("/lecture-generate-autonomously")
+    assert metadata["models_used"] == ["claude-opus"]
 
 
-def test_claude_retry_prompt_includes_previous_script() -> None:
-    previous = {"title": "前回", "scenes": [{"lines": []}]}
-
-    retry_prompt = _build_claude_retry_prompt(
-        "元の指示",
-        previous,
-        ["scene 2 line 1: 透は常に敬語で話す"],
+def test_autonomous_input_contract_excludes_source_url(tmp_path) -> None:
+    source = SourceContent(
+        url="https://example.com/private?access_token=secret",
+        title="Source https://example.com/private?access_token=secret",
+        text="本文",
+        kind="html",
+        figures=[
+            SourceFigure(
+                caption=(
+                    "Figure 1 https://example.com/private?access_token=secret"
+                ),
+                url="https://example.com/figure.png",
+            )
+        ],
     )
 
-    assert "元の指示" in retry_prompt
-    assert json.dumps(previous, ensure_ascii=False, indent=2) in retry_prompt
-    assert "scene 2 line 1: 透は常に敬語で話す" in retry_prompt
+    _write_autonomous_inputs(source, tmp_path)
+
+    run_input = (tmp_path / "run-input.json").read_text(encoding="utf-8")
+    assert source.url not in run_input
+    assert "https://" not in run_input
+    assert (tmp_path / "source.txt").read_text(encoding="utf-8") == "本文"
+    assert "run-input.jsonの契約" in _autonomous_task_prompt(tmp_path)
+    assert "Source" not in _autonomous_task_prompt(tmp_path)
 
 
-def test_generate_script_passes_timed_out_claude_repair_to_codex() -> None:
+def test_generate_script_collects_autonomous_stage_outputs() -> None:
     source = SourceContent(
         url="https://example.com/source",
         title="Source",
@@ -124,42 +118,46 @@ def test_generate_script_passes_timed_out_claude_repair_to_codex() -> None:
         "models_used": ["claude-opus"],
         "effort": "xhigh",
         "authentication": "claude-max-subscription",
-        "role": "draft-and-character-writing",
+        "role": "autonomous-four-stage-generation",
     }
-    review_metadata = {
-        "agent": "codex-cli",
-        "model_requested": "gpt-5.6-sol",
-        "models_used": ["gpt-5.6-sol"],
-        "effort": "xhigh",
-        "authentication": "chatgpt-subscription",
-        "role": "technical-and-editorial-review",
-    }
-    remaining_errors = ["scene 2 line 1: 透は常に敬語で話す"]
+    stage_outputs = {}
+
+    def run_autonomously(work_dir, model, effort, *, timeout_seconds):
+        del model, effort, timeout_seconds
+        payloads = {
+            "source-understanding.json": {"stage": "understanding"},
+            "teaching-outline.json": {"stage": "outline"},
+            "scene-draft.json": draft,
+            "script.json": draft,
+            "run-status.json": {
+                "status": "passed",
+                "validation": {"passed": True, "errors": []},
+            },
+        }
+        for filename, payload in payloads.items():
+            (work_dir / filename).write_text(
+                json.dumps(payload, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        return metadata
 
     with (
         patch("lecture.script_gen._assert_subscription_auth"),
         patch(
-            "lecture.script_gen._generate_with_claude",
-            side_effect=[
-                (draft, metadata),
-                (draft, metadata),
-                (draft, metadata),
-                TimeoutExpired(cmd=["claude"], timeout=3600),
-            ],
+            "lecture.script_gen._run_autonomous_claude",
+            side_effect=run_autonomously,
         ),
-        patch(
-            "lecture.script_gen._validate",
-            side_effect=[remaining_errors, []],
-        ),
-        patch(
-            "lecture.script_gen._review_with_codex",
-            return_value=(draft, review_metadata),
-        ) as review,
+        patch("lecture.script_gen._validate", return_value=[]),
         patch("lecture.script_gen._finalize"),
     ):
-        generate_script(source)
+        script = generate_script(source, stage_outputs=stage_outputs)
 
-    assert review.call_args.kwargs["errors"] == remaining_errors
+    assert script["generation"]["script_agent"] == "claude-code-cli"
+    assert stage_outputs["source-understanding.json"]["stage"] == (
+        "understanding"
+    )
+    assert stage_outputs["teaching-outline.json"]["stage"] == "outline"
+    assert stage_outputs["scene-draft.json"] == {"scenes": []}
 
 
 def test_world_validation_requires_tooru_problem_first() -> None:
@@ -345,54 +343,33 @@ def test_finalize_is_idempotent_for_required_credits() -> None:
     assert "reader@example.com" not in public_script
 
 
-def test_claude_and_codex_metadata_records_subscription_policy() -> None:
-    script_payload = {
-        "title": "テスト",
-        "description": "説明",
-        "tags": ["AI"],
-        "thumbnail_text": ["なぜ？", "解決"],
-        "thumbnail_visual_prompt": "motif=network; 光る経路",
-        "eyecatch_before_scenes": [2],
-        "scenes": [],
+def test_autonomous_metadata_records_subscription_policy() -> None:
+    primary = {
+        "agent": "claude-code-cli",
+        "model_requested": "opus",
+        "models_used": ["claude-opus-4-8"],
+        "effort": "xhigh",
+        "authentication": "claude-max-subscription",
+        "role": "scene-writing",
     }
-    envelope = json.dumps(
-        {
-            "structured_output": script_payload,
-            "modelUsage": {"claude-opus-4-8": {}},
-        },
-        ensure_ascii=False,
-    )
-
-    script, primary = _parse_claude_output(envelope, "opus", "xhigh")
-    reviewed = _parse_codex_output(
-        json.dumps(script_payload, ensure_ascii=False)
-    )
     generation = _generation_metadata(
         primary,
         {
-            "agent": "codex-cli",
-            "model_requested": "gpt-5.6-sol",
-            "models_used": ["gpt-5.6-sol"],
+            **primary,
             "effort": "xhigh",
-            "authentication": "chatgpt-subscription",
-            "role": "technical-and-editorial-review",
+            "role": "teaching-review-and-repair",
         },
     )
 
-    assert script == script_payload
-    assert reviewed == script_payload
-    assert generation["script_agent"] == "claude-code-cli+codex-cli"
-    assert generation["script_models_used"] == [
-        "claude-opus-4-8",
-        "gpt-5.6-sol",
-    ]
+    assert generation["script_agent"] == "claude-code-cli"
+    assert generation["script_models_used"] == ["claude-opus-4-8"]
     assert generation["quality_mode"] == "xhigh"
     assert generation["metered_api"] is False
     assert generation["primary"]["authentication"] == (
         "claude-max-subscription"
     )
     assert generation["review"]["authentication"] == (
-        "chatgpt-subscription"
+        "claude-max-subscription"
     )
 
 
@@ -487,26 +464,6 @@ def test_validate_reports_missing_template_fields_without_raising() -> None:
     )
 
     assert "scene 3: slide.items が空または不正" in errors
-
-
-def test_source_figures_prompt_exposes_captions_but_not_urls() -> None:
-    source = SourceContent(
-        url="https://papers.example/article",
-        title="Paper",
-        text="本文",
-        kind="html",
-        figures=(
-            SourceFigure(
-                url="https://papers.example/private-path/figure.png",
-                caption="Figure 1: 学習ループ",
-            ),
-        ),
-    )
-
-    prompt = _source_figures_prompt(source)
-
-    assert "1. Figure 1: 学習ループ" in prompt
-    assert "https://" not in prompt
 
 
 def test_validate_distinguishes_quantitative_table_from_matrix() -> None:

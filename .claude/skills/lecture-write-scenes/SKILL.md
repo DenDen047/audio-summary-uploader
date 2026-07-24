@@ -5,11 +5,8 @@ description: lectureモードの資料理解と教える順番から、図解優
 
 # 講義の場面生成
 
-1. `source-understanding.json`と`teaching-outline.json`を読む。
-2. `src/lecture/prompts/lecture_script.md`を全文読む。このMDがキャラクター、図解、
-   セリフ、採点下限を含むプロンプト本文の単一ソースである。
-3. 全プレースホルダーを置換する。元URLは渡さず、一次資料の図は番号とキャプションだけを渡す。
-4. AIを呼ぶ場合は`claude -p`のサブスクリプション経路だけを使い、
-   `src/lecture/prompts/lecture_script.schema.json`でJSONを拘束する。
-5. 結果を`scene-draft.json`として保存し、`scripts/score_lecture.py`の機械指標を確認する。
-   不正JSONや固定検証エラーだけを直し、同一箇所の再試行は3回までにする。
+1. 合格済みの`source-understanding.json`と`teaching-outline.json`を確定入力として読む。
+2. `src/lecture/prompts/lecture_script.md`を全文読む。このMDがキャラクター、図解、セリフ、採点下限を含む工程プロンプト本文の単一ソースであり、本文をこのスキルや実行指示へ複製しない。
+3. タイトル、前段JSON、URLを除いた図番号・キャプションを各プレースホルダーの入力として適用する。
+4. 現在のClaude Codeセッション自身が`src/lecture/prompts/lecture_script.schema.json`に一致する完全な台本JSONを書き、指定された`scene-draft.json`へ保存する。別のAI CLIを起動しない。
+5. 自律生成スキルの固定検証を`draft`段階で実行し、M1〜M6・M8と構造制約を確認する。不正JSONや報告された固定検証エラーだけを直し、同一工程は初回を含め最大3回までとする。
