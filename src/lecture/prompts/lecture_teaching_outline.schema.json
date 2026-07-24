@@ -23,6 +23,7 @@
           "learning_goal",
           "content",
           "claim_ids",
+          "context_ids",
           "introduce_terms",
           "tooru_action",
           "emotional_beat",
@@ -36,6 +37,10 @@
           "learning_goal": {"type": "string"},
           "content": {"type": "string"},
           "claim_ids": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "context_ids": {
             "type": "array",
             "items": {"type": "string"}
           },

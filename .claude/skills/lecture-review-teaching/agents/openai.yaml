@@ -1,4 +1,4 @@
 interface:
   display_name: "講義の教え方をレビューする"
   short_description: "講義台本の根拠・平易さ・掛け合い・世界観・感情を診断して修正する"
-  default_prompt: "Use -review-teaching to diagnose and revise a lecture script without changing grounded facts."
+  default_prompt: "Use lecture-review-teaching in the specified work_dir to revise the script without changing grounded facts."

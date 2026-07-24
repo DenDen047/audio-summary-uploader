@@ -7,6 +7,7 @@
     "central_question",
     "one_sentence_answer",
     "major_claims",
+    "research",
     "prerequisite_terms",
     "concrete_examples",
     "source_limits",
@@ -29,6 +30,80 @@
           "claim": {"type": "string"},
           "evidence": {"type": "string"},
           "limitation": {"type": "string"}
+        }
+      }
+    },
+    "research": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "search_queries",
+        "related_materials",
+        "notes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["completed", "not_needed", "unavailable"]
+        },
+        "search_queries": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {"type": "string"}
+        },
+        "related_materials": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "material_type",
+              "title",
+              "publisher",
+              "finding",
+              "relation_to_source",
+              "evidential_role",
+              "confidence",
+              "caveat"
+            ],
+            "properties": {
+              "id": {"type": "string"},
+              "material_type": {
+                "type": "string",
+                "enum": [
+                  "official",
+                  "primary_research",
+                  "technical_analysis",
+                  "community_discussion"
+                ]
+              },
+              "title": {"type": "string"},
+              "publisher": {"type": "string"},
+              "finding": {"type": "string"},
+              "relation_to_source": {"type": "string"},
+              "evidential_role": {
+                "type": "string",
+                "enum": [
+                  "background",
+                  "corroboration",
+                  "contradiction",
+                  "reception"
+                ]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              },
+              "caveat": {"type": "string"}
+            }
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {"type": "string"}
         }
       }
     },

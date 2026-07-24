@@ -7,7 +7,7 @@
 クロノITチャンネルの動画「【祝チャンネル開設半年】ぶっちゃけマークダウンって読みづらくない？」（https://youtu.be/348DdatDa4A 、2026-07-08 公開）で紹介された動画制作方針に従う。動画内で語られた方式の要点:
 
 1. **映像生成 AI は使わない**。遅い・高い・毎回結果が変わり差分修正できないため。「決まったテンプレのパターンを組み合わせるだけで講義動画としては十分成立する」。
-2. **コード生成で動画を作る**。参照元はClaude Codeで台本初稿、ChatGPT ProのCodexで技術／編集審査を行う。現行実装は、Claude Code自身が4段階スキルと固定検証を循環して台本を仕上げ、会話履歴を持たない独立審査を生成セッションから分離する。
+2. **コード生成で動画を作る**。参照元はClaude Codeで台本初稿、ChatGPT ProのCodexで技術／編集審査を行う。現行実装は、資料理解、教える順番、場面生成、教え方レビューを別々のClaude Codeスキルとセッションへ分け、検証済みJSONだけで接続する。資料理解では公式資料・一次研究・技術分析に加え、題材に関係する場合はHacker News等の公開反応も集めるが、元資料の主張とは分離する。会話履歴を持たない独立審査は生成セッションから分離する。
 3. 中身は「丁寧に噛み砕いたマークダウン」。それを **2 キャラクターの掛け合い**（音声＋字幕）とスライド映像で同時に提示する（視覚＋聴覚の 2 チャンネル）。
 4. TTS はクロノITも当初 VOICEVOX（ずんだもん）で開始し、後に規約フリー・多言語の独自キャラ＋独自 TTS に移行した。
 
@@ -44,8 +44,8 @@ URL（記事 / 論文 / GitHub / Spark メール共有 / YouTube）またはロ�
     │                 2) 教える順番: 場面の問い・理解目標・接続理由
     │                 3) 場面生成: 図解＋澪・透の掛け合い
     │                 4) 教え方レビュー: 根拠・平易さ・掛け合い・感情
-    │                 Claude Codeの1セッションが4スキルを順に実行
-    │                 各段階を保存→固定検証→指摘箇所だけ最大3回修正
+    │                 4つの独立Claude Codeセッションを順に実行
+    │                 各段階を保存→Python固定検証→不合格段階だけ最大3セッション
     │
     ▼
 3. reveal.py        show_items から段階表示の計画を組み立てる
@@ -99,22 +99,24 @@ output: tmp/lecture/<job_id>/
 - 上限 40,000 文字で切り詰め（台本生成プロンプトの入力上限対策）。
 - 取得失敗は Fail Fast（例外で即停止）。
 
-### 3.2 script_gen.py — 4段階の台本生成
+### 3.2 script_gen.py — 独立4段階の台本生成
 
-- 定額サブスク内で完結させるため、APIではなくClaude Maxでログイン済みの**Claude Code CLI**を1回呼ぶ。Claude Code自身が「資料理解」「教える順番」「場面生成」「教え方レビュー」を同一セッションで実行し、前段成果物と元資料を必要な範囲で調査し直せるようにする。
-- `script_gen.py`は元資料本文をstdinへ展開せず、元URLを除いた`run-input.json`と`source.txt`を一時作業ディレクトリへ置き、`/lecture-generate-autonomously`と作業ディレクトリだけを短い実行指示として渡す。Claude Codeはプロジェクト設定だけを読み、`Read` / `Write` / `Edit` / `Grep`と固定検証コマンドだけを許可し、MCP・外部検索・ネットワーク取得・セッション保存を無効にする。
-- `--safe-mode`はプロジェクトスキルまで無効にするため使用しない。代わりに`--setting-sources project`、限定した`--tools` / `--allowedTools`、`--strict-mcp-config`を組み合わせ、プロジェクト外のカスタマイズを読み込まない。
-- Claude Code CLI呼び出しは`lecture.generation_timeout_seconds`で上限を設定する。40,000文字級の入力を最高品質で処理し、4工程の検証修正まで完了できるよう既定値は3,600秒とする。
+- 定額サブスク内で完結させるため、APIではなくClaude Maxでログイン済みの**Claude Code CLI**を使う。「資料理解」「教える順番」「場面生成」「教え方レビュー」を別々のセッションで順番に実行し、各セッションは対応する1つのプロジェクトスキルだけを起点にする。セッション履歴ではなく検証済みJSONを段階間の契約にする。
+- `script_gen.py`は元URLを除いた`run-input.json`と`source.txt`をPythonだけが扱う内部作業ディレクトリへ置く。Claude Codeを起動するたびにリポジトリ外の空ディレクトリを作業ルートとし、該当する1スキルのSKILL.md、1工程のMD、schema、その工程に必要な入力だけを1メッセージへインライン展開する。全工程へURLを除いたタイトルと図候補を渡し、資料理解だけへ元資料、教える順番へ資料理解JSON、場面生成へ資料理解JSONと教える順番JSON、教え方レビューへ3つの前段JSONを追加で渡す。元資料本文は後段のメッセージへ含めない。4段階は`lecture-understand-source`、`lecture-plan-teaching`、`lecture-write-scenes`、`lecture-review-teaching`の順に実行する。
+- 資料理解セッションだけ`WebSearch` / `WebFetch`を許可する。元資料を先に精読し、その後に公式資料、一次研究、技術分析を調べ、採用・論争・評判が理解に必要な場合はHacker News等のコミュニティ議論も調べる。外部情報は`source-understanding.json`の`research.related_materials`へだけ保存し、元資料由来の`major_claims`へ混ぜない。URL・メールアドレス・アクセストークンは成果物へ保存しない。
+- 教える順番以降のセッションには元資料とWebツールを渡さず、前段の合格済みJSONを確定入力にする。`teaching-outline.json`と以後の台本は元資料の`claim_ids`と補助文脈の`context_ids`を場面ごとに保持する。台本の`context_disclosures`は各`context_id`と同順にし、`material_type`、情報種別を実際に発話する`source_text`、注意点を実際に発話する`limitation_text`を保存する。コミュニティ反応では、投稿・掲示板等の情報種別と代表性の限界を同じ場面のセリフへ必ず含める。
+- パイプラインのClaude Codeは`--safe-mode`でCLAUDE.md、スキル自動探索、プラグイン、hooks、auto-memory等を無効にし、SKILL.md本文は呼び出し元が明示的にメッセージへ含める。資料理解工程の`--tools`は`WebSearch,WebFetch`だけ、後段は空とし、全工程でRead、Write、Edit、Bashを与えない。`dontAsk`、空の厳格MCP設定、セッション非保存も組み合わせるため、元資料中の命令がホストの資格情報、リポジトリ、他段階の未許可入力をファイルツールで読んだり送ったりできない。成果物は`--json-schema`による構造化出力として受け取り、Pythonだけが内部作業ディレクトリへ保存する。
+- Claude Code CLI呼び出しは各段階ごとに`lecture.generation_timeout_seconds`で上限を設定する。40,000文字級の入力を最高品質で処理できるよう既定値は1段階3,600秒とする。
 - Claude Max認証を起動前に確認し、APIキー経路へフォールバックしない。生成経路で別の`claude -p`や`codex exec`を入れ子にしない。
 - 監査情報には要求モデル、実際に使われた全モデル、4工程の役割、effort、認証方式、`metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
-- 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、パイプラインから起動されたClaude Codeと`.claude/skills/`の対話用スキルが同じファイルを読む。対話用スキルと統括スキルは`.agents/skills/`からシンボリックリンクする。MDは段落や同一リスト項目を手動折り返しせず、Markdown構造に必要な改行だけを残す。
+- 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、パイプラインから起動されたClaude Codeと`.claude/skills/`の各段階スキルが同じファイルを読む。4つの段階スキルは`.agents/skills/`からシンボリックリンクする。MDは段落や同一リスト項目を手動折り返しせず、Markdown構造に必要な改行だけを残す。
   - `lecture_source_understanding.md`
   - `lecture_teaching_outline.md`
   - `lecture_script.md`
   - `lecture_teaching_review.md`
-- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存し、試行回数・曖昧さ・最終検証を記録した`run-status.json`とともに合格後のジョブへ保存する。Claude Codeへ元URLは渡さず、各段階の固定検証と公開前サニタイズの両方で、成果物へURL・メールアドレス・アクセストークンを残さない。
-- 場面生成は資料理解、教える順番、図候補を確定入力にし、元資料本文を重複した長いプロンプトとして再投入しない。同一セッション内の教え方レビューだけが、資料理解と元資料を直接照合して根拠・限界を再確認する。
-- `lecture-generate-autonomously/scripts/validate_workdir.py`は各段階のJSON Schema、主張ID、場面番号、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。Claude Codeはエラーに挙がった箇所だけを直し、同一工程は初回を含め最大3回までとする。3回目でも未達なら後続へ進まず`run-status.json`へ残存エラーを保存してFail Fastする。
+- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存する。Pythonが各セッションの直後に`validate_lecture_stage.py`を実行し、試行回数、各段階の検証JSON、曖昧さ、最終検証を`run-status.json`へ保存する。
+- 場面生成と教え方レビューは資料理解、教える順番、図候補を確定入力にし、元資料本文を再投入しない。資料理解JSONに保存した主張・根拠・限界・補助文脈だけを照合し、第1段階の責務を後段でやり直さない。
+- `scripts/validate_lecture_stage.py`は各段階のJSON Schema、主張ID、補助文脈ID、場面番号、場面ごとのID継承、補助文脈の情報種別・注意点が実際のセリフに含まれること、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。URLはHTTP以外のURI、IP・localhost、裸ドメインも拒否し、ラベル付き機密値、主要なトークン接頭辞、秘密鍵ブロックも拒否する。不合格ならPythonは合格済み箇所と検証エラーを次の同段階セッションへ渡し、初回を含め最大3セッションまで実行する。3回目でも未達なら後続へ進まずFail Fastする。試行回数はPythonが実際のセッション数から記録し、生成側の自己申告を使わない。対話から単独スキルを使う場合だけ、その工程内で同じ固定検証を実行し、初回生成を1試行目として最大2回限定修正する（合計最大3試行）。
 - 出力は下記スキーマのJSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`と固定コードで検証し、投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数3,000〜4,500字も固定コードで強制する。
 
 ```json
@@ -143,6 +145,16 @@ output: tmp/lecture/<job_id>/
   },
   "scenes": [
     {
+      "claim_ids": ["C1"],
+      "context_ids": ["R1"],
+      "context_disclosures": [
+        {
+          "context_id": "R1",
+          "material_type": "community_discussion",
+          "source_text": "Hacker Newsの投稿",
+          "limitation_text": "利用者全体を代表しません"
+        }
+      ],
       "slide": {
         "template": "title | bullets | compare | code | quote | diagram | figure | outro",
         "background_mood": "explain | safety | warm",
@@ -175,7 +187,7 @@ output: tmp/lecture/<job_id>/
   - 関係イベントは2〜3場面に1回を目安に、異なる型へ分散する。同じ「透の早合点を澪がからかう」型を複数回使わず、褒め→照れ、安心、透の反例による説明の組み直し、終盤での具体的な成長の承認など、講義内容と理解の進展へ結びつける。
   - 冒頭は、困っている透が「澪先生」と相談する具体的な場面から始める。透が試したことと腑に落ちない点を示し、澪が問題の正体と今回の問いを定める。説明順は原則として`困りごと → 問い → 一文の答え → 全体図 → 代表例 → 原理 → 一次資料・実測 →失敗例・限界 → 判断`とし、末尾で冒頭の困りごとを回収する。既存チャンネルからは問題起点の構成だけを参考にし、台詞・人物像・世界観は模倣しない。
   - 8〜14 シーン、各シーン2〜6セリフ。セリフ合計は3,000〜4,500字（≒ 5〜8 分）。総文字数は`script_gen._validate()`のPythonコードで上下限を強制し、1セリフ80字以内と配列数は構造化出力schemaとPythonの両方で検証する。
-- **セリフ同期の段階表示** (`show_items`): bullets / outro / diagram は「そのセリフの間に見えている項目数」(単調非減少、最後は総数)、compare は 1=左のみ / 2=両方。title / code / quote / figure には付けない。検証は script_gen、計画の組み立ては reveal.py。AIが整数を返した場合の範囲超過・逆行・最終項目不足は、内容を再生成せず有効範囲へ決定論的に正規化する。欠損や非整数は正規化せず検証エラーとして再生成へ戻す。
+- **セリフ同期の段階表示** (`show_items`): bullets / outro / diagram は「そのセリフの間に見えている項目数」(単調非減少、最後は総数)、compare は 1=左のみ / 2=両方。title / code / quote / figure は`show_items: null`にする。検証は script_gen、計画の組み立ては reveal.py。AIが整数を返した場合の範囲超過・逆行・最終項目不足は、内容を再生成せず有効範囲へ決定論的に正規化する。欠損や非整数は正規化せず検証エラーとして再生成へ戻す。
 - **表情・ポーズ**: 全セリフに `metan_pose` / `zunda_pose` を持たせる。セリフ開始時に切り替え、次のセリフ開始まで維持する。澪は視聴者向け説明、注意、軽い微笑みを、透は傾聴、疑問、照れ、理解、喜びを内容に応じて使い分ける。
 
 ### 3.2.1 thumbnail_backdrop.py — 動画固有のローカルSVG背景
@@ -270,10 +282,10 @@ uv run lecture render <job_dir>                 # script.json 以降だけ再実
 ```
 tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 ├── source.txt               # 抽出本文（デバッグ用）
-├── source-understanding.json # 主要主張・根拠・限界・前提用語
-├── teaching-outline.json    # 場面の問い・理解目標・接続理由
+├── source-understanding.json # 主要主張・根拠・限界・前提用語・分離済み関連調査
+├── teaching-outline.json    # 場面の問い・理解目標・claim_ids/context_ids・接続理由
 ├── scene-draft.json         # 教え方レビュー前の場面台本
-├── run-status.json          # 4工程の試行回数・曖昧さ・最終固定検証
+├── run-status.json          # Python観測の4工程セッション数・各段階検証・曖昧さ
 ├── source_figures/          # 台本が選んだ一次資料図（外部URLなしで再描画可能）
 │   └── figure_01.png ...
 ├── script.json              # 台本（編集して render で再合成可能）
@@ -291,7 +303,7 @@ tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 
 ## 5. 失敗時の方針
 
-- 全ステージFail Fast（AGENTS.md方針どおり）。Claude Codeは段階成果物を保存してから固定検証を行い、同一工程は初回を含め最大3回まで局所修正する。3回目でも未達なら停止する。固定背景が必要な運用では`background_mode: static`を明示する。
+- 全ステージFail Fast（AGENTS.md方針どおり）。パイプラインではClaude Codeが段階成果物を1回書くたびにPythonが固定検証し、不合格の同一工程だけを初回を含め最大3セッション実行する。対話から単独スキルを使う場合は、初回生成を1試行目として固定検証し、指摘箇所だけを最大2回修正する。いずれも3試行目で未達なら停止する。固定背景が必要な運用では`background_mode: static`を明示する。
 - VOICEVOXエンジン未起動、Claude Code CLI不在、Claude Max未ログインは前提条件エラーとして起動方法を添えて即終了する。APIキー経路へは切り替えない。
 
 ## 6. 現行システムから再利用するもの / しないもの

@@ -1,4 +1,4 @@
 interface:
   display_name: "講義の教える順番を作る"
   short_description: "資料理解から理解目標・用語導入・接続理由を持つ講義構成JSONを設計する"
-  default_prompt: "Use -plan-teaching to turn this source understanding into a teachable scene order."
+  default_prompt: "Use lecture-plan-teaching in the specified work_dir to create a teachable scene order."

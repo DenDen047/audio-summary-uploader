@@ -1,4 +1,4 @@
 interface:
   display_name: "澪・透の講義場面を書く"
   short_description: "確定した資料理解と講義構成から図解優先の掛け合い台本JSONを生成する"
-  default_prompt: "Use -write-scenes to write Mio and Toru lecture scenes from the approved outline."
+  default_prompt: "Use lecture-write-scenes in the specified work_dir to write scenes from the approved outline."

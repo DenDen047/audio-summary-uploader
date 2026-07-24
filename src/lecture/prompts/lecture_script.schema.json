@@ -33,8 +33,49 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["slide", "lines"],
+        "required": [
+          "claim_ids",
+          "context_ids",
+          "context_disclosures",
+          "slide",
+          "lines"
+        ],
         "properties": {
+          "claim_ids": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "context_ids": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "context_disclosures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "context_id",
+                "material_type",
+                "source_text",
+                "limitation_text"
+              ],
+              "properties": {
+                "context_id": {"type": "string"},
+                "material_type": {
+                  "type": "string",
+                  "enum": [
+                    "official",
+                    "primary_research",
+                    "technical_analysis",
+                    "community_discussion"
+                  ]
+                },
+                "source_text": {"type": "string"},
+                "limitation_text": {"type": ["string", "null"]}
+              }
+            }
+          },
           "slide": {
             "type": "object",
             "additionalProperties": false,
