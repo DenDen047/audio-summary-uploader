@@ -9,6 +9,7 @@ import pytest
 
 from lecture.script_gen import (
     STAGE_SPECS,
+    StageConfigurationError,
     _assert_subscription_auth,
     _finalize,
     _generation_metadata,
@@ -107,6 +108,8 @@ def test_understanding_stage_enables_research_tools(
     assert "Bash" not in tools
     assert command[command.index("--permission-mode") + 1] == "dontAsk"
     assert "--json-schema" in command
+    schema = json.loads(command[command.index("--json-schema") + 1])
+    assert "$schema" not in schema
     assert command[command.index("--mcp-config") + 1] == '{"mcpServers": {}}'
     assert "# SKILL.md" in prompt
     assert "lecture-understand-source" in prompt
@@ -285,7 +288,7 @@ def test_generated_content_preserves_technical_filenames() -> None:
     assert value["text"] == "Node.js node.js package.json config.toml"
 
 
-def test_claude_stage_rejects_raw_output_that_required_redaction(
+def test_claude_stage_rejects_raw_output_without_overwriting_checkpoint(
     tmp_path,
 ) -> None:
     _write_stage_inputs(
@@ -326,10 +329,7 @@ def test_claude_stage_rejects_raw_output_that_required_redaction(
             validation_errors=[],
         )
 
-    saved = (tmp_path / "source-understanding.json").read_text(
-        encoding="utf-8"
-    )
-    assert "EXAMPLE.MUSEUM" not in saved
+    assert not (tmp_path / "source-understanding.json").exists()
 
 
 def test_stage_retry_passes_fixed_errors_to_next_session(tmp_path) -> None:
@@ -469,6 +469,25 @@ def test_stage_retry_does_not_duplicate_metadata_on_validator_error(
     assert result_metadata["session_attempts"][1]["status"] == "passed"
 
 
+def test_stage_configuration_error_fails_without_retry(tmp_path) -> None:
+    with (
+        patch(
+            "lecture.script_gen._run_claude_stage",
+            side_effect=StageConfigurationError("invalid schema"),
+        ) as run,
+        pytest.raises(StageConfigurationError, match="invalid schema"),
+    ):
+        _run_stage_with_retries(
+            tmp_path,
+            STAGE_SPECS[0],
+            "opus",
+            "xhigh",
+            timeout_seconds=3600,
+        )
+
+    assert run.call_count == 1
+
+
 def test_generate_script_collects_separate_stage_outputs() -> None:
     source = SourceContent(
         url="https://example.com/source",
@@ -488,9 +507,11 @@ def test_generate_script_collects_separate_stage_outputs() -> None:
         "external_research": True,
     }
     stage_outputs = {}
+    observed_efforts = []
 
     def run_stage(work_dir, stage, model, effort, *, timeout_seconds):
-        del model, effort, timeout_seconds
+        del model, timeout_seconds
+        observed_efforts.append(effort)
         payloads = {
             "understanding": {
                 "stage": "understanding",
@@ -544,6 +565,7 @@ def test_generate_script_collects_separate_stage_outputs() -> None:
         "draft": 1,
         "final": 1,
     }
+    assert observed_efforts == ["xhigh", "high", "high", "xhigh"]
 
 
 def test_world_validation_requires_tooru_problem_first() -> None:

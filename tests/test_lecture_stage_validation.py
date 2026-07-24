@@ -3,12 +3,101 @@
 import json
 
 from scripts.validate_lecture_stage import (
+    _generation_metadata_errors,
+    _machine_feedback_errors,
     _outline_errors,
     _safety_errors,
     _script_provenance_errors,
     _understanding_errors,
     validate_stage,
 )
+
+
+def test_machine_feedback_includes_delta_and_counted_action() -> None:
+    rows = [
+        {
+            "id": "M4",
+            "label": "世界観イベント数",
+            "value": "4回 (tease 1・褒め照れ 3)・名前呼び 澪先生4/透くん5",
+            "target": "5回以上・tease 1〜3・名前呼び双方向",
+        },
+        {
+            "id": "M5",
+            "label": "感情マーカー数",
+            "value": "7個・シーン分布 54%",
+            "target": "8個以上・分布 50%以上",
+        },
+    ]
+    metrics = {
+        "scene_count": 13,
+        "m4_world_events": 4,
+        "m4_world_events_min": 5,
+        "m4_tease_count": 1,
+        "m4_calls_to_mio": 4,
+        "m4_calls_to_toru": 5,
+        "m5_marker_count": 7,
+        "m5_marker_scene_count": 7,
+        "m8_repeated_phrases": [],
+    }
+
+    feedback = _machine_feedback_errors("scene-draft.json", rows, metrics)
+
+    assert feedback == [
+        "scene-draft.json: M4 世界観イベント数が未達 "
+        "(現在: 4回 (tease 1・褒め照れ 3)・名前呼び 澪先生4/透くん5; "
+        "目標: 5回以上・tease 1〜3・名前呼び双方向)。修正: "
+        "採点対象の褒め照れを最低1組追加する。同じ場面で"
+        "metan_pose=praiseの発話直後にzunda_pose=praisedまたはshyの"
+        "発話を置く。合格済みの世界観イベントと名前呼びは削らない",
+        "scene-draft.json: M5 感情マーカー数が未達 "
+        "(現在: 7個・シーン分布 54%; 目標: 8個以上・分布 50%以上)。"
+        "修正: 説明内容に沿う驚き・言い淀み・笑いなどの感情マーカーを"
+        "最低1個増やす。半数以上の場面への分布は達成済みなので維持する。"
+        "同じ間投詞を機械的に反復しない",
+    ]
+
+
+def test_generation_metadata_requires_four_subscription_stages() -> None:
+    stage = {
+        "agent": "claude-code-cli",
+        "authentication": "claude-max-subscription",
+        "model_requested": "opus",
+        "models_used": ["claude-opus-4-8"],
+        "effort": "high",
+    }
+    generation = {
+        "script_agent": "claude-code-cli",
+        "script_model_requested": "opus",
+        "script_models_used": ["claude-opus-4-8"],
+        "primary": {**stage, "role": "scene-writing"},
+        "review": {
+            **stage,
+            "effort": "xhigh",
+            "role": "teaching-review-and-repair",
+        },
+        "stages": [
+            {
+                **stage,
+                "effort": "xhigh",
+                "role": "source-understanding-and-research",
+            },
+            {**stage, "role": "teaching-order-planning"},
+            {**stage, "role": "scene-writing"},
+            {
+                **stage,
+                "effort": "xhigh",
+                "role": "teaching-review-and-repair",
+            },
+        ],
+        "metered_api": False,
+        "quality_mode": "high+xhigh",
+    }
+
+    assert _generation_metadata_errors(generation) == []
+    generation["metered_api"] = True
+    assert _generation_metadata_errors(generation) == [
+        "script.json: generation.metered_apiはfalseにする"
+    ]
 
 
 def test_completed_research_requires_related_material() -> None:
@@ -385,6 +474,15 @@ def test_safety_allows_technical_filenames() -> None:
     value = {"terms": ["Node.js", "node.js", "package.json", "config.toml"]}
 
     assert _safety_errors(value, "source-understanding.json") == []
+
+
+def test_safety_allows_only_fixed_audio_credit_in_final_script() -> None:
+    value = {"description": "効果音: OtoLogic (https://otologic.jp/)"}
+
+    assert _safety_errors(value, "script.json") == []
+    assert _safety_errors(value, "scene-draft.json") == [
+        "scene-draft.json: URLを含めない"
+    ]
 
 
 def test_understanding_accepts_separated_community_context(tmp_path) -> None:

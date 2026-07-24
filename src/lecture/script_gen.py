@@ -90,6 +90,10 @@ STAGE_OUTPUT_FILES = (
     "script.json",
     "run-status.json",
 )
+STAGE_EFFORT_OVERRIDES = {
+    "outline": "high",
+    "draft": "high",
+}
 TEMPLATES = {
     "title",
     "bullets",
@@ -198,6 +202,10 @@ _VOCATIVE_SUFFIX_RE = re.compile(r"、(?:透くん|とおるくん|澪先生)$")
 _POLITE_INTERJECTIONS = {"はい", "ええ", "ありがとうございます", "すみません"}
 
 
+class StageConfigurationError(RuntimeError):
+    """再試行しても変わらないClaude Code起動設定の不整合。"""
+
+
 def generate_script(
     source: SourceContent,
     *,
@@ -239,11 +247,16 @@ def generate_script(
         stage_validations: dict[str, dict] = {}
         attempts: dict[str, int] = {}
         for stage in STAGE_SPECS:
+            stage_effort = (
+                STAGE_EFFORT_OVERRIDES.get(str(stage["name"]), effort)
+                if effort == DEFAULT_CLAUDE_EFFORT
+                else effort
+            )
             metadata, validation, attempt_count = _run_stage_with_retries(
                 work_dir,
                 stage,
                 model,
-                effort,
+                stage_effort,
                 timeout_seconds=generation_timeout_seconds,
             )
             attempts[str(stage["name"])] = attempt_count
@@ -256,11 +269,23 @@ def generate_script(
                     stage_validations=stage_validations,
                     failed_stage=str(stage["name"]),
                 )
+                if stage_outputs is not None:
+                    _capture_available_stage_outputs(
+                        work_dir,
+                        stage_outputs,
+                        source.url,
+                    )
                 raise RuntimeError(
                     f"Claude Codeの{stage['name']}工程が3回で合格しませんでした: "
                     f"{validation['errors']}"
                 )
             stage_metadata.append(metadata)
+            if stage_outputs is not None:
+                _capture_available_stage_outputs(
+                    work_dir,
+                    stage_outputs,
+                    source.url,
+                )
         _write_run_status(
             work_dir,
             status="passed",
@@ -446,8 +471,10 @@ def _run_claude_stage(
         / "prompts"
         / str(stage["prompt_files"][1])
     )
+    schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_payload.pop("$schema", None)
     schema = json.dumps(
-        json.loads(schema_path.read_text(encoding="utf-8")),
+        schema_payload,
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -494,10 +521,13 @@ def _run_claude_stage(
             timeout=timeout_seconds,
         )
     if result.returncode != 0:
-        raise RuntimeError(
+        message = (
             f"Claude Codeの{stage['name']}工程が失敗 "
             f"(exit {result.returncode}): {result.stderr[-1000:]}"
         )
+        if "--json-schema is not a valid JSON Schema" in result.stderr:
+            raise StageConfigurationError(message)
+        raise RuntimeError(message)
     envelope = json.loads(result.stdout)
     model_usage = envelope.get("modelUsage", {})
     used_models = (
@@ -528,14 +558,14 @@ def _run_claude_stage(
         ensure_ascii=False,
         sort_keys=True,
     )
-    (work_dir / str(stage["output"])).write_text(
-        json.dumps(output, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
     if raw_output != sanitized_output:
         raise RuntimeError(
             f"Claude Codeの{stage['name']}工程の出力に公開禁止情報がありました"
         )
+    (work_dir / str(stage["output"])).write_text(
+        json.dumps(output, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     return {
         "agent": "claude-code-cli",
         "model_requested": model,
@@ -622,6 +652,8 @@ def _run_stage_with_retries(
                     [],
                 )
             session_metadata.append(session_record)
+        except StageConfigurationError:
+            raise
         except (
             RuntimeError,
             subprocess.TimeoutExpired,
@@ -750,6 +782,21 @@ def _load_stage_outputs(work_dir: Path) -> dict[str, dict]:
     ):
         raise RuntimeError(f"Claude Codeの最終検証が未達: {status}")
     return outputs
+
+
+def _capture_available_stage_outputs(
+    work_dir: Path,
+    target: dict[str, dict],
+    source_url: str,
+) -> None:
+    """中断時にも合格済みの段階成果物を呼び出し元へ残す。"""
+    for filename in STAGE_OUTPUT_FILES:
+        path = work_dir / filename
+        if not path.is_file():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        _sanitize_generated_content(payload, source_url)
+        target[filename] = payload
 
 
 def _normalize_generated_reveals(script: dict, stage: str) -> None:

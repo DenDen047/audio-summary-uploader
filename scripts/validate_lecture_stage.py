@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -13,13 +14,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from score_lecture import evaluate, measure  # noqa: E402
+from score_lecture import (  # noqa: E402
+    EMOTION_MARKER_MIN,
+    EMOTION_SCENE_COVERAGE_MIN,
+    REPEATED_PHRASE_MAX,
+    TEASE_COUNT_RANGE,
+    evaluate,
+    measure,
+)
 
 from lecture.script_gen import (  # noqa: E402
     _PUBLIC_BARE_LINK_RE,
     _PUBLIC_PEM_RE,
     _PUBLIC_SECRET_RE,
     _PUBLIC_URI_RE,
+    EYECATCH_AUDIO_CREDIT,
     _validate,
 )
 
@@ -157,6 +166,8 @@ def _load_json(path: Path) -> tuple[dict | None, list[str]]:
 
 def _safety_errors(value: dict, filename: str) -> list[str]:
     serialized = json.dumps(value, ensure_ascii=False)
+    if filename == FILES["final"]:
+        serialized = serialized.replace(EYECATCH_AUDIO_CREDIT, "OtoLogic")
     errors = []
     if _PUBLIC_URI_RE.search(serialized) or _PUBLIC_BARE_LINK_RE.search(serialized):
         errors.append(f"{filename}: URLを含めない")
@@ -164,6 +175,54 @@ def _safety_errors(value: dict, filename: str) -> list[str]:
         errors.append(f"{filename}: メールアドレスを含めない")
     if _PUBLIC_SECRET_RE.search(serialized) or _PUBLIC_PEM_RE.search(serialized):
         errors.append(f"{filename}: アクセストークンらしき値を含めない")
+    return errors
+
+
+def _generation_metadata_errors(value: Any) -> list[str]:
+    """Pythonが最終化時に付ける非公開実行履歴の固定条件を検証する。"""
+    if not isinstance(value, dict):
+        return ["script.json: generationはobjectにする"]
+    required = {
+        "script_agent",
+        "script_model_requested",
+        "script_models_used",
+        "primary",
+        "review",
+        "stages",
+        "metered_api",
+        "quality_mode",
+    }
+    errors = []
+    if value.keys() != required:
+        errors.append("script.json: generationのキーが固定仕様と一致しない")
+    if value.get("metered_api") is not False:
+        errors.append("script.json: generation.metered_apiはfalseにする")
+    stages = value.get("stages")
+    if not isinstance(stages, list) or len(stages) != 4:
+        errors.append("script.json: generation.stagesは4工程にする")
+        return errors
+    expected_roles = (
+        "source-understanding-and-research",
+        "teaching-order-planning",
+        "scene-writing",
+        "teaching-review-and-repair",
+    )
+    for index, (stage, role) in enumerate(zip(stages, expected_roles), 1):
+        if not isinstance(stage, dict):
+            errors.append(f"script.json: generation.stages[{index}]はobjectにする")
+            continue
+        if stage.get("agent") != "claude-code-cli":
+            errors.append(
+                f"script.json: generation.stages[{index}].agentが不正"
+            )
+        if stage.get("authentication") != "claude-max-subscription":
+            errors.append(
+                f"script.json: generation.stages[{index}].authenticationが不正"
+            )
+        if stage.get("role") != role:
+            errors.append(
+                f"script.json: generation.stages[{index}].roleが不正"
+            )
     return errors
 
 
@@ -480,16 +539,112 @@ def _script_errors(
     errors.extend(_script_provenance_errors(work_dir, value))
     metrics = measure(value) if not errors else {}
     if metrics:
-        failed = [
-            row["id"]
+        failed_rows = [
+            row
             for row in evaluate(metrics)
             if row["id"] != "M7" and row["mark"] != "○"
         ]
-        if failed:
-            errors.append(
-                f"{FILES[stage]}: 機械指標が未達 ({', '.join(failed)})"
-            )
+        errors.extend(
+            _machine_feedback_errors(FILES[stage], failed_rows, metrics)
+        )
     return errors, metrics
+
+
+def _machine_feedback_errors(
+    filename: str,
+    failed_rows: list[dict],
+    metrics: dict,
+) -> list[str]:
+    """修正セッションへ実測・目標・採点規則に沿う最小修正を返す。"""
+    errors = []
+    for row in failed_rows:
+        feedback = (
+            f"{filename}: {row['id']} {row['label']}が未達 "
+            f"(現在: {row['value']}; 目標: {row['target']})"
+        )
+        if row["id"] == "M4":
+            actions = _m4_repair_actions(metrics)
+        elif row["id"] == "M5":
+            actions = _m5_repair_actions(metrics)
+        elif row["id"] == "M8":
+            excess = max(
+                0,
+                len(metrics.get("m8_repeated_phrases", []))
+                - REPEATED_PHRASE_MAX,
+            )
+            phrases = "、".join(
+                f"「{phrase}」"
+                for phrase in metrics.get("m8_repeated_phrases", [])
+            )
+            actions = (
+                f"列挙された反復を別表現にして検出件数を最低{excess}件減らす。"
+                f"対象: {phrases}"
+            )
+        else:
+            actions = "現在値と目標の差だけを直し、合格済みの指標を維持する。"
+        errors.append(f"{feedback}。修正: {actions}")
+    return errors
+
+
+def _m4_repair_actions(metrics: dict) -> str:
+    """M4の複合条件から、未達の下位条件だけを修正指示にする。"""
+    actions = []
+    world_deficit = max(
+        0,
+        metrics["m4_world_events_min"] - metrics["m4_world_events"],
+    )
+    tease_min, tease_max = TEASE_COUNT_RANGE
+    tease_count = metrics["m4_tease_count"]
+    if world_deficit:
+        if tease_count < tease_min:
+            actions.append(
+                f"内容に結びつくtease行を最低{tease_min - tease_count}回追加する"
+            )
+        else:
+            actions.append(
+                "採点対象の褒め照れを最低"
+                f"{world_deficit}組追加する。同じ場面でmetan_pose=praiseの"
+                "発話直後にzunda_pose=praisedまたはshyの発話を置く"
+            )
+    if tease_count > tease_max:
+        actions.append(
+            f"tease行を最低{tease_count - tease_max}回、別の自然な反応へ直す"
+        )
+    if metrics["m4_calls_to_mio"] < 1:
+        actions.append("透の発話へ「澪先生」を最低1回入れる")
+    if metrics["m4_calls_to_toru"] < 1:
+        actions.append("澪の発話へ「透くん」を最低1回入れる")
+    actions.append("合格済みの世界観イベントと名前呼びは削らない")
+    return "。".join(actions)
+
+
+def _m5_repair_actions(metrics: dict) -> str:
+    """M5の個数と場面分布を、同じ自然な反応で満たせる不足数へ分解する。"""
+    marker_deficit = max(
+        0,
+        EMOTION_MARKER_MIN - metrics["m5_marker_count"],
+    )
+    required_scenes = math.ceil(
+        metrics["scene_count"] * EMOTION_SCENE_COVERAGE_MIN
+    )
+    scene_deficit = max(
+        0,
+        required_scenes - metrics["m5_marker_scene_count"],
+    )
+    actions = []
+    if marker_deficit:
+        actions.append(
+            "説明内容に沿う驚き・言い淀み・笑いなどの感情マーカーを最低"
+            f"{marker_deficit}個増やす"
+        )
+    if scene_deficit:
+        actions.append(
+            f"そのうち最低{scene_deficit}個はマーカー未配置の別場面へ置く"
+        )
+    else:
+        actions.append("半数以上の場面への分布は達成済みなので維持する")
+    actions.append("同じ間投詞を機械的に反復しない")
+    return "。".join(actions)
 
 
 def validate_stage(work_dir: Path, stage: str) -> dict:
@@ -498,7 +653,13 @@ def validate_stage(work_dir: Path, stage: str) -> dict:
     metrics: dict = {}
     if value is not None:
         schema = json.loads(SCHEMAS[stage].read_text(encoding="utf-8"))
-        errors.extend(_schema_errors(value, schema))
+        schema_value = value
+        if stage == "final" and "generation" in value:
+            schema_value = {
+                key: item for key, item in value.items() if key != "generation"
+            }
+            errors.extend(_generation_metadata_errors(value["generation"]))
+        errors.extend(_schema_errors(schema_value, schema))
         errors.extend(_safety_errors(value, filename))
         if stage == "understanding":
             errors.extend(_understanding_errors(value))

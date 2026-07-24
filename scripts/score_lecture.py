@@ -184,6 +184,7 @@ def measure(script: dict) -> dict:
         "m4_calls_to_mio": calls_to_mio,
         "m4_calls_to_toru": calls_to_toru,
         "m5_marker_count": marker_count,
+        "m5_marker_scene_count": len(marker_scenes),
         "m5_marker_scene_ratio": len(marker_scenes) / len(scenes),
         "m6_understand_ratio": len(understand) / len(zunda) if zunda else 0.0,
         "m6_zunda_pose_variety": len(zunda_poses),

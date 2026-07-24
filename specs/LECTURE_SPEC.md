@@ -107,6 +107,7 @@ output: tmp/lecture/<job_id>/
 - 教える順番以降のセッションには元資料とWebツールを渡さず、前段の合格済みJSONを確定入力にする。`teaching-outline.json`と以後の台本は元資料の`claim_ids`と補助文脈の`context_ids`を場面ごとに保持する。台本の`context_disclosures`は各`context_id`と同順にし、`material_type`、情報種別を実際に発話する`source_text`、注意点を実際に発話する`limitation_text`を保存する。コミュニティ反応では、投稿・掲示板等の情報種別と代表性の限界を同じ場面のセリフへ必ず含める。
 - パイプラインのClaude Codeは`--safe-mode`でCLAUDE.md、スキル自動探索、プラグイン、hooks、auto-memory等を無効にし、SKILL.md本文は呼び出し元が明示的にメッセージへ含める。資料理解工程の`--tools`は`WebSearch,WebFetch`だけ、後段は空とし、全工程でRead、Write、Edit、Bashを与えない。`dontAsk`、空の厳格MCP設定、セッション非保存も組み合わせるため、元資料中の命令がホストの資格情報、リポジトリ、他段階の未許可入力をファイルツールで読んだり送ったりできない。成果物は`--json-schema`による構造化出力として受け取り、Pythonだけが内部作業ディレクトリへ保存する。
 - Claude Code CLI呼び出しは各段階ごとに`lecture.generation_timeout_seconds`で上限を設定する。40,000文字級の入力を最高品質で処理できるよう既定値は1段階3,600秒とする。
+- 既定の`xhigh`品質指定では、資料理解と最終レビューを`xhigh`、教える順番と大きな場面JSON生成を`high`で実行する。根拠調査と最終品質ゲートの深さを保ちつつ、巨大な構造化出力が長時間推論で停滞するのを避ける。
 - Claude Max認証を起動前に確認し、APIキー経路へフォールバックしない。生成経路で別の`claude -p`や`codex exec`を入れ子にしない。
 - 監査情報には要求モデル、実際に使われた全モデル、4工程の役割、effort、認証方式、`metered_api: false`、実際のeffortを表す`quality_mode`を保存する。
 - 各工程のプロンプト本文は`src/lecture/prompts/`の次のMDを単一ソースとし、パイプラインから起動されたClaude Codeと`.claude/skills/`の各段階スキルが同じファイルを読む。4つの段階スキルは`.agents/skills/`からシンボリックリンクする。MDは段落や同一リスト項目を手動折り返しせず、Markdown構造に必要な改行だけを残す。
@@ -116,7 +117,7 @@ output: tmp/lecture/<job_id>/
   - `lecture_teaching_review.md`
 - 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存する。Pythonが各セッションの直後に`validate_lecture_stage.py`を実行し、試行回数、各段階の検証JSON、曖昧さ、最終検証を`run-status.json`へ保存する。
 - 場面生成と教え方レビューは資料理解、教える順番、図候補を確定入力にし、元資料本文を再投入しない。資料理解JSONに保存した主張・根拠・限界・補助文脈だけを照合し、第1段階の責務を後段でやり直さない。
-- `scripts/validate_lecture_stage.py`は各段階のJSON Schema、主張ID、補助文脈ID、場面番号、場面ごとのID継承、補助文脈の情報種別・注意点が実際のセリフに含まれること、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。URLはHTTP以外のURI、IP・localhost、裸ドメインも拒否し、ラベル付き機密値、主要なトークン接頭辞、秘密鍵ブロックも拒否する。不合格ならPythonは合格済み箇所と検証エラーを次の同段階セッションへ渡し、初回を含め最大3セッションまで実行する。3回目でも未達なら後続へ進まずFail Fastする。試行回数はPythonが実際のセッション数から記録し、生成側の自己申告を使わない。対話から単独スキルを使う場合だけ、その工程内で同じ固定検証を実行し、初回生成を1試行目として最大2回限定修正する（合計最大3試行）。
+- `scripts/validate_lecture_stage.py`は各段階のJSON Schema、主張ID、補助文脈ID、場面番号、場面ごとのID継承、補助文脈の情報種別・注意点が実際のセリフに含まれること、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。URLはHTTP以外のURI、IP・localhost、裸ドメインも拒否し、ラベル付き機密値、主要なトークン接頭辞、秘密鍵ブロックも拒否する。Claude Codeのraw構造化出力は安全化前後を比較し、変更が必要だった出力は段階成果物へ保存せず直前の合格チェックポイントを保持する。ただしPythonの最終化処理が固定値として付けるOtoLogicの素材クレジットだけは許可し、同時に追加される`generation`は4工程・Claude Max認証・従量課金API不使用を固定検証してAI出力用スキーマの外で受け入れる。不合格ならPythonは合格済み箇所と検証エラーを次の同段階セッションへ渡し、初回を含め最大3セッションまで実行する。3回目でも未達なら後続へ進まずFail Fastする。試行回数はPythonが実際のセッション数から記録し、生成側の自己申告を使わない。対話から単独スキルを使う場合だけ、その工程内で同じ固定検証を実行し、初回生成を1試行目として最大2回限定修正する（合計最大3試行）。
 - 出力は下記スキーマのJSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`と固定コードで検証し、投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数3,000〜4,500字も固定コードで強制する。
 
 ```json
