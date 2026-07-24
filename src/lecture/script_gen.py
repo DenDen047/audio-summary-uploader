@@ -1,4 +1,4 @@
-"""Claude Maxで台本を作り、ChatGPT Codexで品質審査する。"""
+"""Claude Codeで台本を作り、ChatGPT Codexで品質審査する。"""
 
 import json
 import re

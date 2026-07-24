@@ -81,7 +81,7 @@ general:
 
 # 澪・透の講義動画設定
 lecture:
-  # Claude Maxで初稿、ChatGPT Codexで技術・編集審査。どちらも最高品質設定。
+  # Claude Codeで初稿、ChatGPT Codexで技術・編集審査。どちらも最高品質設定。
   script_model: "opus"
   script_effort: "xhigh"
   review_model: "gpt-5.6-sol"
