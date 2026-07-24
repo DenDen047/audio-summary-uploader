@@ -150,7 +150,8 @@ def generate_script(
     outline = outputs["teaching-outline.json"]
     scene_draft = outputs["scene-draft.json"]
     script = outputs["script.json"]
-    for payload in (understanding, outline, scene_draft, script):
+    run_status = outputs["run-status.json"]
+    for payload in (understanding, outline, scene_draft, script, run_status):
         _sanitize_generated_content(payload, source.url)
     if stage_outputs is not None:
         stage_outputs.update(
@@ -158,6 +159,7 @@ def generate_script(
                 "source-understanding.json": understanding,
                 "teaching-outline.json": outline,
                 "scene-draft.json": scene_draft,
+                "run-status.json": run_status,
             }
         )
 
@@ -186,13 +188,17 @@ def generate_script(
 
 def _write_autonomous_inputs(source: SourceContent, work_dir: Path) -> None:
     """元URLを除いた実行契約と本文をClaude Codeの作業領域へ置く。"""
-    source_title = sanitize_public_text(source.title.replace(source.url, ""))
+    source_title = _PUBLIC_SOURCE_URL_RE.sub(
+        "",
+        sanitize_public_text(source.title.replace(source.url, "")),
+    ).strip()
     figures = [
         {
             "index": index,
-            "caption": sanitize_public_text(
-                figure.caption.replace(source.url, "")
-            ),
+            "caption": _PUBLIC_SOURCE_URL_RE.sub(
+                "",
+                sanitize_public_text(figure.caption.replace(source.url, "")),
+            ).strip(),
         }
         for index, figure in enumerate(source.figures, 1)
     ]
@@ -319,8 +325,25 @@ def _load_autonomous_outputs(work_dir: Path) -> dict[str, dict]:
     status = outputs["run-status.json"]
     if status.get("status") != "passed":
         raise RuntimeError(f"Claude Codeの自律生成が未完了: {status}")
+    attempts = status.get("attempts")
+    expected_stages = {"understanding", "outline", "draft", "final"}
+    if (
+        not isinstance(attempts, dict)
+        or set(attempts) != expected_stages
+        or any(
+            type(value) is not int or not 1 <= value <= 3
+            for value in attempts.values()
+        )
+    ):
+        raise RuntimeError(f"Claude Codeの試行回数が不正: {status}")
     validation = status.get("validation")
-    if not isinstance(validation, dict) or validation.get("passed") is not True:
+    if (
+        not isinstance(validation, dict)
+        or validation.get("stage") != "final"
+        or validation.get("file") != "script.json"
+        or validation.get("passed") is not True
+        or validation.get("errors") != []
+    ):
         raise RuntimeError(f"Claude Codeの最終検証が未達: {status}")
     return outputs
 

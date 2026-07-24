@@ -131,7 +131,18 @@ def test_generate_script_collects_autonomous_stage_outputs() -> None:
             "script.json": draft,
             "run-status.json": {
                 "status": "passed",
-                "validation": {"passed": True, "errors": []},
+                "attempts": {
+                    "understanding": 1,
+                    "outline": 1,
+                    "draft": 1,
+                    "final": 1,
+                },
+                "validation": {
+                    "stage": "final",
+                    "file": "script.json",
+                    "passed": True,
+                    "errors": [],
+                },
             },
         }
         for filename, payload in payloads.items():
@@ -158,6 +169,7 @@ def test_generate_script_collects_autonomous_stage_outputs() -> None:
     )
     assert stage_outputs["teaching-outline.json"]["stage"] == "outline"
     assert stage_outputs["scene-draft.json"] == {"scenes": []}
+    assert stage_outputs["run-status.json"]["status"] == "passed"
 
 
 def test_world_validation_requires_tooru_problem_first() -> None:

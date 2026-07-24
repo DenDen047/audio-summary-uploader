@@ -112,7 +112,7 @@ output: tmp/lecture/<job_id>/
   - `lecture_teaching_outline.md`
   - `lecture_script.md`
   - `lecture_teaching_review.md`
-- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存し、合格後にジョブへ保存する。Claude Codeへ元URLは渡さず、各段階の固定検証と公開前サニタイズの両方で、成果物へURL・メールアドレス・アクセストークンを残さない。
+- 段階成果物は`source-understanding.json`、`teaching-outline.json`、`scene-draft.json`、`script.json`として作業ディレクトリへ逐次保存し、試行回数・曖昧さ・最終検証を記録した`run-status.json`とともに合格後のジョブへ保存する。Claude Codeへ元URLは渡さず、各段階の固定検証と公開前サニタイズの両方で、成果物へURL・メールアドレス・アクセストークンを残さない。
 - 場面生成は資料理解、教える順番、図候補を確定入力にし、元資料本文を重複した長いプロンプトとして再投入しない。同一セッション内の教え方レビューだけが、資料理解と元資料を直接照合して根拠・限界を再確認する。
 - `lecture-generate-autonomously/scripts/validate_workdir.py`は各段階のJSON Schema、主張ID、場面番号、公開情報安全化を検証し、場面生成と最終台本では`script_gen._validate()`と`score_lecture.py`のM1〜M6・M8も検証する。Claude Codeはエラーに挙がった箇所だけを直し、同一工程は初回を含め最大3回までとする。3回目でも未達なら後続へ進まず`run-status.json`へ残存エラーを保存してFail Fastする。
 - 出力は下記スキーマのJSON。セリフの`text`は共通JSON Schemaの`maxLength: 80`と固定コードで検証し、投稿タグを含む必須キー・テンプレ型・話者名・セリフ長・セリフ総文字数3,000〜4,500字も固定コードで強制する。
@@ -273,6 +273,7 @@ tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 ├── source-understanding.json # 主要主張・根拠・限界・前提用語
 ├── teaching-outline.json    # 場面の問い・理解目標・接続理由
 ├── scene-draft.json         # 教え方レビュー前の場面台本
+├── run-status.json          # 4工程の試行回数・曖昧さ・最終固定検証
 ├── source_figures/          # 台本が選んだ一次資料図（外部URLなしで再描画可能）
 │   └── figure_01.png ...
 ├── script.json              # 台本（編集して render で再合成可能）

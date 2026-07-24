@@ -30,7 +30,7 @@ uv run python .claude/skills/lecture-generate-autonomously/scripts/validate_work
 
 ## 完了
 
-4工程が合格したら`final`検証をもう一度実行し、次の形式で`run-status.json`を書く。
+4工程が合格したら`final`検証を読み取り専用の確認としてもう一度実行する。この確認は修正試行へ数えず、出力された検証JSONを`validation`へそのまま入れて次の形式で`run-status.json`を書く。
 
 ```json
 {
@@ -43,8 +43,11 @@ uv run python .claude/skills/lecture-generate-autonomously/scripts/validate_work
   },
   "ambiguities": [],
   "validation": {
+    "stage": "final",
+    "file": "script.json",
     "passed": true,
-    "errors": []
+    "errors": [],
+    "metrics": {}
   }
 }
 ```
