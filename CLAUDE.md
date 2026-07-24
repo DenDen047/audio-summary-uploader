@@ -4,7 +4,13 @@
 
 ## Project Overview
 
-Gemini Notebook（旧 NotebookLM）→ YouTube 自動化パイプライン。URL リストからポッドキャスト風の音声要約を生成し、YouTube にアップロードする CLI ツール。講義動画（ずんだもん・四国めたん掛け合い）生成パイプラインも同居する。詳細仕様: `specs/PODCAST_SPEC.md`（音声要約）, `specs/LECTURE_SPEC.md`（講義動画）, `specs/GUI_SPEC.md`（Web UI）
+Gemini Notebook（旧 NotebookLM）→ YouTube 自動化パイプライン。URL リストからポッドキャスト風の音声要約を生成し、YouTube にアップロードする CLI ツール。講義動画（澪・透＝紫ノ宮澪・麦野透の掛け合い）生成パイプラインも同居する。詳細仕様: `specs/PODCAST_SPEC.md`（音声要約）, `specs/LECTURE_SPEC.md`（講義動画）, `specs/GUI_SPEC.md`（Web UI）
+
+### 現在の運用方針（2026-07-24 時点）
+
+- **既定モードは podcast**。WebUI ダッシュボードの「動画タイプ」既定を podcast にしている（`src/webui/templates/dashboard.html`）。
+- **lecture モードの本格生成は当面保留**。クロノITチャンネルが解説動画の自作システムを OSS 化／サービス化する続報を出す見込みで、1 から自作せずそれを待つ方針（目安: 2026-08 下旬に続報を確認して再開判断）。参考動画: https://youtu.be/Jul3isnP5qQ
+- **当面の注力先は澪・透（紫ノ宮澪・麦野透）の TTS**。現状は VOICEVOX（style 66=澪 / 69=透）。
 
 ## Commands
 

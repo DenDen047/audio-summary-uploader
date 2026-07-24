@@ -158,7 +158,7 @@ class TestDashboard:
         assert resp.status_code == 200
         assert '<option value="default"' in resp.text
         assert '<option value="paper"' in resp.text
-        assert '<option value="lecture" selected' in resp.text
+        assert '<option value="podcast" selected' in resp.text
         assert "澪と透の解説動画" in resp.text
         assert 'name="privacy_status"' in resp.text
         assert '<option value="unlisted" selected' in resp.text
