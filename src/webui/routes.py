@@ -8,9 +8,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from loguru import logger
 
-from summary.config import Settings
-from summary.pipeline import _find_or_create_job, _load_state, _save_state
-from summary.url_parser import UrlEntry
+from podcast.config import Settings
+from podcast.pipeline import _find_or_create_job, _load_state, _save_state
+from podcast.url_parser import UrlEntry
 from webui.app import enqueue_urls, templates
 
 router = APIRouter()
@@ -88,7 +88,7 @@ def _status_display(status: str) -> dict[str, str]:
 def _job_mode_label(job: dict) -> str:
     if job.get("mode") == "lecture":
         return "澪と透"
-    return "NotebookLM"
+    return "ポッドキャスト"
 
 
 def _template_ctx(**kwargs: object) -> dict[str, object]:
@@ -109,7 +109,7 @@ async def dashboard(request: Request) -> HTMLResponse:
     processing = _processing_jobs(jobs)
     completed = _completed_jobs(jobs)
     processing_count, queued_count = _badge_counts(jobs)
-    presets = list(settings.notebooklm.prompt_presets.keys())
+    presets = list(settings.podcast.prompt_presets.keys())
     default_privacy_status = settings.youtube.privacy_status
     if default_privacy_status not in ("unlisted", "public"):
         default_privacy_status = "unlisted"
@@ -176,7 +176,9 @@ async def add_urls(request: Request) -> HTMLResponse:
     form = await request.form()
     urls_text = str(form.get("urls", "")).strip()
     # Webフォームはmodeを必ず送る。省略時は既存API利用者との互換性を保つ。
-    mode = str(form.get("mode", "notebooklm")).strip() or "notebooklm"
+    mode = str(form.get("mode", "podcast")).strip() or "podcast"
+    if mode == "notebooklm":  # 旧モード名（改名前のフォーム・API 互換）
+        mode = "podcast"
     prompt = str(form.get("prompt", "default")).strip() or "default"
     audio_length = str(form.get("audio_length", "default")).strip() or "default"
     privacy_status = (
@@ -189,7 +191,7 @@ async def add_urls(request: Request) -> HTMLResponse:
             '<div class="error">URL を入力してください</div>',
             status_code=400,
         )
-    if mode not in ("lecture", "notebooklm"):
+    if mode not in ("lecture", "podcast"):
         return HTMLResponse(
             '<div class="error">動画タイプが不正です</div>',
             status_code=400,
@@ -215,7 +217,7 @@ async def add_urls(request: Request) -> HTMLResponse:
                 j
                 for j in state["jobs"]
                 if j["url"] == url
-                and j.get("mode", "notebooklm") == mode
+                and j.get("mode", "podcast") == mode
             ),
             None,
         )
@@ -291,7 +293,7 @@ def _reset_failed_job(job: dict) -> UrlEntry | None:
     job["status"] = "queued"
     return UrlEntry(
         url=job["url"],
-        mode=job.get("mode", "notebooklm"),
+        mode=job.get("mode", "podcast"),
         audio_length=job.get("audio_length", "default"),
         prompt=job.get("prompt", "default"),
         privacy_status=job.get("privacy_status"),

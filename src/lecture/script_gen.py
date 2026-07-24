@@ -9,14 +9,14 @@ from pathlib import Path
 
 from loguru import logger
 
-from lecture.fetch import SourceContent
 from lecture.reveal import (
     REVEAL_TEMPLATES,
     normalize_reveal_counts,
     total_units,
 )
 from lecture.thumbnail_backdrop import THUMBNAIL_VISUAL_PROMPT_MAX_CHARS
-from summary.citation import sanitize_public_text
+from sources.fetch import SourceContent
+from sources.sanitize import sanitize_public_text
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 SOURCE_UNDERSTANDING_PROMPT_PATH = (

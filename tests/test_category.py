@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from summary.category import (
+from podcast.category import (
     AMBIGUOUS_CATEGORIES,
     BUSINESS,
     DEFAULT,
@@ -16,7 +16,7 @@ from summary.category import (
     resolve_playlist_ids,
     style_for_category,
 )
-from summary.image_gen import DEFAULT_STYLE
+from podcast.image_gen import DEFAULT_STYLE
 
 
 class TestClassify:

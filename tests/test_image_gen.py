@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from PIL import Image
 
-from summary.image_gen import (
+from podcast.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     _resize_cover,
@@ -110,7 +110,7 @@ class TestResizeCover:
 async def test_generate_returns_none_without_cookies(tmp_path: Path) -> None:
     """cookie が無ければ gemini を一切呼ばず None を返す."""
     with patch(
-        "summary.image_gen.load_google_cookies", return_value=(None, None)
+        "podcast.image_gen.load_google_cookies", return_value=(None, None)
     ):
         result = await generate_thumbnail_image(
             "見出し", tmp_path / "t.png", width=1280, height=720
@@ -130,7 +130,7 @@ async def test_resolve_storage_state_falls_back_to_active_profile(
         return path == notebook_profile
 
     with patch(
-        "summary.image_gen._storage_state_is_available",
+        "podcast.image_gen._storage_state_is_available",
         side_effect=is_available,
     ):
         selected = await resolve_google_storage_state(

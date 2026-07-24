@@ -13,7 +13,7 @@ class UrlEntry:
     """1つ以上のソース＋共通設定。単一ソースは extra_urls=[] で従来どおり."""
 
     url: str
-    mode: str = "notebooklm"
+    mode: str = "podcast"
     audio_length: str | None = None
     prompt: str | None = None
     title: str | None = None
@@ -42,9 +42,14 @@ def _validate_audio_length(value: str | None) -> bool:
     return value is None or value in ("short", "default")
 
 
+def _normalize_mode(value: str) -> str:
+    """旧モード名 "notebooklm" を現行の "podcast" へ読み替える（後方互換）。"""
+    return "podcast" if value == "notebooklm" else value
+
+
 def _validate_mode(value: str) -> bool:
     """生成方式のバリデーション。"""
-    return value in ("notebooklm", "lecture")
+    return value in ("podcast", "lecture")
 
 
 def _parse_multi_entry(
@@ -62,7 +67,7 @@ def _parse_multi_entry(
         logger.warning("Skipping entry {}: 'urls' must be a non-empty list", index + 1)
         return None
 
-    mode = str(item.get("mode", "notebooklm")).strip()
+    mode = _normalize_mode(str(item.get("mode", "podcast")).strip())
     if not _validate_mode(mode):
         logger.warning("Skipping entry {} — unknown mode: {!r}", index + 1, mode)
         return None
@@ -154,7 +159,7 @@ def parse_url_file(
             continue
 
         url = str(item["url"]).strip()
-        mode = str(item.get("mode", "notebooklm")).strip()
+        mode = _normalize_mode(str(item.get("mode", "podcast")).strip())
         if not _validate_mode(mode):
             logger.warning("Skipping URL {} — unknown mode: {!r}", url, mode)
             continue

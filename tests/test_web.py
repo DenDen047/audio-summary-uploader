@@ -9,10 +9,10 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from summary.config import (
+from podcast.config import (
     CredentialsConfig,
     GeneralConfig,
-    NotebookLMConfig,
+    PodcastConfig,
     Settings,
     ThumbnailConfig,
     YouTubeConfig,
@@ -30,7 +30,7 @@ def tmp_state(tmp_path: Path) -> Path:
 def settings(tmp_state: Path) -> Settings:
     """テスト用 Settings."""
     return Settings(
-        notebooklm=NotebookLMConfig(
+        podcast=PodcastConfig(
             prompt_presets={"default": "Summarize", "paper": "Summarize paper"},
         ),
         youtube=YouTubeConfig(),
@@ -575,7 +575,7 @@ class TestRecovery:
         """run_pipeline がバッチごと失敗したら queued ジョブを failed にする配線."""
         import asyncio
 
-        from summary.url_parser import UrlEntry
+        from podcast.url_parser import UrlEntry
         from webui import app as web_app
 
         state = {

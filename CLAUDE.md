@@ -4,8 +4,7 @@
 
 ## Project Overview
 
-NotebookLM → YouTube 自動化パイプライン。URL リストから NotebookLM で音声要約を生成し、YouTube にアップロードする CLI ツール。講義動画（ずんだもん・四国めたん掛け合い）生成パイプラインも同居する。
-詳細仕様: `specs/SPEC.md`（音声要約）, `specs/LECTURE_SPEC.md`（講義動画）, `specs/GUI_SPEC.md`（Web UI）
+Gemini Notebook（旧 NotebookLM）→ YouTube 自動化パイプライン。URL リストからポッドキャスト風の音声要約を生成し、YouTube にアップロードする CLI ツール。講義動画（ずんだもん・四国めたん掛け合い）生成パイプラインも同居する。詳細仕様: `specs/PODCAST_SPEC.md`（音声要約）, `specs/LECTURE_SPEC.md`（講義動画）, `specs/GUI_SPEC.md`（Web UI）
 
 ## Commands
 
@@ -29,14 +28,16 @@ ruff check .
 - **Paths**: Use `pathlib.Path`, not raw strings.
 - **Python**: 3.11 (`.python-version`), type hints throughout.
 - **Prompts**: AI に送る定型プロンプトは Python コードに埋め込まず、各パッケージの `prompts/` 配下の md ファイルで管理する（`{{PLACEHOLDER}}` を `.replace()` で埋める方式）。
+- **Writing Style（文書全般）**: 仕様書・README・レポート等の散文では段落内で手動改行しない。1段落＝1行で書き、見た目の折り返しはエディタに任せる（表・コードブロック・図解は除く）。
 - **Spec-Code Consistency**: Specs (`specs/`) and code must always match. When implementing from a spec, follow it exactly. When modifying code that has a corresponding spec, update the spec in the same change. When modifying a spec, update the code in the same change. If a conflict is found between spec and code, stop and ask the user which is correct before proceeding.
 
 ### Directory Structure
 
 ```
-src/summary/         # 音声要約パイプライン（NotebookLM → YouTube）
+src/sources/         # 情報源の取得層（podcast/lecture 両モード共通。本文抽出・サニタイズ）
+src/podcast/         # ポッドキャスト音声要約パイプライン（Gemini Notebook → YouTube）
 src/lecture/         # 講義動画パイプライン
-src/webui/           # 共通 Web ダッシュボード（FastAPI、summary/lecture 両モードを扱う）
+src/webui/           # 共通 Web ダッシュボード（FastAPI、podcast/lecture 両モードを扱う）
 specs/               # 仕様書
 tmp/                 # 一時ファイル（audio, thumbnails, videos）
 credentials/         # OAuth トークン等（.gitignore 対象）
@@ -45,12 +46,9 @@ config/              # settings.yaml
 
 ## Claude Code Skills
 
-プロジェクト固有のスキルは `.claude/skills/` に配置する（グローバルの `~/.claude/` は使わない）。
-Claude Code の運用テスト中のため、設定・スキルはすべてプロジェクト内で完結させること。
+プロジェクト固有のスキルは `.claude/skills/` に配置する（グローバルの `~/.claude/` は使わない）。Claude Code の運用テスト中のため、設定・スキルはすべてプロジェクト内で完結させること。
 
-**メタルール**: ユーザーから開発スタイル・ワークフロー・ツール利用方法に関する指示があった場合、
-その内容をその場で `CLAUDE.md` または対応する `.claude/skills/*/SKILL.md` に反映すること。
-口頭で確認するだけでなく、必ずファイルに書き残す。
+**メタルール**: ユーザーから開発スタイル・ワークフロー・ツール利用方法に関する指示があった場合、その内容をその場で `CLAUDE.md` または対応する `.claude/skills/*/SKILL.md` に反映すること。口頭で確認するだけでなく、必ずファイルに書き残す。
 
 ## Lecture Visual Explanation Policy
 

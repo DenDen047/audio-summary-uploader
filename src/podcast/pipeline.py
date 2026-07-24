@@ -21,24 +21,22 @@ from notebooklm.exceptions import NetworkError as NotebookLMNetworkError
 
 from lecture.pipeline import LectureArtifacts, generate_lecture
 from lecture.thumbnail_backdrop import ThumbnailBackdropOptions
-from summary.category import (
+from podcast.category import (
     AMBIGUOUS_CATEGORIES,
     classify_category,
     parse_category,
     resolve_playlist_ids,
     style_for_category,
 )
-from summary.citation import (
+from podcast.citation import (
     EmailCitation,
     clean_paper_shortname,
     format_source_line,
-    is_spark_share_url,
     parse_email_metadata,
-    sanitize_public_text,
     strip_citation_markers,
 )
-from summary.config import Settings
-from summary.image_gen import (
+from podcast.config import Settings
+from podcast.image_gen import (
     DEFAULT_STYLE,
     ThumbnailStyle,
     generate_background_image,
@@ -46,19 +44,21 @@ from summary.image_gen import (
     resolve_google_storage_state,
     storage_state_for_profile,
 )
-from summary.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
-from summary.notebooklm import NotebookLMBackend
-from summary.notebooklm_py_backend import NotebookLMPyBackend
-from summary.report import ProcessResult
-from summary.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
-from summary.url_parser import UrlEntry, is_local_path
-from summary.video import convert_to_video, probe_duration
-from summary.youtube import (
+from podcast.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
+from podcast.notebooklm import NotebookLMBackend
+from podcast.notebooklm_py_backend import NotebookLMPyBackend
+from podcast.report import ProcessResult
+from podcast.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
+from podcast.url_parser import UrlEntry, is_local_path
+from podcast.video import convert_to_video, probe_duration
+from podcast.youtube import (
     YouTubeUploadParams,
     authenticate,
     set_thumbnail,
     upload_video,
 )
+from sources.fetch import ExtractedSource, RemoteSource, resolve_source
+from sources.sanitize import is_spark_share_url, sanitize_public_text
 
 _NOTEBOOKLM_AUTH_ERROR_MSG = (
     "NotebookLM の認証が期限切れです。"
@@ -68,8 +68,6 @@ _NOTEBOOKLM_AUTH_ERROR_MSG = (
 
 _AUTH_ERROR_KEYWORDS = ("authentication", "expired", "re-authenticate", "login")
 
-# Spark メール等、OGP が無く title=URL になりがちなソース用の仮タイトル
-_SPARK_TITLE_PLACEHOLDER = "メール要約（タイトル取得中）"
 # 複数ソースを1音声にまとめる場合の仮タイトル（最終タイトルは ② chat で生成）
 _MULTI_TITLE_PLACEHOLDER = "複数ソースのまとめ"
 # NotebookLM chat に投げる定型プロンプト（本文は prompts/ 配下の md で管理）
@@ -83,7 +81,7 @@ def _load_prompt(name: str) -> str:
 # メール系ソースの出典抽出に使う chat 質問（受信者情報は出させない）
 _EMAIL_META_QUESTION = _load_prompt("email_meta.md")
 # 日本語タイトル生成に使う chat 質問。
-# タイトルポリシーの根拠は specs/SPEC.md「YouTube タイトルの形式」を参照。
+# タイトルポリシーの根拠は specs/PODCAST_SPEC.md「YouTube タイトルの形式」を参照。
 _JP_TITLE_QUESTION = _load_prompt("jp_title.md")
 # 論文の通称・略称抽出に使う chat 質問（無ければ none）。有名論文の解説を探す
 # 学生・研究者向けに、SAM/YOLO 等の略称をタイトル・サムネに載せて検索性を上げる。
@@ -160,7 +158,7 @@ def _make_slug(url: str) -> str:
 def _resolve_prompt_preset(preset_name: str | None, settings: Settings) -> str:
     """プロンプトプリセット名を実際のテキストに解決する."""
     name = preset_name or "default"
-    presets = settings.notebooklm.prompt_presets
+    presets = settings.podcast.prompt_presets
     if name not in presets:
         msg = f"Unknown prompt preset: {name!r}"
         raise ValueError(msg)
@@ -247,7 +245,7 @@ def _build_description(
         "通勤や作業のお供にどうぞ。"
     )
     footer = (
-        "※ NotebookLM の Audio Overview で自動生成。要点把握用です。"
+        "※ Gemini Notebook（旧 NotebookLM）の音声概要で自動生成。要点把握用です。"
         "正確な内容は元情報をご確認ください。"
     )
     description = (
@@ -278,16 +276,21 @@ def _build_title(metadata: PageMetadata, settings: Settings) -> str:
     return f"{prefix} {title}"
 
 
-def _apply_spark_safety(metadata: PageMetadata) -> None:
-    """Spark 共有ソースの生 URL がタイトル・サムネに漏れないようにする（in-place）.
+def _metadata_for_extracted_source(url: str, source: ExtractedSource) -> PageMetadata:
+    """抽出済みソース（Spark メール等）のメタデータを作る.
 
-    Spark の共有ページは OGP を持たず title=URL になりがち。実際の件名は collect
-    フェーズで NotebookLM chat から取得するため、それまでは仮タイトルにしておく。
+    生の共有 URL を公開面に出さないため OGP は取得せず、SSR から抽出済みの
+    件名をタイトルに使う（最終タイトルは collect の chat で日本語生成）。
     """
-    if is_spark_share_url(metadata.url):
-        metadata.title = _SPARK_TITLE_PLACEHOLDER
-        metadata.site_name = metadata.site_name or "メールニュースレター"
-        metadata.og_image_url = None
+    return PageMetadata(
+        url=url,
+        title=source.title,
+        description="",
+        og_image_url=None,
+        site_name="メールニュースレター",
+        language=None,
+        favicon_url=None,
+    )
 
 
 async def _extract_email_citation(
@@ -484,7 +487,7 @@ async def _generate_thumb_base(
         reference_image=_MASCOT_BASE if _MASCOT_BASE.exists() else None,
         pose=_THUMB_POSE_VARIATIONS[pose_idx],
         storage_state_path=storage_state_path
-        or storage_state_for_profile(settings.notebooklm.image_profile),
+        or storage_state_for_profile(settings.podcast.image_profile),
     )
 
 
@@ -562,7 +565,7 @@ async def _generate_backgrounds(
             topic=topic,
             variation=_BG_VARIATIONS[i % len(_BG_VARIATIONS)],
             storage_state_path=storage_state_path
-            or storage_state_for_profile(settings.notebooklm.image_profile),
+            or storage_state_for_profile(settings.podcast.image_profile),
         )
         if bg is None:
             consecutive_failures += 1
@@ -584,7 +587,7 @@ async def _resolve_image_storage_state(settings: Settings) -> Path | None:
         return None
     selected = await resolve_google_storage_state(
         [
-            storage_state_for_profile(settings.notebooklm.image_profile),
+            storage_state_for_profile(settings.podcast.image_profile),
             storage_state_for_profile("default"),
         ]
     )
@@ -601,10 +604,13 @@ def _now_iso() -> str:
 
 
 def _migrate_state(state: dict) -> dict:
-    """旧 state.json (processed キー) を新 jobs スキーマにマイグレーションする."""
+    """旧 state.json (processed キー・旧モード名) を現行スキーマへ移行する."""
     if "jobs" in state:
         for job in state["jobs"]:
-            job.setdefault("mode", "notebooklm")
+            job.setdefault("mode", "podcast")
+            # 旧モード名 "notebooklm" は "podcast" へ改名（2026-07）
+            if job["mode"] == "notebooklm":
+                job["mode"] = "podcast"
             job.setdefault("privacy_status", None)
             job.setdefault("script_path", None)
             job.setdefault("upload_metadata", None)
@@ -621,7 +627,7 @@ def _migrate_state(state: dict) -> dict:
         job: dict[str, Any] = {
             "url": entry["url"],
             "slug": _make_slug(entry["url"]),
-            "mode": "notebooklm",
+            "mode": "podcast",
             "audio_length": entry.get("audio_length", "default"),
             "prompt": entry.get("prompt", "default"),
             "privacy_status": None,
@@ -676,7 +682,7 @@ def _update_job_state(
     state_path: Path,
     url: str,
     updates: dict[str, Any],
-    mode: str = "notebooklm",
+    mode: str = "podcast",
 ) -> None:
     """state.json からジョブを検索し、指定フィールドのみ更新して保存する.
 
@@ -685,7 +691,7 @@ def _update_job_state(
     """
     state = _load_state(state_path)
     for job in state["jobs"]:
-        if job["url"] == url and job.get("mode", "notebooklm") == mode:
+        if job["url"] == url and job.get("mode", "podcast") == mode:
             job.update(updates)
             break
     state["last_run"] = _now_iso()
@@ -698,7 +704,7 @@ def _upsert_job_state(
     audio_length: str,
     prompt: str,
     updates: dict[str, Any],
-    mode: str = "notebooklm",
+    mode: str = "podcast",
 ) -> None:
     """state.json を読み直してジョブを find-or-create し、更新して保存する.
 
@@ -717,7 +723,7 @@ def _upsert_job_state(
 def _get_active_jobs(state: dict) -> set[tuple[str, str]]:
     """生成中・video_ready・uploaded の (URL, mode) セットを返す."""
     return {
-        (job["url"], job.get("mode", "notebooklm"))
+        (job["url"], job.get("mode", "podcast"))
         for job in state.get("jobs", [])
         if job.get("status") in ("generating", "video_ready", "uploaded")
     }
@@ -728,11 +734,11 @@ def _find_or_create_job(
     url: str,
     audio_length: str,
     prompt: str,
-    mode: str = "notebooklm",
+    mode: str = "podcast",
 ) -> dict:
     """既存ジョブを探すか新規作成する."""
     for job in state["jobs"]:
-        if job["url"] == url and job.get("mode", "notebooklm") == mode:
+        if job["url"] == url and job.get("mode", "podcast") == mode:
             # 再投入時の audio_length / prompt 指定変更を反映する
             job["audio_length"] = audio_length
             job["prompt"] = prompt
@@ -740,7 +746,7 @@ def _find_or_create_job(
             return job
     job: dict[str, Any] = {
         "url": url,
-        "slug": _make_slug(url if mode == "notebooklm" else f"{mode}:{url}"),
+        "slug": _make_slug(url if mode == "podcast" else f"{mode}:{url}"),
         "mode": mode,
         "audio_length": audio_length,
         "prompt": prompt,
@@ -796,12 +802,12 @@ def _dict_to_metadata(url: str, d: dict) -> PageMetadata:
 
 def _create_backend(settings: Settings) -> NotebookLMBackend:
     """設定に応じた NotebookLM バックエンドを生成する."""
-    if settings.notebooklm.backend == "notebooklm-py":
+    if settings.podcast.backend == "notebooklm-py":
         return NotebookLMPyBackend(
-            poll_interval=settings.notebooklm.generation_poll_interval_seconds,
-            timeout=settings.notebooklm.generation_timeout_seconds,
+            poll_interval=settings.podcast.generation_poll_interval_seconds,
+            timeout=settings.podcast.generation_timeout_seconds,
         )
-    msg = f"Backend {settings.notebooklm.backend!r} is not yet implemented"
+    msg = f"Backend {settings.podcast.backend!r} is not yet implemented"
     raise NotImplementedError(msg)
 
 
@@ -818,16 +824,25 @@ async def _submit_single(
     """1つの URL に対して submit 処理を実行する."""
     url = entry.url
     slug = _make_slug(url)
-    audio_length = entry.audio_length or settings.notebooklm.audio_length
+    audio_length = entry.audio_length or settings.podcast.audio_length
     prompt_preset_name = entry.prompt or "default"
     privacy_status = entry.privacy_status or settings.youtube.privacy_status
 
     logger.info("Submitting: {} (slug={})", url, slug)
 
-    # メタデータ取得（複数ソースはページ取得せず仮タイトル。最終タイトルは ② で生成）
+    # ソースの投入形式を決める（Spark はここで SSR 本文を抽出。取得失敗は
+    # Fail Fast でジョブを failed にし、本文なしの空音声を作らせない）
     sources = entry.sources
     is_multi = len(sources) > 1
     is_local = is_local_path(url) and not is_multi
+    resolved_sources: list[RemoteSource | ExtractedSource] = []
+    if not is_local:
+        resolved_sources = [
+            await asyncio.to_thread(resolve_source, source_url)
+            for source_url in sources
+        ]
+
+    # メタデータ取得（複数ソースはページ取得せず仮タイトル。最終タイトルは ② で生成）
     if is_multi:
         metadata = PageMetadata(
             url=url,
@@ -841,9 +856,10 @@ async def _submit_single(
     elif is_local:
         tmp_dir = Path(settings.general.tmp_dir)
         metadata = metadata_for_local_file(Path(url), tmp_dir=tmp_dir)
+    elif isinstance(resolved_sources[0], ExtractedSource):
+        metadata = _metadata_for_extracted_source(url, resolved_sources[0])
     else:
         metadata = await fetch_metadata(url)
-        _apply_spark_safety(metadata)
 
     if dry_run:
         # state.json には書き込まない。generating を書くと以後の本実行が
@@ -873,12 +889,18 @@ async def _submit_single(
     })
 
     try:
-        # ソース追加（複数ソースは同一ノートブックに全て追加）
+        # ソース追加（複数ソースは同一ノートブックに全て追加。
+        # 抽出済みソースは NotebookLM に URL を取得させずテキストで投入する）
         if is_local:
             await backend.add_file_source(notebook_id, Path(url))
         else:
-            for source_url in sources:
-                await backend.add_source(notebook_id, source_url)
+            for source in resolved_sources:
+                if isinstance(source, ExtractedSource):
+                    await backend.add_text_source(
+                        notebook_id, source.title, source.text
+                    )
+                else:
+                    await backend.add_source(notebook_id, source.url)
 
         # プロンプト解決
         prompt_text = _resolve_prompt_preset(entry.prompt, settings)
@@ -886,7 +908,7 @@ async def _submit_single(
         # 音声生成開始（完了を待たない）
         task_id = await backend.start_audio_generation(
             notebook_id,
-            language=settings.notebooklm.audio_language,
+            language=settings.podcast.audio_language,
             instructions=prompt_text,
             audio_length=audio_length,
         )
@@ -939,18 +961,18 @@ async def submit_urls(
         return []
 
     lecture_entries = [entry for entry in to_submit if entry.mode == "lecture"]
-    notebook_entries = [entry for entry in to_submit if entry.mode == "notebooklm"]
+    notebook_entries = [entry for entry in to_submit if entry.mode == "podcast"]
     unknown_modes = {
         entry.mode
         for entry in to_submit
-        if entry.mode not in ("lecture", "notebooklm")
+        if entry.mode not in ("lecture", "podcast")
     }
     if unknown_modes:
         raise ValueError(f"Unknown generation modes: {sorted(unknown_modes)}")
 
     results: list[ProcessResult] = []
     for entry in lecture_entries:
-        audio_length = entry.audio_length or settings.notebooklm.audio_length
+        audio_length = entry.audio_length or settings.podcast.audio_length
         prompt_preset_name = entry.prompt or "default"
         privacy_status = entry.privacy_status or settings.youtube.privacy_status
         if not dry_run:
@@ -1008,7 +1030,7 @@ async def submit_urls(
             # state にエラーを記録。notebook_id は破棄しない:
             # 掃除に失敗したノートブックが残っていても、リトライ時の
             # _submit_single 冒頭で best-effort 削除されるため。
-            audio_length = entry.audio_length or settings.notebooklm.audio_length
+            audio_length = entry.audio_length or settings.podcast.audio_length
             prompt_preset_name = entry.prompt or "default"
             _upsert_job_state(
                 state_path, entry.url, audio_length, prompt_preset_name, {
@@ -1347,7 +1369,7 @@ async def collect_audio(
 
     lecture_jobs = [job for job in generating_jobs if job.get("mode") == "lecture"]
     notebook_jobs = [
-        job for job in generating_jobs if job.get("mode", "notebooklm") == "notebooklm"
+        job for job in generating_jobs if job.get("mode", "podcast") == "podcast"
     ]
     results: list[ProcessResult] = []
 
@@ -1376,7 +1398,7 @@ async def collect_audio(
         return results
 
     if timeout is not None:
-        settings.notebooklm.generation_timeout_seconds = timeout
+        settings.podcast.generation_timeout_seconds = timeout
 
     backend = _create_backend(settings)
 
@@ -1443,7 +1465,7 @@ async def _reapply_pending_thumbnails(
                 state_path,
                 job["url"],
                 {"thumbnail_pending": False},
-                mode=job.get("mode", "notebooklm"),
+                mode=job.get("mode", "podcast"),
             )
             logger.info("サムネ再適用に成功: {}", job["youtube_url"])
         elif result == "quota":
@@ -1505,7 +1527,7 @@ async def upload_videos(
                     "status": "failed",
                     "error": str(exc),
                 },
-                mode=job.get("mode", "notebooklm"),
+                mode=job.get("mode", "podcast"),
             )
             results.append(
                 ProcessResult(
@@ -1607,7 +1629,7 @@ async def upload_videos(
                     "thumbnail_pending": not result.thumbnail_set,
                     "uploaded_at": _now_iso(),
                 },
-                mode=job.get("mode", "notebooklm"),
+                mode=job.get("mode", "podcast"),
             )
             if not result.thumbnail_set:
                 logger.warning(
@@ -1632,7 +1654,7 @@ async def upload_videos(
                     "status": "failed",
                     "error": str(exc),
                 },
-                mode=job.get("mode", "notebooklm"),
+                mode=job.get("mode", "podcast"),
             )
             results.append(
                 ProcessResult(
@@ -1662,13 +1684,17 @@ async def process_single_url(
     slug = _make_slug(entry.url)
     logger.info("Processing: {} (slug={})", entry.url, slug)
 
-    # 1. メタデータ取得
+    # 1. ソースの投入形式を決め、メタデータを取得
     is_local = is_local_path(entry.url)
+    resolved: RemoteSource | ExtractedSource | None = None
     if is_local:
         metadata = metadata_for_local_file(Path(entry.url), tmp_dir=tmp_dir)
     else:
-        metadata = await fetch_metadata(entry.url)
-        _apply_spark_safety(metadata)
+        resolved = await asyncio.to_thread(resolve_source, entry.url)
+        if isinstance(resolved, ExtractedSource):
+            metadata = _metadata_for_extracted_source(entry.url, resolved)
+        else:
+            metadata = await fetch_metadata(entry.url)
 
     if dry_run:
         logger.info("[DRY RUN] Would process: {!r}", metadata.title)
@@ -1679,9 +1705,11 @@ async def process_single_url(
     # 2. NotebookLM でノートブック作成
     notebook_id = await backend.create_notebook(f"Summary: {metadata.title}")
 
-    # 3. ソース追加
+    # 3. ソース追加（抽出済みソースはテキストで投入）
     if is_local:
         await backend.add_file_source(notebook_id, Path(entry.url))
+    elif isinstance(resolved, ExtractedSource):
+        await backend.add_text_source(notebook_id, resolved.title, resolved.text)
     else:
         await backend.add_source(notebook_id, entry.url)
 
@@ -1689,12 +1717,12 @@ async def process_single_url(
     prompt_text = _resolve_prompt_preset(entry.prompt, settings)
 
     # 5. audio_length 解決
-    audio_length = entry.audio_length or settings.notebooklm.audio_length
+    audio_length = entry.audio_length or settings.podcast.audio_length
 
     # 6. Audio Overview 生成
     await backend.generate_audio(
         notebook_id,
-        language=settings.notebooklm.audio_language,
+        language=settings.podcast.audio_language,
         instructions=prompt_text,
         audio_length=audio_length,
     )
@@ -1796,7 +1824,7 @@ async def run_pipeline(
         state_path = Path(settings.general.state_file)
         state = _load_state(state_path)
         failed_jobs = {
-            (job["url"], job.get("mode", "notebooklm"))
+            (job["url"], job.get("mode", "podcast"))
             for job in state.get("jobs", [])
             if job.get("status") == "failed"
         }

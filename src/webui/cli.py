@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 from loguru import logger
 
-from summary.config import load_settings
+from podcast.config import load_settings
 
 
 @click.command()

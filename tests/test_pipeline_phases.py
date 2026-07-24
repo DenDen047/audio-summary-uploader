@@ -8,23 +8,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from summary.config import (
+from podcast.config import (
     CredentialsConfig,
     GeneralConfig,
-    NotebookLMConfig,
+    PodcastConfig,
     Settings,
     ThumbnailConfig,
     YouTubeConfig,
 )
-from summary.pipeline import (
+from podcast.pipeline import (
     _load_state,
     collect_audio,
     run_pipeline,
     submit_urls,
     upload_videos,
 )
-from summary.url_parser import UrlEntry
-from summary.youtube import UploadResult
+from podcast.url_parser import UrlEntry
+from podcast.youtube import UploadResult
+from sources.fetch import ExtractedSource
 
 
 @pytest.fixture()
@@ -37,7 +38,7 @@ def tmp_state(tmp_path: Path) -> Path:
 @pytest.fixture()
 def settings(tmp_state: Path, tmp_path: Path) -> Settings:
     return Settings(
-        notebooklm=NotebookLMConfig(
+        podcast=PodcastConfig(
             backend="notebooklm-py",
             audio_language="ja",
             audio_length="default",
@@ -92,7 +93,7 @@ def mock_image_profile_resolution():
         / "storage_state.json"
     )
     with patch(
-        "summary.pipeline.resolve_google_storage_state",
+        "podcast.pipeline.resolve_google_storage_state",
         new=AsyncMock(return_value=default_storage),
     ):
         yield
@@ -106,8 +107,8 @@ async def test_submit_sets_generating(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -130,6 +131,42 @@ async def test_submit_sets_generating(
     assert jobs[0]["status"] == "generating"
     assert jobs[0]["notebook_id"] == "notebook-id-abc"
     assert jobs[0]["task_id"] == "test-task-123"
+
+
+@pytest.mark.asyncio()
+async def test_submit_spark_share_adds_text_source(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """Spark 共有 URL は抽出済み本文をテキストソースとして投入することを確認.
+
+    NotebookLM に URL を直接取得させると、JS レンダリング前のシェル
+    （アプリ宣伝文）だけを掴んで空音声を静かに量産することがあるため。
+    """
+    spark_url = "https://app.sparkmailapp.com/web-share/abc"
+    entries = [UrlEntry(url=spark_url)]
+
+    with (
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
+        patch(
+            "podcast.pipeline.resolve_source",
+            return_value=ExtractedSource(
+                url=spark_url, title="今週のAIニュース", text="本文" * 200
+            ),
+        ),
+    ):
+        results = await submit_urls(entries, settings)
+
+    assert results[0].status == "generating"
+    # OGP は取得しない（Spark はシェルしか返さず title=宣伝文になるため）
+    mock_meta.assert_not_called()
+    mock_backend.add_source.assert_not_called()
+    mock_backend.add_text_source.assert_awaited_once_with(
+        "notebook-id-abc", "今週のAIニュース", "本文" * 200
+    )
+
+    state = _load_state(Path(settings.general.state_file))
+    assert state["jobs"][0]["metadata"]["title"] == "今週のAIニュース"
 
 
 @pytest.mark.asyncio()
@@ -179,17 +216,17 @@ async def test_collect_transitions_to_video_ready(
     video_path = tmp_path / "tmp" / "videos" / "abc123.mp4"
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
-        patch("summary.pipeline.convert_to_video") as mock_video,
+        patch("podcast.pipeline.generate_thumbnail") as mock_thumb,
+        patch("podcast.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = thumb_path
         mock_video.return_value = video_path
@@ -211,7 +248,7 @@ async def test_collect_falls_back_to_active_notebook_profile_for_visuals(
     settings: Settings, mock_backend: AsyncMock, tmp_path: Path
 ) -> None:
     """Web UI の NotebookLM ジョブでも生成背景を動画変換へ渡す."""
-    settings.notebooklm.image_profile = "imagegen"
+    settings.podcast.image_profile = "imagegen"
     state_path = Path(settings.general.state_file)
     _write_state(state_path, [_make_job()])
 
@@ -231,21 +268,21 @@ async def test_collect_falls_back_to_active_notebook_profile_for_visuals(
     video_path = tmp_path / "video.mp4"
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "summary.pipeline.resolve_google_storage_state",
+            "podcast.pipeline.resolve_google_storage_state",
             new=AsyncMock(return_value=default_storage),
         ) as mock_resolve,
         patch(
-            "summary.pipeline._compose_topic_thumbnail",
+            "podcast.pipeline._compose_topic_thumbnail",
             new=AsyncMock(return_value=thumb_path),
         ) as mock_thumbnail,
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[background_path]),
         ) as mock_backgrounds,
         patch(
-            "summary.pipeline.convert_to_video",
+            "podcast.pipeline.convert_to_video",
             new=AsyncMock(return_value=video_path),
         ) as mock_video,
     ):
@@ -313,17 +350,17 @@ async def test_collect_still_generating(
     mock_backend.download_audio.return_value = audio_path
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
-        patch("summary.pipeline.convert_to_video") as mock_video,
+        patch("podcast.pipeline.generate_thumbnail") as mock_thumb,
+        patch("podcast.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = Path("/tmp/thumb.png")
         mock_video.return_value = Path("/tmp/video.mp4")
@@ -380,20 +417,20 @@ async def test_full_pipeline_phase_transitions(
     video_path.write_bytes(b"fake video")
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("summary.pipeline.generate_thumbnail") as mock_thumb_fn,
-        patch("summary.pipeline.convert_to_video") as mock_video_fn,
-        patch("summary.pipeline.authenticate") as mock_auth,
-        patch("summary.pipeline.upload_video") as mock_upload,
+        patch("podcast.pipeline.generate_thumbnail") as mock_thumb_fn,
+        patch("podcast.pipeline.convert_to_video") as mock_video_fn,
+        patch("podcast.pipeline.authenticate") as mock_auth,
+        patch("podcast.pipeline.upload_video") as mock_upload,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -461,8 +498,8 @@ async def test_queued_job_not_skipped_by_submit(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -531,17 +568,17 @@ async def test_collect_handles_lowercase_completed(
     mock_backend.download_audio.return_value = audio_path
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
-        patch("summary.pipeline.generate_thumbnail") as mock_thumb,
-        patch("summary.pipeline.convert_to_video") as mock_video,
+        patch("podcast.pipeline.generate_thumbnail") as mock_thumb,
+        patch("podcast.pipeline.convert_to_video") as mock_video,
     ):
         mock_thumb.return_value = Path("/tmp/thumb.png")
         mock_video.return_value = Path("/tmp/video.mp4")
@@ -603,7 +640,7 @@ async def test_collect_terminal_failed_without_poll(
 
     mock_backend.check_audio_status.return_value = _mock_generation_status("FAILED")
 
-    with patch("summary.pipeline._create_backend", return_value=mock_backend):
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "failed"
@@ -626,7 +663,7 @@ async def test_collect_timeout_keeps_generating(
     mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
     mock_backend.wait_for_audio.side_effect = TimeoutError("timed out")
 
-    with patch("summary.pipeline._create_backend", return_value=mock_backend):
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "generating"
@@ -646,7 +683,7 @@ async def test_collect_missing_task_id_fails_with_clear_error(
     state_path = Path(settings.general.state_file)
     _write_state(state_path, [_make_job(task_id=None)])
 
-    with patch("summary.pipeline._create_backend", return_value=mock_backend):
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "failed"
@@ -668,8 +705,8 @@ async def test_dry_run_does_not_write_state(
     entries = [UrlEntry(url="https://example.com/article1")]
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -702,7 +739,7 @@ async def test_submit_failure_does_not_clobber_other_jobs(
         # submit 実行中に Web ハンドラが other ジョブを削除した状況を再現
         state = _load_state(state_path)
         state["jobs"] = [j for j in state["jobs"] if j["slug"] != "other1"]
-        from summary.pipeline import _save_state
+        from podcast.pipeline import _save_state
 
         _save_state(state_path, state)
         raise RuntimeError("source add failed")
@@ -711,8 +748,8 @@ async def test_submit_failure_does_not_clobber_other_jobs(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -747,8 +784,8 @@ async def test_submit_cleans_up_old_notebook(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -781,7 +818,7 @@ async def test_upload_auth_failure_non_interactive_marks_failed(
     )
 
     with patch(
-        "summary.pipeline.authenticate",
+        "podcast.pipeline.authenticate",
         side_effect=RuntimeError("YouTube の認証が必要です"),
     ) as mock_auth:
         results = await upload_videos(settings, allow_interactive_auth=False)
@@ -808,7 +845,7 @@ async def test_upload_auth_failure_interactive_raises(
 
     with (
         patch(
-            "summary.pipeline.authenticate",
+            "podcast.pipeline.authenticate",
             side_effect=RuntimeError("auth failed"),
         ),
         pytest.raises(RuntimeError, match="auth failed"),
@@ -830,9 +867,9 @@ async def test_upload_reapplies_pending_thumbnail(
     )])
 
     with (
-        patch("summary.pipeline.authenticate", return_value=MagicMock()),
+        patch("podcast.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "summary.pipeline.set_thumbnail", new=AsyncMock(return_value="ok")
+            "podcast.pipeline.set_thumbnail", new=AsyncMock(return_value="ok")
         ) as mock_set,
     ):
         await upload_videos(settings, allow_interactive_auth=False)
@@ -857,9 +894,9 @@ async def test_upload_pending_thumbnail_quota_stays_pending(
     )])
 
     with (
-        patch("summary.pipeline.authenticate", return_value=MagicMock()),
+        patch("podcast.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "summary.pipeline.set_thumbnail", new=AsyncMock(return_value="quota")
+            "podcast.pipeline.set_thumbnail", new=AsyncMock(return_value="quota")
         ),
     ):
         await upload_videos(settings, allow_interactive_auth=False)
@@ -879,14 +916,14 @@ async def test_simple_mode_collect_skips_ai_backgrounds(
     mock_backend.download_audio.return_value = tmp_path / "a.mp3"
 
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline._generate_backgrounds") as mock_bg,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline._generate_backgrounds") as mock_bg,
         patch(
-            "summary.pipeline.compose_thumbnail",
+            "podcast.pipeline.compose_thumbnail",
             return_value=tmp_path / "t.png",
         ) as mock_compose,
         patch(
-            "summary.pipeline.convert_to_video",
+            "podcast.pipeline.convert_to_video",
             new=AsyncMock(return_value=tmp_path / "v.mp4"),
         ),
     ):
@@ -910,9 +947,9 @@ async def test_simple_mode_upload_skips_custom_thumbnail(
     )])
 
     with (
-        patch("summary.pipeline.authenticate", return_value=MagicMock()),
+        patch("podcast.pipeline.authenticate", return_value=MagicMock()),
         patch(
-            "summary.pipeline.upload_video",
+            "podcast.pipeline.upload_video",
             new=AsyncMock(return_value=UploadResult(
                 youtube_url="https://youtu.be/x", thumbnail_set=True
             )),
@@ -934,7 +971,7 @@ async def test_collect_single_not_found_not_terminal(
 
     mock_backend.check_audio_status.return_value = _mock_generation_status("not_found")
 
-    with patch("summary.pipeline._create_backend", return_value=mock_backend):
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=False)
 
     assert results[0].status == "generating"
@@ -959,7 +996,7 @@ async def test_collect_network_error_keeps_generating(
     mock_backend.check_audio_status.return_value = _mock_generation_status("PROCESSING")
     mock_backend.wait_for_audio.side_effect = NetworkError("connection reset")
 
-    with patch("summary.pipeline._create_backend", return_value=mock_backend):
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
         results = await collect_audio(settings, poll=True)
 
     assert results[0].status == "generating"
@@ -991,8 +1028,8 @@ async def test_resubmit_clears_stale_task_id(
 
     entries = [UrlEntry(url="https://example.com/article1")]
     with (
-        patch("summary.pipeline._create_backend", return_value=mock_backend),
-        patch("summary.pipeline.fetch_metadata") as mock_meta,
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch("podcast.pipeline.fetch_metadata") as mock_meta,
     ):
         mock_meta.return_value = MagicMock(
             title="Test Article",
@@ -1015,18 +1052,18 @@ async def test_compose_topic_thumbnail_uses_ai_base(
     settings: Settings, tmp_path: Path
 ) -> None:
     """AIベース生成が成功したら、そのベース画像で compose する."""
-    from summary.category import style_for_category
-    from summary.pipeline import _compose_topic_thumbnail
-    from summary.thumbnail import ThumbCopy
+    from podcast.category import style_for_category
+    from podcast.pipeline import _compose_topic_thumbnail
+    from podcast.thumbnail import ThumbCopy
 
     ai_base = tmp_path / "base.png"
     with (
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=ai_base),
         ),
         patch(
-            "summary.pipeline.compose_thumbnail",
+            "podcast.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):
@@ -1045,17 +1082,17 @@ async def test_compose_topic_thumbnail_falls_back_to_mascot(
     settings: Settings, tmp_path: Path
 ) -> None:
     """AIベース生成が失敗(None)したら固定マスコットで compose する."""
-    from summary.category import style_for_category
-    from summary.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
-    from summary.thumbnail import ThumbCopy
+    from podcast.category import style_for_category
+    from podcast.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from podcast.thumbnail import ThumbCopy
 
     with (
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "summary.pipeline.compose_thumbnail",
+            "podcast.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):
@@ -1073,15 +1110,15 @@ async def test_compose_topic_thumbnail_simple_mode_skips_ai(
     settings: Settings, tmp_path: Path
 ) -> None:
     """簡易動画モードは AIベース生成を呼ばず固定マスコットで compose する."""
-    from summary.category import style_for_category
-    from summary.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
-    from summary.thumbnail import ThumbCopy
+    from podcast.category import style_for_category
+    from podcast.pipeline import _MASCOT_BASE, _compose_topic_thumbnail
+    from podcast.thumbnail import ThumbCopy
 
     settings.general.simple_video_mode = True
     with (
-        patch("summary.pipeline._generate_thumb_base") as mock_base,
+        patch("podcast.pipeline._generate_thumb_base") as mock_base,
         patch(
-            "summary.pipeline.compose_thumbnail",
+            "podcast.pipeline.compose_thumbnail",
             return_value=tmp_path / "out.png",
         ) as mock_compose,
     ):

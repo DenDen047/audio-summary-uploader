@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from summary.video import (
+from podcast.video import (
     _write_eq_gradient,
     build_slideshow_entries,
     convert_to_video,

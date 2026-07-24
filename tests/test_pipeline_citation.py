@@ -7,17 +7,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from summary.citation import EmailCitation
-from summary.config import (
+from podcast.citation import EmailCitation
+from podcast.config import (
     CredentialsConfig,
     GeneralConfig,
-    NotebookLMConfig,
+    PodcastConfig,
     Settings,
     ThumbnailConfig,
     YouTubeConfig,
 )
-from summary.metadata import PageMetadata
-from summary.pipeline import _build_description, _load_state, collect_audio
+from podcast.metadata import PageMetadata
+from podcast.pipeline import _build_description, _load_state, collect_audio
 
 SPARK_URL = "https://app.sparkmailapp.com/web-share/AbC123xyz"
 
@@ -116,7 +116,7 @@ def _settings(tmp_path: Path) -> Settings:
     state_path = tmp_path / "data" / "state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     return Settings(
-        notebooklm=NotebookLMConfig(prompt_presets={"default": "p"}),
+        podcast=PodcastConfig(prompt_presets={"default": "p"}),
         youtube=YouTubeConfig(),
         thumbnail=ThumbnailConfig(),
         credentials=CredentialsConfig(),
@@ -137,7 +137,7 @@ def mock_image_profile_resolution():
         / "storage_state.json"
     )
     with patch(
-        "summary.pipeline.resolve_google_storage_state",
+        "podcast.pipeline.resolve_google_storage_state",
         new=AsyncMock(return_value=storage_state),
     ):
         yield
@@ -188,21 +188,21 @@ async def test_collect_extracts_spark_citation(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("summary.pipeline._create_backend", return_value=backend),
+        patch("podcast.pipeline._create_backend", return_value=backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "summary.pipeline.generate_thumbnail",
+            "podcast.pipeline.generate_thumbnail",
             return_value=tmp_path / "t.png",
         ),
         patch(
-            "summary.pipeline.convert_to_video",
+            "podcast.pipeline.convert_to_video",
             return_value=tmp_path / "v.mp4",
         ),
     ):
@@ -284,20 +284,20 @@ async def test_collect_prepends_paper_shortname(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("summary.pipeline._create_backend", return_value=backend),
+        patch("podcast.pipeline._create_backend", return_value=backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "summary.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+            "podcast.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
         ),
         patch(
-            "summary.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+            "podcast.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
         ),
     ):
         results = await collect_audio(settings, poll=False)
@@ -327,20 +327,20 @@ async def test_collect_honors_user_title(tmp_path: Path) -> None:
     backend.delete_notebook = AsyncMock()
 
     with (
-        patch("summary.pipeline._create_backend", return_value=backend),
+        patch("podcast.pipeline._create_backend", return_value=backend),
         patch(
-            "summary.pipeline._generate_backgrounds",
+            "podcast.pipeline._generate_backgrounds",
             new=AsyncMock(return_value=[]),
         ),
         patch(
-            "summary.pipeline._generate_thumb_base",
+            "podcast.pipeline._generate_thumb_base",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "summary.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
+            "podcast.pipeline.generate_thumbnail", return_value=tmp_path / "t.png"
         ),
         patch(
-            "summary.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
+            "podcast.pipeline.convert_to_video", return_value=tmp_path / "v.mp4"
         ),
     ):
         results = await collect_audio(settings, poll=False)

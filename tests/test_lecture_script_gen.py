@@ -4,7 +4,6 @@ import json
 from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
-from lecture.fetch import SourceContent, SourceFigure
 from lecture.script_gen import (
     _assert_subscription_auth,
     _build_claude_retry_prompt,
@@ -21,6 +20,7 @@ from lecture.script_gen import (
     _validate_world,
     generate_script,
 )
+from sources.fetch import SourceContent, SourceFigure
 
 
 def test_subscription_auth_accepts_codex_status_on_stderr() -> None:

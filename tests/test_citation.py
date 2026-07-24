@@ -1,15 +1,14 @@
 """citation モジュールの単体テスト (出典抽出・サニタイズ)."""
 from __future__ import annotations
 
-from summary.citation import (
+from podcast.citation import (
     EmailCitation,
     clean_paper_shortname,
     format_source_line,
-    is_spark_share_url,
     parse_email_metadata,
-    sanitize_public_text,
     strip_citation_markers,
 )
+from sources.sanitize import is_spark_share_url, sanitize_public_text
 
 
 class TestStripCitationMarkers:

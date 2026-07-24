@@ -3,7 +3,7 @@
 from pathlib import Path
 from textwrap import dedent
 
-from summary.url_parser import UrlEntry, parse_url_file
+from podcast.url_parser import UrlEntry, parse_url_file
 
 
 def _write_yaml(tmp_path: Path, content: str) -> Path:
@@ -53,9 +53,20 @@ def test_parse_lecture_mode(tmp_path: Path) -> None:
 def test_skip_unknown_mode(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, """\
         - url: https://example.com/article
-          mode: podcast
+          mode: slideshow
     """)
     assert parse_url_file(path) == []
+
+
+def test_legacy_notebooklm_mode_normalizes_to_podcast(tmp_path: Path) -> None:
+    """改名前の mode: notebooklm を書いた既存 YAML がそのまま動くことを確認."""
+    path = _write_yaml(tmp_path, """\
+        - url: https://example.com/article
+          mode: notebooklm
+    """)
+    entries = parse_url_file(path)
+    assert len(entries) == 1
+    assert entries[0].mode == "podcast"
 
 
 def test_skip_invalid_url(tmp_path: Path) -> None:

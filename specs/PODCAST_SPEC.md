@@ -1,26 +1,28 @@
-# 情報源 → YouTube 動画解説 自動化パイプライン 仕様書
+# ポッドキャスト音声要約パイプライン 仕様書
 
 ## 1. プロジェクト概要
 
 ### 1.1 目的
 
-ユーザーが URL リストを YAML ファイルまたは Web UI に入力すると、生成方式に応じた
-動画一式を作成して YouTube へ投稿する。生成方式は澪・透の掛け合い講義動画
-（`lecture`）と、従来の NotebookLM 音声要約（`notebooklm`）から選択できる。
+ユーザーが URL リストを YAML ファイルまたは Web UI に入力すると、Gemini Notebook（旧 NotebookLM。2026-07 改名、以下 NotebookLM と表記）の音声要約から、ポッドキャスト風の動画一式を作成して YouTube へ投稿する（`mode: podcast`）。
 
 1. NotebookLM でノートブックを作成し、URL をソースとして追加
 2. 日本語の Audio Overview（ポッドキャスト形式の音声要約）を生成
 3. 生成された音声を YouTube に公開動画としてアップロード
 
-### 1.2 ユーザーストーリー
+### 1.2 本書の範囲
+
+本書は `podcast` モードの生成内容と、両モード共通のオーケストレーション（URL 入力・3フェーズ・state.json・YouTube アップロード）を定義する。同じ基盤の上に澪・透の掛け合い講義動画を生成する `lecture` モードが同居するが、その生成内容は `specs/LECTURE_SPEC.md`、Web UI は `specs/GUI_SPEC.md` を正とする。
+
+### 1.3 ユーザーストーリー
 
 > 英語の論文やニュース記事の URL を YAML ファイルに記載して CLI コマンドを実行すると、数分後に YouTube の自分のチャンネルに日本語の音声要約がアップロードされている。URL ごとに音声の長さや解説スタイルを変えることもできる。移動中やスキマ時間に YouTube アプリで聴ける。
 
-### 1.3 前提条件
+### 1.4 前提条件
 
 | 項目 | 内容 |
 |---|---|
-| NotebookLM アカウント | Google Workspace（会社契約）のアカウント |
+| Gemini Notebook（旧 NotebookLM）アカウント | Google Workspace（会社契約）のアカウント |
 | YouTube アカウント | 個人の Google アカウント（YouTube チャンネル） |
 | 実行環境 | macOS または Linux（Python 3.11+） |
 | NotebookLM 操作方法 | Phase 1: `notebooklm-py`（非公式 CLI）、Phase 2: Playwright |
@@ -86,6 +88,9 @@ audio-summary-uploader/
 │   ├── youtube_client_secret.json  # YouTube OAuth クライアント
 │   └── youtube_token.json          # リフレッシュトークン（自動生成）
 ├── src/
+│   ├── sources/                  # 情報源の取得層（podcast / lecture 両モード共通）
+│   │   ├── fetch.py              # URL→本文・図の抽出 + 投入形式の解決 (resolve_source)
+│   │   └── sanitize.py           # 公開テキストのサニタイズ・Spark URL 判定
 │   ├── summary/                  # 音声要約パイプライン（本仕様の対象）
 │   │   ├── __init__.py
 │   │   ├── cli.py                # CLI エントリポイント (Click)
@@ -95,7 +100,7 @@ audio-summary-uploader/
 │   │   ├── metadata.py           # OGP メタデータ取得
 │   │   ├── notebooklm.py         # NotebookLM 操作（抽象層）
 │   │   ├── notebooklm_py_backend.py  # notebooklm-py による実装
-│   │   ├── citation.py           # 出典抽出・公開テキストのサニタイズ
+│   │   ├── citation.py           # NotebookLM chat 回答からの出典・略称抽出
 │   │   ├── category.py           # カテゴリ判定→背景配色/プレイリスト解決
 │   │   ├── image_gen.py          # AIサムネベース/背景生成 (gemini-webapi / Nano Banana)
 │   │   ├── thumbnail.py          # サムネ合成 3層テキスト装飾 (Pillow)
@@ -130,37 +135,37 @@ audio-summary-uploader/
 
 Click ベースの CLI インターフェース。3フェーズ分離アーキテクチャに対応。
 
-```
+```bash
 # 3フェーズ一括実行（従来の run コマンド）
-$ summary run urls.yaml
-$ summary run urls.yaml --dry-run
-$ summary run urls.yaml --force
-$ summary run urls.yaml --retry-failed
+$ podcast run urls.yaml
+$ podcast run urls.yaml --dry-run
+$ podcast run urls.yaml --force
+$ podcast run urls.yaml --retry-failed
 
 # Phase 1: ノートブック作成＋音声生成開始（並列）
-$ summary submit urls.yaml
-$ summary submit urls.yaml --dry-run
-$ summary submit urls.yaml --force
+$ podcast submit urls.yaml
+$ podcast submit urls.yaml --dry-run
+$ podcast submit urls.yaml --force
 
 # Phase 2: 生成完了した音声をDL→サムネイル→動画変換
-$ summary collect              # 完了チェックのみ
-$ summary collect --poll       # 完了までポーリング待機
-$ summary collect --timeout 900
+$ podcast collect              # 完了チェックのみ
+$ podcast collect --poll       # 完了までポーリング待機
+$ podcast collect --timeout 900
 
 # Phase 3: video_ready のジョブを YouTube にアップロード
-$ summary upload
+$ podcast upload
 
 # 特定のURLだけ処理
-$ summary run-single "https://example.com/article"
+$ podcast run-single "https://example.com/article"
 
 # YouTube 認証セットアップ
-$ summary auth youtube
+$ podcast auth youtube
 
 # NotebookLM 認証セットアップ
-$ summary auth notebooklm
+$ podcast auth notebooklm
 
 # 処理状況の確認（各ステータスのカウント表示）
-$ summary status
+$ podcast status
 
 # Web ダッシュボードを起動
 $ webui [--port 8080] [--config PATH]
@@ -175,7 +180,7 @@ $ webui [--port 8080] [--config PATH]
 
 ```python
 @dataclass
-class NotebookLMConfig:
+class PodcastConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
     audio_length: str = "short"
@@ -203,7 +208,7 @@ class CredentialsConfig:
 
 @dataclass
 class Settings:
-    notebooklm: NotebookLMConfig
+    podcast: PodcastConfig
     youtube: YouTubeConfig
     credentials: CredentialsConfig
     thumbnail: ThumbnailConfig
@@ -247,7 +252,7 @@ class Settings:
 @dataclass
 class UrlEntry:
     url: str                          # 代表URL（複数ソース時は先頭）またはローカルパス
-    mode: str = "notebooklm"          # "lecture" | "notebooklm"
+    mode: str = "podcast"          # "lecture" | "podcast"
     audio_length: str | None = None   # "short" or "default", None = settings.yaml のデフォルト
     prompt: str | None = None         # プリセット名, None = "default"
     title: str | None = None          # 複数ソース時の任意タイトル
@@ -265,7 +270,7 @@ class UrlEntry:
 - ローカルパスのバリデーション（ファイル存在確認、PDF 拡張子チェック）
 - フォルダが指定された場合、中の `*.pdf` ファイルを個別エントリに展開
 - `audio_length` の値バリデーション（`"short"` / `"default"` / `None` のみ許可）
-- `mode` の値バリデーション（`"lecture"` / `"notebooklm"` のみ許可）
+- `mode` の値バリデーション（`"lecture"` / `"podcast"` のみ許可）
 - `prompt` の値バリデーション（`settings.yaml` の `prompt_presets` に定義されたキーのみ許可）
 - 重複 URL の除去
 - 処理済み URL のスキップ（状態ファイルとの照合）
@@ -297,6 +302,7 @@ class PageMetadata:
 - User-Agent: 一般的なブラウザの User-Agent を使用（403 回避のため）
 - ファビコン: `<link rel="icon">` を抽出、無ければ `/favicon.ico` にフォールバック（サムネイルのアイコン表示に使用）
 - ローカルファイルの場合: ファイル名からタイトルを生成（OGP取得なし）。PDF は先頭 5 ページを走査して最大の埋め込み画像（25MP 以下）を `og_image_url` 相当として抽出を試み、失敗時は PDF アイコンを `favicon_url` に設定
+- 抽出済みソース（Spark 共有等、`sources.fetch.resolve_source` が `ExtractedSource` を返すもの）の場合: OGP は取得しない（共有ページは宣伝シェルしか返さない）。SSR から抽出した件名を `title` に、`site_name="メールニュースレター"` を設定する
 
 ### 3.5 NotebookLM 操作 (`notebooklm.py` + バックエンド)
 
@@ -319,6 +325,13 @@ class NotebookLMBackend(ABC):
     @abstractmethod
     async def add_file_source(self, notebook_id: str, file_path: Path) -> None:
         """ノートブックにローカルファイルをソースとして追加する"""
+        ...
+
+    @abstractmethod
+    async def add_text_source(
+        self, notebook_id: str, title: str, content: str,
+    ) -> None:
+        """抽出済みテキストをソースとして追加する（Spark 共有ページ等）"""
         ...
 
     @abstractmethod
@@ -395,7 +408,7 @@ class NotebookLMBackend(ABC):
 
 **音声の長さ:**
 
-`UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `notebooklm.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` は NotebookLM の「デフォルト」（長め）に対応する。
+`UrlEntry.audio_length` が指定されている場合はその値を、未指定の場合は `settings.yaml` の `podcast.audio_length` の値を `generate_audio` の `audio_length` パラメータに渡す。`"default"` は NotebookLM の「デフォルト」（長め）に対応する。
 
 **音声生成の待機:**
 - 生成完了までポーリング（`generation_poll_interval_seconds` 間隔、最大 `generation_timeout_seconds` 秒 = デフォルト 1200 秒）
@@ -405,106 +418,45 @@ class NotebookLMBackend(ABC):
 
 ### 3.6 サムネイル生成（`thumbnail.py` 主 / `category.py` / AI背景は `image_gen.py`）
 
-YouTube サムネ（1280×720px）は **固定マスコットを参照画像として毎回 AI 生成にかけ、キャラの同一性
-（大きな驚き顔）は保ちつつ、ポーズ・前景の大きな小道具・配色を話題ごとに変えたベース画像を作り、その上に
-高密度3層テキストを Pillow で合成**する（④）。キャラは同じでブランドを保ちながら、ポーズ・小物・色が話題
-ごとに変わるので**縮小時（一覧表示）でも各動画が見分けられる**。AI 生成が失敗（cookie 失効・地域制限等）
-した場合は**固定マスコット素材（静止）**に縮退し、それも無ければグラデーションに縮退する。マスコット縮退の
-おかげで、失敗時も「退屈なグラデ量産」にはならずブランド統一の見た目を保つ。
-伸びている日本語 AI 解説チャンネル（mikimiki / 本気AI 等）の「型」を TTP した設計。
+YouTube サムネ（1280×720px）は **固定マスコットを参照画像として毎回 AI 生成にかけ、キャラの同一性（大きな驚き顔）は保ちつつ、ポーズ・前景の大きな小道具・配色を話題ごとに変えたベース画像を作り、その上に高密度3層テキストを Pillow で合成**する（④）。キャラは同じでブランドを保ちながら、ポーズ・小物・色が話題ごとに変わるので**縮小時（一覧表示）でも各動画が見分けられる**。AI 生成が失敗（cookie 失効・地域制限等）した場合は**固定マスコット素材（静止）**に縮退し、それも無ければグラデーションに縮退する。マスコット縮退のおかげで、失敗時も「退屈なグラデ量産」にはならずブランド統一の見た目を保つ。伸びている日本語 AI 解説チャンネル（mikimiki / 本気AI 等）の「型」を TTP した設計。
 
 **カテゴリ判定（`category.py`, ③）:**
-- まず URL のドメイン/拡張子のルールで判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、
-  github 等→`engineering`、youtube→`business`、その他→`default`）。
-- **曖昧なカテゴリ（`business`/`default`、＝ドメインだけでは内容が判らないもの）のみ、collect で
-  NotebookLM chat に内容を 5 カテゴリから1語で選ばせて再判定**（C）。例: AI 研究の YouTube 動画は
-  `business` ではなく `paper`/`engineering` に補正され、ハッシュタグの的外れ（#副業 等）を防ぐ。
-  確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
-- カテゴリは (1) サムネベース画像／動画本編背景の配色スタイル、(2) プレイリスト振り分け
-  （`youtube.playlists`）、(3) サムネ3層コピーの `top` フォールバックラベルに使う。
+- まず URL のドメイン/拡張子のルールで判定（arxiv/PDF→`paper`、Spark/ニュースレター→`news`、github 等→`engineering`、youtube→`business`、その他→`default`）。
+- **曖昧なカテゴリ（`business`/`default`、＝ドメインだけでは内容が判らないもの）のみ、collect でNotebookLM chat に内容を 5 カテゴリから1語で選ばせて再判定**（C）。例: AI 研究の YouTube 動画は`business` ではなく `paper`/`engineering` に補正され、ハッシュタグの的外れ（#副業 等）を防ぐ。確定カテゴリ（arxiv/spark/github 等）は chat を呼ばない。chat 失敗/解析不可ならルール結果を使う。
+- カテゴリは (1) サムネベース画像／動画本編背景の配色スタイル、(2) プレイリスト振り分け（`youtube.playlists`）、(3) サムネ3層コピーの `top` フォールバックラベルに使う。
 
 **サムネ用ベース画像の AI 生成（`image_gen.generate_thumbnail_image`, 方式A2, best-effort）:**
-- **固定マスコットを参照画像として毎回 Nano Banana に渡し**（`generate_content(files=[mascot])`）、
-  キャラの同一性と「**大きな驚き顔**」を保ったまま、**ポーズ・前景の大きな小道具・配色を話題ごとに変える**
-  （`pipeline._generate_thumb_base` → `generate_thumbnail_image(reference_image=mascot, pose=…)`）。
-  ポーズを固定して背景だけ変えると縮小時に見分けが付かないため、ポーズ自体を散らすのが要点。
-- ポーズは `pipeline._THUMB_POSE_VARIATIONS`（両手を上げる／指さす／小物を抱える等）から **slug の
-  ハッシュで決定的に選ぶ**（動画ごとに絵柄が散り、リトライでは同じ絵になる）。
-- プロンプトの型は `image_gen.build_thumbnail_base_prompt`：マスコットと小物を右側 ~65% に大きく・驚き顔で
-  置き、話題を象徴する**大きな前景オブジェクト**（縮小しても分かる大きさ）を必ず入れ、配色は話題に合わせて
-  鮮やかに（カテゴリ配色はアクセント）、**左1/3は暗く空けて**テキスト用に確保（顔を左1/3に置かせない）。
-  文字は描かせず compose_thumbnail が Pillow で合成する（参照画像が無くても記述だけで近いキャラを描ける）。
-- cookie 源・鮮度の制約・自動延命は本編背景の AI 生成（下記）と共通。失敗時は None を返し、呼び出し側が
-  固定マスコット（静止）に縮退する。**簡易動画モード（`general.simple_video_mode`）では AI ベース生成を
-  行わず、固定マスコット（無ければグラデ）を使う**（429／cookie 失効の影響を受けない）。
+- **固定マスコットを参照画像として毎回 Nano Banana に渡し**（`generate_content(files=[mascot])`）、キャラの同一性と「**大きな驚き顔**」を保ったまま、**ポーズ・前景の大きな小道具・配色を話題ごとに変える**（`pipeline._generate_thumb_base` → `generate_thumbnail_image(reference_image=mascot, pose=…)`）。ポーズを固定して背景だけ変えると縮小時に見分けが付かないため、ポーズ自体を散らすのが要点。
+- ポーズは `pipeline._THUMB_POSE_VARIATIONS`（両手を上げる／指さす／小物を抱える等）から **slug のハッシュで決定的に選ぶ**（動画ごとに絵柄が散り、リトライでは同じ絵になる）。
+- プロンプトの型は `image_gen.build_thumbnail_base_prompt`：マスコットと小物を右側 ~65% に大きく・驚き顔で置き、話題を象徴する**大きな前景オブジェクト**（縮小しても分かる大きさ）を必ず入れ、配色は話題に合わせて鮮やかに（カテゴリ配色はアクセント）、**左1/3は暗く空けて**テキスト用に確保（顔を左1/3に置かせない）。文字は描かせず compose_thumbnail が Pillow で合成する（参照画像が無くても記述だけで近いキャラを描ける）。
+- cookie 源・鮮度の制約・自動延命は本編背景の AI 生成（下記）と共通。失敗時は None を返し、呼び出し側が固定マスコット（静止）に縮退する。**簡易動画モード（`general.simple_video_mode`）では AI ベース生成を行わず、固定マスコット（無ければグラデ）を使う**（429／cookie 失効の影響を受けない）。
 
 **固定マスコット素材（参照画像の元＋AI 生成失敗時のフォールバック／ブランド共通）:**
-- `assets/thumbnails/mascot_default.png`（1280×720、文字なし）。毎回の生成で**参照画像**として渡すキャラの
-  元であり、AI 生成が失敗したときは**そのまま静止サムネ**として使う。差し替えれば全動画のキャラが変わる。
+- `assets/thumbnails/mascot_default.png`（1280×720、文字なし）。毎回の生成で**参照画像**として渡すキャラの元であり、AI 生成が失敗したときは**そのまま静止サムネ**として使う。差し替えれば全動画のキャラが変わる。
 
 **3層テキスト合成（`thumbnail.compose_thumbnail`, `ThumbCopy`）:**
-- レイアウト（勝ちサムネの型）: 左に可読性スクリム。ベース画像は被写体を右側に置き左を暗く空ける型なので、
-  上段=製品名・中段=説明はその左に収め（`text_w`/`mid_w`）、下段=ベネフィットは広く使う（`bottom_w`）。
-  3行は行間を詰めて下端から積み、フォントは幅とゾーン高さの両方を埋める最大サイズを自動選択（縮小しても
-  読める）。中段は原則1行で大きく表示する。
-- 派手な装飾（参考チャンネル準拠）: 下段は**3重袋文字＋グラデ塗り＋ドロップシャドウ**（影→黒の外縁→
-  白の中縁→金グラデ本体）。強調キーワード1語だけ青グラデにして2トーン。上段/中段は白の袋文字＋影。
-  数字＋助数詞（例「10選」）は改行で割らない。改行は budoux の文節境界で行い語中改行を避ける。
-  文字はすべて Pillow 描画のため文字化けが起きない。フォント実行高を実測して見切れを防ぐ。
-- **3層コピーは NotebookLM chat で生成**（`_THUMB_COPY_QUESTION` → `_generate_thumb_copy`）: JSON で
-  `top`（主役ワード、全角7字以内・一般語）、`mid`（補足、全角9字以内＝縮小しても読める）、`bottom`（ベネフィット、全角8字
-  以内・数字可）、`highlight`（bottom 内の強調1語）を1回で生成。失敗・不正時は top→カテゴリラベル
-  （論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、bottom→動画タイトル（先頭を切り詰め）に
-  フォールバック。合成前に `sanitize_public_text` で個人情報を除去する。
-- **論文の通称を主役ワードに固定**: 論文カテゴリで略称（SAM/YOLO 等、`_THUMB_TOP_MAX_LEN` 字以内）が
-  抽出できた場合、`top` を chat 生成値ではなくその略称で上書きする。縮小時も一目で「どの論文か」を判別できる。
+- レイアウト（勝ちサムネの型）: 左に可読性スクリム。ベース画像は被写体を右側に置き左を暗く空ける型なので、上段=製品名・中段=説明はその左に収め（`text_w`/`mid_w`）、下段=ベネフィットは広く使う（`bottom_w`）。3行は行間を詰めて下端から積み、フォントは幅とゾーン高さの両方を埋める最大サイズを自動選択（縮小しても読める）。中段は原則1行で大きく表示する。
+- 派手な装飾（参考チャンネル準拠）: 下段は**3重袋文字＋グラデ塗り＋ドロップシャドウ**（影→黒の外縁→白の中縁→金グラデ本体）。強調キーワード1語だけ青グラデにして2トーン。上段/中段は白の袋文字＋影。数字＋助数詞（例「10選」）は改行で割らない。改行は budoux の文節境界で行い語中改行を避ける。文字はすべて Pillow 描画のため文字化けが起きない。フォント実行高を実測して見切れを防ぐ。
+- **3層コピーは NotebookLM chat で生成**（`_THUMB_COPY_QUESTION` → `_generate_thumb_copy`）: JSON で`top`（主役ワード、全角7字以内・一般語）、`mid`（補足、全角9字以内＝縮小しても読める）、`bottom`（ベネフィット、全角8字以内・数字可）、`highlight`（bottom 内の強調1語）を1回で生成。失敗・不正時は top→カテゴリラベル（論文解説/AIニュース/AI開発/ビジネス、既定 AI要約）、bottom→動画タイトル（先頭を切り詰め）にフォールバック。合成前に `sanitize_public_text` で個人情報を除去する。
+- **論文の通称を主役ワードに固定**: 論文カテゴリで略称（SAM/YOLO 等、`_THUMB_TOP_MAX_LEN` 字以内）が抽出できた場合、`top` を chat 生成値ではなくその略称で上書きする。縮小時も一目で「どの論文か」を判別できる。
 
 **動画本編背景の AI 生成（`image_gen.py`, best-effort。サムネとは独立）:**
-- 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する
-  （`generate_background_image`）。失敗時は静止背景に縮退。サムネのベース生成とは独立に試みる。
-  簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
-- cookie 源は **画像生成専用の notebooklm プロファイル**（`notebooklm.image_profile`、既定 `imagegen`）を
-  第一候補とし、利用可否を画像生成前に `account_status` で確認する。専用プロファイルが失効していれば、
-  直前の NotebookLM ジョブで認証済みの `default` プロファイルへ自動フォールバックする。通常プロファイル
-  への退避は NotebookLM chat とノートブック削除を全て終えた後に限り、Gemini の cookie ローテーション後に
-  NotebookLM RPC が残らない順序を守る。使用したプロファイル名と背景一覧は state の
-  `image_profile_used` / `background_paths` に記録する。
-- 各プロファイルの cookie は
-  `~/.notebooklm/profiles/<profile>/storage_state.json` の `__Secure-1PSID` / `__Secure-1PSIDTS`
-  （`.google.com`）。値はログに出さない。通常時は本体（default）とセッションを分離する（同一セッション
-  共有は cookie チェーンを壊し得る）。初回: `uv run notebooklm -p imagegen login`（NotebookLM と同アカウント。
-  `-p/--profile` はサブコマンドの前に置くグローバルオプション）。
-- **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間でローテーションする。init 後に
-  `account_status` を確認し、認証済みなら 1PSIDTS を即時ローテートして永続キャッシュ
-  （`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存。以降 storage_state.json が
-  失効してもキャッシュ側で認証できる。長期未実行で専用プロファイルもキャッシュも失効した場合は
-  `UNAUTHENTICATED` を検知し、`default` が利用可能なら継続する。全候補が利用不可のときだけ WARN
-  （`uv run notebooklm login` を案内）→静止背景に縮退。
+- 動画（サムネではなく本編の背景ローテーション）用に、話題連動の文字なし背景を Nano Banana で生成する（`generate_background_image`）。失敗時は静止背景に縮退。サムネのベース生成とは独立に試みる。簡易動画モード（`general.simple_video_mode`）では背景 AI 生成をスキップする。
+- cookie 源は **画像生成専用の notebooklm プロファイル**（`podcast.image_profile`、既定 `imagegen`）を第一候補とし、利用可否を画像生成前に `account_status` で確認する。専用プロファイルが失効していれば、直前の NotebookLM ジョブで認証済みの `default` プロファイルへ自動フォールバックする。通常プロファイルへの退避は NotebookLM chat とノートブック削除を全て終えた後に限り、Gemini の cookie ローテーション後にNotebookLM RPC が残らない順序を守る。使用したプロファイル名と背景一覧は state の`image_profile_used` / `background_paths` に記録する。
+- 各プロファイルの cookie は`~/.notebooklm/profiles/<profile>/storage_state.json` の `__Secure-1PSID` / `__Secure-1PSIDTS`（`.google.com`）。値はログに出さない。通常時は本体（default）とセッションを分離する（同一セッション共有は cookie チェーンを壊し得る）。初回: `uv run notebooklm -p imagegen login`（NotebookLM と同アカウント。`-p/--profile` はサブコマンドの前に置くグローバルオプション）。
+- **cookie 鮮度の制約と自動延命**: `__Secure-1PSIDTS` は短時間でローテーションする。init 後に`account_status` を確認し、認証済みなら 1PSIDTS を即時ローテートして永続キャッシュ（`credentials/gemini_cookie_cache/`、`GEMINI_COOKIE_PATH` で上書き可）へ保存。以降 storage_state.json が失効してもキャッシュ側で認証できる。長期未実行で専用プロファイルもキャッシュも失効した場合は`UNAUTHENTICATED` を検知し、`default` が利用可能なら継続する。全候補が利用不可のときだけ WARN（`uv run notebooklm login` を案内）→静止背景に縮退。
 
 **フォールバック（`thumbnail.generate_thumbnail`, 方式B）:**
-- AI ベース画像もマスコット素材も無い場合のみ、ランダムなグラデーション背景＋日本語見出し
-  （NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を中央に描画。中央アイコン（favicon）・OGP は使わない。
+- AI ベース画像もマスコット素材も無い場合のみ、ランダムなグラデーション背景＋日本語見出し（NotoSansJP-Bold、長さに応じた自動サイズ・影つき）を中央に描画。中央アイコン（favicon）・OGP は使わない。
 
 **実装:** `Pillow`（サムネ合成＋フォールバック）/ `gemini-webapi`（本編背景の AI 生成）
 
 ### 3.7 動画変換 (`video.py`)
 
-YouTube は音声のみのアップロードに対応していないため、画像+音声で動画ファイルを作成する。
-静止画のままでは動きが無く視聴維持に不利なため、以下の2つの演出を付ける:
+YouTube は音声のみのアップロードに対応していないため、画像+音声で動画ファイルを作成する。静止画のままでは動きが無く視聴維持に不利なため、以下の2つの演出を付ける:
 
-1. **FFT イコライザ（常時・VU メーター風）**: `showfreqs` を白・低解像度（48×12, mode=bar,
-   fscale=log, ascale=sqrt, 可視化専用に +14dB）で描画し、音声帯域が集中する下半分（24列）へ
-   クロップ → neighbor 拡大 → 透明グリッド（`drawgrid` replace）で LED ブロック風に分割。
-   その白バーのアルファを `alphaextract`/`alphamerge` で縦グラデーション画像
-   （下=緑 `0x2BFF88` / 中=ゴールド `0xFFD24A` / 上=赤 `0xFF5E5E`、Pillow で動的生成）に
-   マスク合成し、**音量が大きいほどバー先端が赤くなる**。α0.85 で画面下部（1280×216）に
-   オーバーレイする。
-2. **背景ローテーション（AI背景が生成できた場合のみ）**: タイトル入りサムネ(20s)を先頭に
-   1回だけ表示し、残り時間を各AI背景で等分する ffconcat スライドショー。
-   **同じ画像は動画を通して1回しか出さない**。背景は `generate_background_image`
-   （`{slug}_bg{i}.png`）で**動画の話題（日本語タイトル）に関連した内容**をテキストなしで
-   生成し、構図ヒントを1枚ごとに変えて絵の重複を避ける。枚数は音声長から自動決定
-   （45秒/枚目安、上限6枚）。1枚も生成できなければ従来どおり静止背景に縮退する。
+1. **FFT イコライザ（常時・VU メーター風）**: `showfreqs` を白・低解像度（48×12, mode=bar, fscale=log, ascale=sqrt, 可視化専用に +14dB）で描画し、音声帯域が集中する下半分（24列）へクロップ → neighbor 拡大 → 透明グリッド（`drawgrid` replace）で LED ブロック風に分割。その白バーのアルファを `alphaextract`/`alphamerge` で縦グラデーション画像（下=緑 `0x2BFF88` / 中=ゴールド `0xFFD24A` / 上=赤 `0xFF5E5E`、Pillow で動的生成）にマスク合成し、**音量が大きいほどバー先端が赤くなる**。α0.85 で画面下部（1280×216）にオーバーレイする。
+2. **背景ローテーション（AI背景が生成できた場合のみ）**: タイトル入りサムネ(20s)を先頭に1回だけ表示し、残り時間を各AI背景で等分する ffconcat スライドショー。**同じ画像は動画を通して1回しか出さない**。背景は `generate_background_image`（`{slug}_bg{i}.png`）で**動画の話題（日本語タイトル）に関連した内容**をテキストなしで生成し、構図ヒントを1枚ごとに変えて絵の重複を避ける。枚数は音声長から自動決定（45秒/枚目安、上限6枚）。1枚も生成できなければ従来どおり静止背景に縮退する。
 
 **FFmpeg 構成（概略）:**
 ```bash
@@ -521,23 +473,21 @@ ffmpeg <背景入力> -i audio.mp3 -loop 1 -i eqgrad.png \
   -pix_fmt yuv420p -shortest -movflags +faststart output.mp4
 ```
 
-**実装:** `subprocess` で FFmpeg を呼び出し。音声長は `ffprobe` で取得し、
-スライド列（`build_slideshow_entries`）を音声長分だけ並べる。
+**実装:** `subprocess` で FFmpeg を呼び出し。音声長は `ffprobe` で取得し、スライド列（`build_slideshow_entries`）を音声長分だけ並べる。
 
 **要件:**
 - 入力: サムネイル画像 (PNG) + 音声ファイル (MP3) + 任意のAI背景画像 (PNG×N)
 - 出力: MP4 (H.264 + AAC, 1280×720, 24fps)
 - 音声ビットレート: 192kbps（EQ 用の volume ブーストは映像のみで出力音声に影響しない）
 - FFmpeg がインストールされていない場合はエラーメッセージを表示
-- **メタデータ除去（⑥）**: `-map_metadata -1` で入力（NotebookLM の mp3 等）のメタデータを引き継がず、
-  出力 mp4 にローカルパス・個人情報・元タイトル等を残さない（自動テストで担保）
+- **メタデータ除去（⑥）**: `-map_metadata -1` で入力（NotebookLM の mp3 等）のメタデータを引き継がず、出力 mp4 にローカルパス・個人情報・元タイトル等を残さない（自動テストで担保）
 
 ### 3.8 YouTube アップロード (`youtube.py`)
 
 **認証フロー（初回セットアップ）:**
 1. Google Cloud Console で OAuth 2.0 クライアント ID を作成
 2. `youtube_client_secret.json` を `credentials/` に配置
-3. `summary auth youtube` を実行
+3. `podcast auth youtube` を実行
 4. ブラウザでOAuth同意画面が開き、YouTube アカウントで認証
 5. リフレッシュトークンが `credentials/youtube_token.json` に保存
 6. 以降は自動的にトークンリフレッシュ
@@ -560,43 +510,22 @@ class YouTubeUploadParams:
     contains_synthetic_media: bool = True  # AI生成コンテンツラベル
 ```
 
-Web UI から投入したジョブは `privacy_status` を state.json に保存し、アップロード時は
-ジョブの値を優先する。未指定の CLI/YAML ジョブと旧 state は
-`settings.youtube.privacy_status` にフォールバックする。
+Web UI から投入したジョブは `privacy_status` を state.json に保存し、アップロード時はジョブの値を優先する。未指定の CLI/YAML ジョブと旧 state は`settings.youtube.privacy_status` にフォールバックする。
 
 **YouTube タイトルの形式:**
 ```
 {settings.youtube.title_prefix} {日本語タイトル（generated_title_max_length 全角字以内）}
 ```
 
-- タイトルは **② で collect フェーズに NotebookLM チャット（`ask`）から日本語生成**する。引用マーカー
-  （`[1]`）・全体を囲う引用符・先頭絵文字を除去し、全角 `generated_title_max_length` 字に丸める。
-  chat 失敗時は元タイトル（メール系は抽出した件名）にフォールバックする。
-- **タイトルポリシー**（`_JP_TITLE_QUESTION` の生成条件に反映。タイトルとサムネが再生数のほぼ全てを
-  決めるため、伸びているチャンネルのタイトル術に合わせる。
-  出典: ゆる言語学ラジオのタイトル講座回 https://youtu.be/4PzlDRz5v4Q ）:
-  - **先頭 約20字に引きを集約**: スマホ表示ではタイトルが手前で切り詰められ、クリックを迷う視聴者は
-    最後まで読まない。最も引きのある情報（意外性・数字・視聴者の得）を先頭約20字以内に置く。
-  - **一般視聴者基準**: 「内容を何も知らない人がタップするか」を毎回の判断基準にする。学術用語・
-    研究分野名は再生にマイナスなので一般に通じる言葉へ言い換える（広く知られた製品名・サービス名は可）。
-    専門家向けの正確な情報（原題・URL）はタイトルに入れず概要欄が担う（概要欄を読むのは既存ファンのみ）。
-  - **短さ優先・重複禁止**: YouTube タイトルに字数を埋める価値は無く、長いほど評価が下がる。同義語が
-    あれば1文字でも短い方を選び（例:「〜より多い」→「〜以上」）、同じ意味の語を繰り返さない。
-  - **弱い定型で締めない**: 「〜を解説」「〜について」は元々関心がある人しか押さないため避け、
-    問いかけ・言い切りで好奇心を引く。問いの形にする場合、前提の置き方で反応する層が変わるため
-    （例:「正しいのか」は肯定・否定の両側を集め、「間違いなのか」は否定側しか集めない）、
-    より広い層が反応する前提を選ぶ。
+- タイトルは **② で collect フェーズに NotebookLM チャット（`ask`）から日本語生成**する。引用マーカー（`[1]`）・全体を囲う引用符・先頭絵文字を除去し、全角 `generated_title_max_length` 字に丸める。chat 失敗時は元タイトル（メール系は抽出した件名）にフォールバックする。
+- **タイトルポリシー**（`_JP_TITLE_QUESTION` の生成条件に反映。タイトルとサムネが再生数のほぼ全てを決めるため、伸びているチャンネルのタイトル術に合わせる。出典: ゆる言語学ラジオのタイトル講座回 https://youtu.be/4PzlDRz5v4Q ）:
+  - **先頭 約20字に引きを集約**: スマホ表示ではタイトルが手前で切り詰められ、クリックを迷う視聴者は最後まで読まない。最も引きのある情報（意外性・数字・視聴者の得）を先頭約20字以内に置く。
+  - **一般視聴者基準**: 「内容を何も知らない人がタップするか」を毎回の判断基準にする。学術用語・研究分野名は再生にマイナスなので一般に通じる言葉へ言い換える（広く知られた製品名・サービス名は可）。専門家向けの正確な情報（原題・URL）はタイトルに入れず概要欄が担う（概要欄を読むのは既存ファンのみ）。
+  - **短さ優先・重複禁止**: YouTube タイトルに字数を埋める価値は無く、長いほど評価が下がる。同義語があれば1文字でも短い方を選び（例:「〜より多い」→「〜以上」）、同じ意味の語を繰り返さない。
+  - **弱い定型で締めない**: 「〜を解説」「〜について」は元々関心がある人しか押さないため避け、問いかけ・言い切りで好奇心を引く。問いの形にする場合、前提の置き方で反応する層が変わるため（例:「正しいのか」は肯定・否定の両側を集め、「間違いなのか」は否定側しか集めない）、より広い層が反応する前提を選ぶ。
   - **忠実性の下限**: 引きを優先しつつも、ソースに無い誇張はしない（内容への忠実さは維持）。
-- **論文カテゴリの通称付与**: カテゴリが `paper` の場合、collect で NotebookLM チャット
-  （`_PAPER_SHORTNAME_QUESTION` → `_extract_paper_shortname`）から論文の通称・略称（SAM/YOLO/3DGS 等）を
-  抽出し、日本語タイトル先頭に `【略称】` を付与する（例: `【SAM】あらゆる物体を一発で切り抜く基盤モデル`）。
-  有名論文の解説を検索する学生・研究者に見つけてもらいやすくするため。略称は `clean_paper_shortname`
-  で検証（英数字始まり・英字を含む 1〜16 字、`none`/年号/フレーズは棄却）し、抽出できない論文はそのまま。
-  既にタイトルに略称が含まれている場合は二重付与しない（YouTube 検索は本文全体を索引するため、含まれて
-  いれば発見性は満たされる。先頭【】は略称が欠落しているときに付ける形式）。ユーザーがタイトルを明示
-  指定した場合（`user_title`）は尊重し、付与しない。
-- YouTube API が拒否する文字（`<`, `>`）は全角（`＜`, `＞`）に自動置換し、出力前に
-  `sanitize_public_text` で個人情報を除去する。
+- **論文カテゴリの通称付与**: カテゴリが `paper` の場合、collect で NotebookLM チャット（`_PAPER_SHORTNAME_QUESTION` → `_extract_paper_shortname`）から論文の通称・略称（SAM/YOLO/3DGS 等）を抽出し、日本語タイトル先頭に `【略称】` を付与する（例: `【SAM】あらゆる物体を一発で切り抜く基盤モデル`）。有名論文の解説を検索する学生・研究者に見つけてもらいやすくするため。略称は `clean_paper_shortname`で検証（英数字始まり・英字を含む 1〜16 字、`none`/年号/フレーズは棄却）し、抽出できない論文はそのまま。既にタイトルに略称が含まれている場合は二重付与しない（YouTube 検索は本文全体を索引するため、含まれていれば発見性は満たされる。先頭【】は略称が欠落しているときに付ける形式）。ユーザーがタイトルを明示指定した場合（`user_title`）は尊重し、付与しない。
+- YouTube API が拒否する文字（`<`, `>`）は全角（`＜`, `＞`）に自動置換し、出力前に`sanitize_public_text` で個人情報を除去する。
 
 **YouTube 説明文テンプレート（⑤）:**
 ```
@@ -610,22 +539,15 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 #AI #論文解説 #機械学習      # カテゴリ別ハッシュタグ（3〜5）
 
 ---
-※ NotebookLM の Audio Overview で自動生成。要点把握用です。正確な内容は元情報をご確認ください。
+※ Gemini Notebook（旧 NotebookLM）の音声概要で自動生成。要点把握用です。正確な内容は元情報をご確認ください。
 ```
 
 - **内部設定（プロンプト名・音声長）は公開面に出さない**（旧テンプレの「🔧 生成条件」は廃止）。
-- 説明文・タイトル・サムネ見出しは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL・
-  ローカル絶対パスを除去。`sanitize_public_text` が最後の砦）。
-- **ローカルファイルソース**: 絶対パス（ユーザー名・ディレクトリ構造）は公開面に出さない。出典は
-  ディレクトリと拡張子を落としたファイル名（stem）のみを「📄 元資料: {ファイル名}」として表示する
-  （Zotero 等の stem は「著者 - 年 - タイトル」形式で公開してよい論文メタデータ）。
-- **複数ソース（⑦）**: `extra_urls` を含む全ソースを列挙する。メール系（Spark 共有）が混じる場合は
-  当該 URL を出さず「📰 ソース: メールニュースレター」を表示する。
-- **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面に出さない。collect で NotebookLM
-  チャット（`ask`）から件名・送信元・日付を抽出し、説明文に「出典: {送信元}（{ドメイン}）- {日付}」を
-  表示する（生 URL は state.json のみに保持）。抽出失敗時も生 URL は出さない。
-- **プレイリスト振り分け（③）**: カテゴリ→`youtube.playlists` で解決し、無ければ `playlist_id` にフォールバックする。
-  さらに `all_playlist_id` が設定されていれば全動画横断プレイリストとして常に追加する（重複 ID は除外）。
+- 説明文・タイトル・サムネ見出しは出力前に**個人情報をサニタイズ**する（メールアドレス・Spark 共有 URL・ローカル絶対パスを除去。`sanitize_public_text` が最後の砦）。
+- **ローカルファイルソース**: 絶対パス（ユーザー名・ディレクトリ構造）は公開面に出さない。出典はディレクトリと拡張子を落としたファイル名（stem）のみを「📄 元資料: {ファイル名}」として表示する（Zotero 等の stem は「著者 - 年 - タイトル」形式で公開してよい論文メタデータ）。
+- **複数ソース（⑦）**: `extra_urls` を含む全ソースを列挙する。メール系（Spark 共有）が混じる場合は当該 URL を出さず「📰 ソース: メールニュースレター」を表示する。
+- **メール系ソース（Spark 共有リンク）**: 生の共有 URL は公開面に出さない。submit で `sources.fetch` が SSR 初期データから件名と本文を抽出し、URL ではなく**テキストソース**（`add_text_source`）として NotebookLM に投入する（NotebookLM に URL を直接取得させると、JS レンダリング前の宣伝シェルだけを掴んで本文なしの音声を静かに生成することがあるため。抽出失敗は Fail Fast で `failed`）。件名はこの時点でタイトルに反映する。collect では従来どおり NotebookLM チャット（`ask`）から送信元・日付を抽出し、説明文に「出典: {送信元}（{ドメイン}）- {日付}」を表示する（生 URL は state.json のみに保持）。抽出失敗時も生 URL は出さない。
+- **プレイリスト振り分け（③）**: カテゴリ→`youtube.playlists` で解決し、無ければ `playlist_id` にフォールバックする。さらに `all_playlist_id` が設定されていれば全動画横断プレイリストとして常に追加する（重複 ID は除外）。
 
 **アップロード手順:**
 1. `videos.insert` で動画をアップロード（resumable upload）
@@ -634,26 +556,15 @@ AIが元情報をもとに自動生成した、ポッドキャスト風の音声
 4. `selfDeclaredMadeForKids: false` を常に設定（子供向けではない）
 5. `containsSyntheticMedia: true` を常に設定（AI生成コンテンツの開示）
 6. アップロード後、`UploadResult(youtube_url, thumbnail_set)` を返却（`thumbnail_set=false` は要再適用）
-7. NotebookLM のノートブックは collect / `run-single` とも、全 chat と音声ダウンロードの完了後、
-   画像生成へ入る前に削除済み
+7. NotebookLM のノートブックは collect / `run-single` とも、全 chat と音声ダウンロードの完了後、画像生成へ入る前に削除済み
 
-手順 2〜3（サムネイル設定・プレイリスト追加）の失敗は WARN ログに留め、ジョブは
-`uploaded` として扱う。動画本体は `videos.insert` で既にアップロード済みのため、
-ここで failed にするとリトライで同じ動画が重複アップロードされてしまう。
+手順 2〜3（サムネイル設定・プレイリスト追加）の失敗は WARN ログに留め、ジョブは`uploaded` として扱う。動画本体は `videos.insert` で既にアップロード済みのため、ここで failed にするとリトライで同じ動画が重複アップロードされてしまう。
 
-**サムネ未適用の自己修復（`thumbnail_pending`）:**
-`thumbnails.set` は新規チャンネルで `429 uploadRateLimitExceeded`（一時的なサムネアップロード
-上限）を返すことがある。この場合サムネが貼られず、YouTube が動画フレームから自動サムネを選んで
-しまう。`upload_video` は `UploadResult(youtube_url, thumbnail_set)` を返し、サムネ未適用時は
-state の当該ジョブに `thumbnail_pending: true` を記録する。次回 `upload_videos` 実行時、先頭で
-`_reapply_pending_thumbnails` が `thumbnail_pending` のアップロード済みジョブへ `set_thumbnail`
-（`thumbnails.set` 単体）で再適用を試みる。成功で pending を下ろし、再び 429（クォータ）を受けたら
-残りを打ち切って次回に持ち越す（冪等）。これによりクォータ回復後に無人でサムネが自己修復される。
+**サムネ未適用の自己修復（`thumbnail_pending`）:** `thumbnails.set` は新規チャンネルで `429 uploadRateLimitExceeded`（一時的なサムネアップロード上限）を返すことがある。この場合サムネが貼られず、YouTube が動画フレームから自動サムネを選んでしまう。`upload_video` は `UploadResult(youtube_url, thumbnail_set)` を返し、サムネ未適用時はstate の当該ジョブに `thumbnail_pending: true` を記録する。次回 `upload_videos` 実行時、先頭で`_reapply_pending_thumbnails` が `thumbnail_pending` のアップロード済みジョブへ `set_thumbnail`（`thumbnails.set` 単体）で再適用を試みる。成功で pending を下ろし、再び 429（クォータ）を受けたら残りを打ち切って次回に持ち越す（冪等）。これによりクォータ回復後に無人でサムネが自己修復される。
 
 **認証コンテキスト:**
 - CLI（対話可能）: トークンが無効な場合はブラウザ OAuth フローを開始する
-- Web サーバー（非対話、`allow_interactive_auth=False`）: OAuth フローを開始せず
-  即座にエラーにし、該当ジョブを failed として記録する（`auth youtube` での再認証を促す）
+- Web サーバー（非対話、`allow_interactive_auth=False`）: OAuth フローを開始せず即座にエラーにし、該当ジョブを failed として記録する（`auth youtube` での再認証を促す）
 
 **クォータ管理:**
 - `videos.insert` = 1,600 ユニット
@@ -669,9 +580,9 @@ state の当該ジョブに `thumbnail_pending: true` を記録する。次回 `
 
 パイプラインは3つの独立したフェーズに分離されている:
 
-1. **submit**: `mode` ごとにジョブを開始（NotebookLM は音声生成開始、講義動画は生成待ちへ遷移）
-2. **collect**: NotebookLM 後処理、または講義動画・サムネ・投稿情報の一式生成
-3. **upload**: YouTube アップロード（順次実行、quota制限あり）
+1. **submit**: ノートブック作成＋音声生成開始（`mode="lecture"` のジョブは生成待ちへ遷移させるだけ）
+2. **collect**: 音声回収と後処理（chat・サムネ・動画変換。`mode="lecture"` はここで講義動画生成へディスパッチ）
+3. **upload**: YouTube アップロード（順次実行、quota制限あり。両モード共通）
 
 ```
 submit_urls()     → status: "generating"
@@ -695,31 +606,22 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 **Phase 1: submit_urls(entries, settings, force, dry_run)**
 1. state.json をロード、生成中/処理済みの `(URL, mode)` をスキップ（`--force`で上書き）
 2. `mode="lecture"` は外部AIをまだ起動せず `generating` に遷移し、Webワーカーへ制御を返す
-3. `mode="notebooklm"` は各URLに対して `asyncio.gather` で並列実行:
+3. `mode="podcast"` は各URLに対して `asyncio.gather` で並列実行:
    - 既存ジョブに `notebook_id` が残っていれば best-effort で旧ノートブックを削除（リトライ・force 再実行時のリーク防止）
-   - メタデータ取得 → ノートブック作成（作成直後に `notebook_id` を永続化）→ ソース追加 → `start_audio_generation()`
+   - ソースの投入形式を解決（`sources.fetch.resolve_source`。Spark 共有はここで SSR 本文を抽出、失敗は Fail Fast）→ メタデータ取得 → ノートブック作成（作成直後に `notebook_id` を永続化）→ ソース追加（`RemoteSource` は `add_source`、`ExtractedSource` は `add_text_source`）→ `start_audio_generation()`
    - state に `status="generating"` + `task_id` + `metadata` を保存
 4. 各URLのエラーは個別にキャッチして `failed` として記録
 5. `--dry-run` は state.json に一切書き込まない（本実行のスキップ判定や collect を汚染しないため）
 
-**state 書き込みの原則（全フェーズ共通）:**
-ジョブ更新は必ずディスク上の最新 state を読み直してから該当ジョブのみ更新して
-保存する（`_update_job_state` / `_upsert_job_state`）。メモリ上の古い state
-スナップショット全体を書き戻すと、並行する Web 操作（削除・クリア・リトライ・追加）を
-巻き戻してしまうため。
+**state 書き込みの原則（全フェーズ共通）:**ジョブ更新は必ずディスク上の最新 state を読み直してから該当ジョブのみ更新して保存する（`_update_job_state` / `_upsert_job_state`）。メモリ上の古い stateスナップショット全体を書き戻すと、並行する Web 操作（削除・クリア・リトライ・追加）を巻き戻してしまうため。
 
 **Phase 2: collect_audio(settings, poll, timeout)**
 1. state.json から `status="generating"` のジョブを取得
-2. `mode="lecture"` は `lecture.generate_lecture()` をワーカースレッドで直列実行し、
-   動画・サムネイル・台本・投稿JSONを同じジョブフォルダへ出力する。Spark共有URLは
-   SSR応答へ埋め込まれたメール本文を抽出し、公開台本から入力元URLとメールアドレスを
-   除去する（生URLは内部追跡情報にだけ保持する）
-3. `mode="notebooklm"` で `notebook_id` / `task_id` が無いジョブは明示的なエラーで `failed` に遷移
+2. `mode="lecture"` は `lecture.generate_lecture()` をワーカースレッドで直列実行し、動画・サムネイル・台本・投稿JSONを出力して `video_ready` に合流させる（生成内容の仕様は `specs/LECTURE_SPEC.md` を正とする）
+3. `mode="podcast"` で `notebook_id` / `task_id` が無いジョブは明示的なエラーで `failed` に遷移
 4. NotebookLMジョブに対して並列で `check_audio_status()` を呼び出し
 5. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
-6. 完了したジョブ: 音声DL → chat 後処理 → ノートブック削除 → 利用可能な画像プロファイルを選択
-   → AIサムネイル・複数背景 → 動画変換 → `status="video_ready"`（`notebook_id` をクリア）。
-   専用画像プロファイルが失効していれば `default` へ自動退避し、生成背景を動画変換へ渡す
+6. 完了したジョブ: 音声DL → chat 後処理 → ノートブック削除 → 利用可能な画像プロファイルを選択→ AIサムネイル・複数背景 → 動画変換 → `status="video_ready"`（`notebook_id` をクリア）。専用画像プロファイルが失効していれば `default` へ自動退避し、生成背景を動画変換へ渡す
 7. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
 8. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
@@ -727,10 +629,6 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 1. state.json から `status="video_ready"` のジョブを取得
 2. YouTube認証（1回、`asyncio.to_thread` でラップ）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
 3. `status="uploaded"` + `youtube_url` を記録
-
-講義モードの台本は Claude Max の Claude Code CLI（Opus、`effort=xhigh`）で初稿を作り、
-ChatGPT Pro の Codex CLI（Sol、`effort=xhigh`）で技術・編集審査する。従量課金APIへの
-フォールバックは行わない。詳細は `specs/LECTURE_SPEC.md` を正とする。
 
 **エラーハンドリング:**
 
@@ -757,7 +655,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
     {
       "url": "https://example.com/article-1",
       "slug": "a1b2c3d4e5f6",
-      "mode": "notebooklm",
+      "mode": "podcast",
       "audio_length": "default",
       "prompt": "default",
       "privacy_status": "unlisted",
@@ -805,10 +703,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 
 ### 3.11 結果レポート (`report.py`)
 
-処理完了後にターミナルに結果を出力する。成功判定は `error` の有無で行う
-（`submit` / `collect` 単体実行時の `generating` / `video_ready` などの
-フェーズ途中ステータスも成功として扱い、YouTube URL が無い場合は
-ステータスを括弧書きで表示する）。
+処理完了後にターミナルに結果を出力する。成功判定は `error` の有無で行う（`submit` / `collect` 単体実行時の `generating` / `video_ready` などのフェーズ途中ステータスも成功として扱い、YouTube URL が無い場合はステータスを括弧書きで表示する）。
 
 ```
 ════════════════════════════════════════════════════
@@ -839,8 +734,8 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 ### 4.1 `config/settings.yaml`
 
 ```yaml
-# NotebookLM 設定
-notebooklm:
+# ポッドキャスト（podcast モード）設定
+podcast:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
   audio_length: "short"     # グローバルデフォルト: "short" | "default"
@@ -885,7 +780,7 @@ thumbnail:
   title_font_size_min: 44
   subtitle_font_size: 24
   text_color: "#FFFFFF"
-  background_mode: "codex-svg"  # 講義動画: "codex-svg" | "static"
+  background_mode: "codex-svg"  # lecture モード用: "codex-svg" | "static"（specs/LECTURE_SPEC.md）
   # OGP画像がない場合のフォールバックはランダム生成グラデーション (設定不要)
 
 # 認証情報パス
@@ -901,6 +796,7 @@ general:
   retry_backoff_base: 2          # 指数バックオフの底（秒）
   simple_video_mode: false       # 簡易動画モード（下記）
 
+# lecture モード用（内容は specs/LECTURE_SPEC.md を正とする）
 lecture:
   script_model: "opus"
   script_effort: "xhigh"
@@ -908,11 +804,7 @@ lecture:
   review_effort: "xhigh"
 ```
 
-**簡易動画モード（`general.simple_video_mode`）:**
-`true` にすると、AIサムネ・AI背景の生成をスキップしてグラデーション静止背景の動画を高速に作り、
-さらにアップロード時に `thumbnails.set`（カスタムサムネ設定）を行わない（`thumbnail_path=None`）。
-サムネアップロード上限（429）の回復中に 429 を叩いて24hローリングをリセットしないための一時モード。
-自分用に素早く動画を作りたいとき用。通常運用に戻すときは `false`。
+**簡易動画モード（`general.simple_video_mode`）:** `true` にすると、AIサムネ・AI背景の生成をスキップしてグラデーション静止背景の動画を高速に作り、さらにアップロード時に `thumbnails.set`（カスタムサムネ設定）を行わない（`thumbnail_path=None`）。サムネアップロード上限（429）の回復中に 429 を叩いて24hローリングをリセットしないための一時モード。自分用に素早く動画を作りたいとき用。通常運用に戻すときは `false`。
 
 ### 4.2 認証情報パス
 
@@ -978,7 +870,7 @@ uv sync
 ```bash
 # notebooklm-py のセットアップに従う
 # Google Workspace アカウントでログイン済みの状態が必要
-summary auth notebooklm
+podcast auth notebooklm
 ```
 
 ### 6.4 YouTube API 認証
@@ -994,7 +886,7 @@ summary auth notebooklm
 cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 
 # 3. 認証フローを実行（ブラウザが開く）
-summary auth youtube
+podcast auth youtube
 # → 個人の YouTube アカウントで認証
 ```
 

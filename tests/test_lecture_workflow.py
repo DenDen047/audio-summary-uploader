@@ -10,7 +10,6 @@ import pytest
 from PIL import Image
 
 from lecture.characters import CharacterAssets
-from lecture.fetch import SourceContent, SourceFigure
 from lecture.pipeline import (
     LectureArtifacts,
     RenderedLecture,
@@ -18,26 +17,27 @@ from lecture.pipeline import (
     generate_lecture_thumbnail,
 )
 from lecture.thumbnail_backdrop import ThumbnailBackdropResult
-from summary.config import (
+from podcast.config import (
     CredentialsConfig,
     GeneralConfig,
-    NotebookLMConfig,
+    PodcastConfig,
     Settings,
     ThumbnailConfig,
     YouTubeConfig,
 )
-from summary.pipeline import (
+from podcast.pipeline import (
     _find_or_create_job,
     _update_job_state,
     collect_audio,
     upload_videos,
 )
-from summary.youtube import UploadResult
+from podcast.youtube import UploadResult
+from sources.fetch import SourceContent, SourceFigure
 
 
 def _settings(tmp_path: Path) -> Settings:
     return Settings(
-        notebooklm=NotebookLMConfig(prompt_presets={"default": "Summarize"}),
+        podcast=PodcastConfig(prompt_presets={"default": "Summarize"}),
         youtube=YouTubeConfig(default_tags=["fallback"]),
         thumbnail=ThumbnailConfig(),
         credentials=CredentialsConfig(),
@@ -97,7 +97,7 @@ def test_same_url_can_keep_notebooklm_and_lecture_jobs(tmp_path: Path) -> None:
         "https://example.com/source",
         "default",
         "default",
-        "notebooklm",
+        "podcast",
     )
     lecture = _find_or_create_job(
         state,
@@ -120,7 +120,7 @@ def test_same_url_can_keep_notebooklm_and_lecture_jobs(tmp_path: Path) -> None:
     )
     saved = json.loads(state_path.read_text(encoding="utf-8"))
     statuses = {job["mode"]: job["status"] for job in saved["jobs"]}
-    assert statuses == {"notebooklm": "generating", "lecture": "video_ready"}
+    assert statuses == {"podcast": "generating", "lecture": "video_ready"}
 
 
 def test_generate_lecture_writes_upload_ready_artifacts(tmp_path: Path) -> None:
@@ -340,10 +340,10 @@ async def test_collect_generates_lecture_without_notebooklm(tmp_path: Path) -> N
 
     with (
         patch(
-            "summary.pipeline.generate_lecture", return_value=artifacts
+            "podcast.pipeline.generate_lecture", return_value=artifacts
         ) as generate,
         patch(
-            "summary.pipeline._create_backend",
+            "podcast.pipeline._create_backend",
             side_effect=AssertionError("NotebookLM must not be created"),
         ),
     ):
@@ -407,8 +407,8 @@ async def test_upload_uses_lecture_title_description_and_tags(tmp_path: Path) ->
         )
     )
     with (
-        patch("summary.pipeline.authenticate", return_value=object()),
-        patch("summary.pipeline.upload_video", mock_upload),
+        patch("podcast.pipeline.authenticate", return_value=object()),
+        patch("podcast.pipeline.upload_video", mock_upload),
     ):
         results = await upload_videos(settings)
 

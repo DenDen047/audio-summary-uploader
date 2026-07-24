@@ -1,8 +1,6 @@
 # 澪・透の動画解説 → YouTube 自動化パイプライン
 
-記事・論文・GitHub の URL から、澪と透が掛け合いで解説する動画、サムネイル、
-投稿情報をまとめて生成し、YouTube へアップロードする CLI + Web UI ツール。
-従来の NotebookLM 音声要約も選択できます。
+記事・論文・GitHub の URL から、澪と透が掛け合いで解説する動画、サムネイル、投稿情報をまとめて生成し、YouTube へアップロードする CLI + Web UI ツール。従来のポッドキャスト音声要約（Gemini Notebook、旧 NotebookLM）も選択できます。
 
 ## 必要なもの
 
@@ -49,28 +47,18 @@ uv sync
 
 ### 2-1. Claude Code / Codexログインと動画固有サムネイル背景
 
-Claude Code CLIをClaude Max、Codex CLIをChatGPT Proアカウントでログインしておきます。
-台本はClaudeの最新Opus alias（`opus`, `effort=xhigh`）で初稿を作り、Codexの
-`gpt-5.6-sol`（`effort=xhigh`）で元情報との照合、技術的断定、会話、スライドを最終審査します。
-APIキーは使いません。実際に解決されたモデル名はジョブの投稿情報へ保存されます。
+Claude Code CLIをClaude Max、Codex CLIをChatGPT Proアカウントでログインしておきます。台本はClaudeの最新Opus alias（`opus`, `effort=xhigh`）で初稿を作り、Codexの`gpt-5.6-sol`（`effort=xhigh`）で元情報との照合、技術的断定、会話、スライドを最終審査します。APIキーは使いません。実際に解決されたモデル名はジョブの投稿情報へ保存されます。
 
-サムネイル背景は、Codexが台本内に選んだ意味モチーフをローカルSVGへ変換し、
-PlaywrightでPNG化します。画像APIへの通信はなく、同じ台本なら同じ背景を再生成できます。
-固定背景へ切り替える場合だけ`thumbnail.background_mode: "static"`を指定します。
+サムネイル背景は、Codexが台本内に選んだ意味モチーフをローカルSVGへ変換し、PlaywrightでPNG化します。画像APIへの通信はなく、同じ台本なら同じ背景を再生成できます。固定背景へ切り替える場合だけ`thumbnail.background_mode: "static"`を指定します。
 
-Codexアプリの`$imagegen`（`gpt-image-2`）は、サブスクリプション枠でキャラクター原本や
-手動選定する専用サムネイル背景に利用できます。ただし現在はWeb UIから無人保存できる
-非対話経路がないため、E2Eの必須経路には置きません。公式のプログラム実行手段である
-OpenAI Image APIは従量課金になるため、自動運転時の背景はローカルSVGを使います。
+Codexアプリの`$imagegen`（`gpt-image-2`）は、サブスクリプション枠でキャラクター原本や手動選定する専用サムネイル背景に利用できます。ただし現在はWeb UIから無人保存できる非対話経路がないため、E2Eの必須経路には置きません。公式のプログラム実行手段であるOpenAI Image APIは従量課金になるため、自動運転時の背景はローカルSVGを使います。
 
 ### 3. 日本語フォントの配置
 
 サムネイル生成に日本語フォントが必要です。
 
-1. [Noto Sans JP](https://fonts.google.com/noto/specimen/Noto+Sans+JP) と
-   [M PLUS Rounded 1c](https://fonts.google.com/specimen/M+PLUS+Rounded+1c) をダウンロード
-2. `fonts/NotoSansJP-Bold.ttf`、`fonts/MPLUSRounded1c-Bold.ttf`、
-   `fonts/MPLUSRounded1c-Black.ttf` として配置
+1. [Noto Sans JP](https://fonts.google.com/noto/specimen/Noto+Sans+JP) と[M PLUS Rounded 1c](https://fonts.google.com/specimen/M+PLUS+Rounded+1c) をダウンロード
+2. `fonts/NotoSansJP-Bold.ttf`、`fonts/MPLUSRounded1c-Bold.ttf`、`fonts/MPLUSRounded1c-Black.ttf` として配置
 
 ```bash
 # ダウンロードした ZIP を展開後
@@ -139,7 +127,7 @@ cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 #### 5-6. 認証フローを実行
 
 ```bash
-uv run summary auth youtube
+uv run podcast auth youtube
 ```
 
 ブラウザが開き、個人の YouTube アカウントで OAuth 認証を行います。認証が完了するとリフレッシュトークンが `credentials/youtube_token.json` に自動保存されます。以降は自動的にトークンがリフレッシュされます。
@@ -148,9 +136,7 @@ uv run summary auth youtube
 
 ## Docker で使う（推奨）
 
-Docker を使えば Python や FFmpeg のインストールなしで、すぐに利用できます。
-現時点の Docker 構成は従来の `notebooklm` モード向けです。VOICEVOX、
-Claude Code、Codex CLIを使う`lecture`モードはローカル実行を使用してください。
+Docker を使えば Python や FFmpeg のインストールなしで、すぐに利用できます。現時点の Docker 構成は従来の `podcast` モード向けです。VOICEVOX、Claude Code、Codex CLIを使う`lecture`モードはローカル実行を使用してください。
 
 ### クイックスタート
 
@@ -166,7 +152,7 @@ cd audio-summary-uploader
 cp ~/Downloads/client_secret_xxxxx.json ./credentials/youtube_client_secret.json
 
 # YouTube OAuth トークン（ホスト側で事前に取得）
-uv run summary auth youtube
+uv run podcast auth youtube
 
 # NotebookLM の認証（ホスト側で事前に取得）
 uv run notebooklm login
@@ -249,7 +235,7 @@ make restart
 リフレッシュトークンは通常自動更新されますが、長期間使用しなかった場合は再認証が必要です:
 
 ```bash
-uv run summary auth youtube
+uv run podcast auth youtube
 make restart
 ```
 
@@ -261,9 +247,7 @@ Docker を使わずにローカル環境で直接実行する場合は、以下�
 
 ### Web ダッシュボード（推奨）
 
-ブラウザベースの GUI で操作できます。URL を入力して「動画を作成」を押すだけで、
-台本・音声・スライド・動画・サムネイル・投稿情報の生成から YouTube
-アップロードまで自動実行されます。
+ブラウザベースの GUI で操作できます。URL を入力して「動画を作成」を押すだけで、台本・音声・スライド・動画・サムネイル・投稿情報の生成から YouTubeアップロードまで自動実行されます。
 
 ```bash
 # Web ダッシュボードを起動（ブラウザが自動で開きます）
@@ -278,15 +262,14 @@ uv run webui --port 3000
 
 `webui.sh` は `uv run webui` の薄いラッパーです。
 
-- 既定は「澪と透の解説動画」。従来の NotebookLM 音声要約も選択可能
+- 既定は「澪と透の解説動画」。従来のポッドキャスト音声要約も選択可能
 - 複数 URL を改行区切りで入力し、自動で 3 フェーズ実行
 - 完成した動画・サムネイル・AI背景・背景プロンプト・投稿情報JSONを画面から確認・取得
 - 5 秒ごとに自動更新で進捗を確認
 - 失敗したジョブのリトライ、完了済みジョブの一括削除
 - サーバー再起動時に未完了ジョブを自動復旧
 
-裏側の処理は [`docs/2026-07-21_lecture-video-end-to-end-pipeline.html`](docs/2026-07-21_lecture-video-end-to-end-pipeline.html)
-に図解しています。
+裏側の処理は [`docs/2026-07-21_lecture-video-end-to-end-pipeline.html`](docs/2026-07-21_lecture-video-end-to-end-pipeline.html)に図解しています。
 
 ### CLI で実行
 
@@ -318,8 +301,8 @@ uv run webui --port 3000
 | フィールド | 必須 | 値 | デフォルト |
 |---|---|---|---|
 | `url` | Yes | URL 文字列、ローカル PDF パス、または PDF を含むフォルダパス | — |
-| `mode` | No | `"lecture"` / `"notebooklm"` | `"notebooklm"` |
-| `audio_length` | No | `"short"` / `"default"` | `settings.yaml` の `notebooklm.audio_length` |
+| `mode` | No | `"lecture"` / `"podcast"` | `"podcast"` |
+| `audio_length` | No | `"short"` / `"default"` | `settings.yaml` の `podcast.audio_length` |
 | `prompt` | No | `settings.yaml` の `prompt_presets` で定義されたキー（`"default"`, `"paper_summary"` 等） | `"default"` |
 
 #### 実行
@@ -330,16 +313,16 @@ uv run webui --port 3000
 
 ```bash
 # 基本実行（submit → collect → upload を順に実行）
-uv run summary run urls.yaml
+uv run podcast run urls.yaml
 
 # ドライラン（メタデータ取得のみ、NotebookLM/YouTube 操作なし）
-uv run summary run urls.yaml --dry-run
+uv run podcast run urls.yaml --dry-run
 
 # 処理済み URL も強制的に再処理
-uv run summary run urls.yaml --force
+uv run podcast run urls.yaml --force
 
 # 前回失敗した URL だけ再処理
-uv run summary run urls.yaml --retry-failed
+uv run podcast run urls.yaml --retry-failed
 ```
 
 ##### 3フェーズ分離実行
@@ -348,27 +331,27 @@ uv run summary run urls.yaml --retry-failed
 
 ```bash
 # Phase 1: ノートブック作成＋音声生成を並列に開始
-uv run summary submit urls.yaml
-uv run summary submit urls.yaml --dry-run   # API呼び出しなし
-uv run summary submit urls.yaml --force      # 生成中/処理済みも再処理
+uv run podcast submit urls.yaml
+uv run podcast submit urls.yaml --dry-run   # API呼び出しなし
+uv run podcast submit urls.yaml --force      # 生成中/処理済みも再処理
 
 # Phase 2: 生成完了した音声をDL→サムネイル→動画変換
-uv run summary collect              # 完了チェックのみ（未完了はスキップ）
-uv run summary collect --poll       # 全ジョブの完了までポーリング待機
-uv run summary collect --timeout 900  # タイムアウト指定（秒）
+uv run podcast collect              # 完了チェックのみ（未完了はスキップ）
+uv run podcast collect --poll       # 全ジョブの完了までポーリング待機
+uv run podcast collect --timeout 900  # タイムアウト指定（秒）
 
 # Phase 3: 動画を YouTube にアップロード
-uv run summary upload
+uv run podcast upload
 ```
 
 ##### その他のコマンド
 
 ```bash
 # 特定の URL だけ処理（一括実行）
-uv run summary run-single "https://example.com/article"
+uv run podcast run-single "https://example.com/article"
 
 # 処理状況の確認（各ステータスのカウント表示）
-uv run summary status
+uv run podcast status
 ```
 
 ### 処理の流れ
@@ -426,7 +409,7 @@ YouTube Data API のデフォルトクォータは 10,000 ユニット/日です
 `config/settings.yaml` で各種設定を変更できます。
 
 ```yaml
-notebooklm:
+podcast:
   backend: "notebooklm-py"       # "notebooklm-py" or "playwright"
   audio_language: "ja"
   audio_length: "short"           # "short" | "default"
@@ -483,7 +466,7 @@ uv run python <file>
 ├── config/
 │   └── settings.yaml             # アプリ設定
 ├── credentials/                  # OAuth トークン等（.gitignore 対象）
-├── src/summary/                  # 音声要約パイプライン（NotebookLM → YouTube）
+├── src/podcast/                  # ポッドキャスト音声要約パイプライン
 │   ├── cli.py                    # CLI エントリポイント (Click)
 │   ├── config.py                 # 設定読み込み
 │   ├── pipeline.py               # パイプラインオーケストレーション
@@ -512,4 +495,4 @@ uv run python <file>
 
 `main` ブランチから feature ブランチを作成し、完了後に `main` へマージします。
 
-詳細仕様は `specs/SPEC.md` を参照してください。
+詳細仕様は `specs/PODCAST_SPEC.md` を参照してください。

@@ -1,4 +1,4 @@
-"""講義動画で使う情報源抽出のテスト。"""
+"""共有の情報源抽出（sources.fetch）のテスト。"""
 
 import json
 from pathlib import Path
@@ -8,11 +8,14 @@ from unittest.mock import patch
 import httpx
 import pymupdf
 
-from lecture.fetch import (
+from sources.fetch import (
+    ExtractedSource,
+    RemoteSource,
     SourceContent,
     SourceFigure,
     fetch_content,
     materialize_source_figures,
+    resolve_source,
 )
 
 SPARK_URL = "https://app.sparkmailapp.com/web-share/anonymous-test"
@@ -74,7 +77,7 @@ def test_fetch_content_reads_spark_share_without_rendering_browser() -> None:
         headers={"content-type": "text/html; charset=utf-8"},
     )
 
-    with patch("lecture.fetch.httpx.get", return_value=response):
+    with patch("sources.fetch.httpx.get", return_value=response):
         source = fetch_content(SPARK_URL)
 
     assert source.url == SPARK_URL
@@ -83,6 +86,35 @@ def test_fetch_content_reads_spark_share_without_rendering_browser() -> None:
     assert "新しいAIチップ" in source.text
     assert "Hidden preview" not in source.text
     assert "reader@example.com" not in source.text
+
+
+def test_resolve_source_extracts_spark_share() -> None:
+    """Spark 共有 URL はテキスト投入用の ExtractedSource になることを確認。"""
+    response = httpx.Response(
+        200,
+        text=_spark_share_html(),
+        headers={"content-type": "text/html; charset=utf-8"},
+    )
+
+    with patch("sources.fetch.httpx.get", return_value=response):
+        resolved = resolve_source(SPARK_URL)
+
+    assert isinstance(resolved, ExtractedSource)
+    assert resolved.url == SPARK_URL
+    assert resolved.title == "匿名AIニュース"
+    assert "新しいAIチップ" in resolved.text
+
+
+def test_resolve_source_keeps_normal_url_remote() -> None:
+    """通常 URL は取得せず URL 直渡し（RemoteSource）のままになることを確認。"""
+    with patch(
+        "sources.fetch.httpx.get",
+        side_effect=AssertionError("通常URLでは取得しない"),
+    ):
+        resolved = resolve_source("https://example.com/article")
+
+    assert isinstance(resolved, RemoteSource)
+    assert resolved.url == "https://example.com/article"
 
 
 def test_fetch_content_requests_spark_server_rendered_payload() -> None:
@@ -105,7 +137,7 @@ def test_fetch_content_requests_spark_server_rendered_payload() -> None:
         assert timeout == 60
         return response
 
-    with patch("lecture.fetch.httpx.get", side_effect=get_spark_share):
+    with patch("sources.fetch.httpx.get", side_effect=get_spark_share):
         source = fetch_content(SPARK_URL)
 
     assert source.title == "匿名AIニュース"
@@ -150,7 +182,7 @@ def test_fetch_content_extracts_captioned_html_figures() -> None:
         headers={"content-type": "text/html; charset=utf-8"},
     )
 
-    with patch("lecture.fetch.httpx.get", return_value=response):
+    with patch("sources.fetch.httpx.get", return_value=response):
         source = fetch_content("https://papers.example/article/index.html")
 
     assert source.figures == (
@@ -191,11 +223,11 @@ def test_fetch_content_reads_youtube_automatic_captions() -> None:
     response = httpx.Response(200, json=captions)
 
     with (
-        patch("lecture.fetch.shutil.which", return_value="/opt/yt-dlp"),
+        patch("sources.fetch.shutil.which", return_value="/opt/yt-dlp"),
         patch(
-            "lecture.fetch.subprocess.run", return_value=metadata_result
+            "sources.fetch.subprocess.run", return_value=metadata_result
         ) as run,
-        patch("lecture.fetch.httpx.get", return_value=response) as get,
+        patch("sources.fetch.httpx.get", return_value=response) as get,
     ):
         source = fetch_content(video_url)
 
@@ -232,7 +264,7 @@ def test_materialize_source_figures_downloads_only_selected_indices(
         headers={"content-type": "image/png"},
     )
 
-    with patch("lecture.fetch.httpx.get", return_value=response) as get:
+    with patch("sources.fetch.httpx.get", return_value=response) as get:
         paths = materialize_source_figures(source, tmp_path, {2})
 
     assert paths == (tmp_path / "figure_02.png",)

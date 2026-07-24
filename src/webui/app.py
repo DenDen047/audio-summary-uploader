@@ -11,9 +11,9 @@ from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from loguru import logger
 
-from summary.config import Settings
-from summary.pipeline import _load_state, _save_state, run_pipeline
-from summary.url_parser import UrlEntry
+from podcast.config import Settings
+from podcast.pipeline import _load_state, _save_state, run_pipeline
+from podcast.url_parser import UrlEntry
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -71,7 +71,7 @@ async def _recover_orphaned_jobs(settings: Settings) -> None:
         entries = [
             UrlEntry(
                 url=j["url"],
-                mode=j.get("mode", "notebooklm"),
+                mode=j.get("mode", "podcast"),
                 audio_length=j.get("audio_length"),
                 prompt=j.get("prompt"),
                 privacy_status=j.get("privacy_status"),

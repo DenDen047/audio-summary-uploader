@@ -1,5 +1,5 @@
-# NotebookLM 設定
-notebooklm:
+# ポッドキャスト音声要約（podcast モード）設定。バックエンドは Gemini Notebook（旧 NotebookLM）
+podcast:
   backend: "notebooklm-py"  # "notebooklm-py" or "playwright"
   audio_language: "ja"
   audio_length: "short"     # グローバルデフォルト: "short" | "default"

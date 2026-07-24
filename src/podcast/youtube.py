@@ -66,7 +66,7 @@ def _apply_thumbnail(youtube: object, video_id: str, thumbnail_path: Path) -> st
 
 _AUTH_REQUIRED_MSG = (
     "YouTube の認証が必要です。"
-    "ターミナルで 'uv run summary auth youtube' を実行して再認証してください。"
+    "ターミナルで 'uv run podcast auth youtube' を実行して再認証してください。"
     "再認証後、Web UI からリトライできます。"
 )
 

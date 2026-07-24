@@ -2,9 +2,7 @@
 
 ## 概要
 
-URL を入力するだけで、澪・透の掛け合い解説動画の生成から YouTube
-アップロードまで自動で行う Web UI。従来の NotebookLM 音声要約も選択できる。
-内部の 3 フェーズ（submit → collect → upload）はユーザーに見せず、MeTube のようなシンプルな体験を提供する。
+URL を入力するだけで、澪・透の掛け合い解説動画の生成から YouTubeアップロードまで自動で行う Web UI。従来のポッドキャスト音声要約（Gemini Notebook、旧 NotebookLM）も選択できる。内部の 3 フェーズ（submit → collect → upload）はユーザーに見せず、MeTube のようなシンプルな体験を提供する。
 
 **設計思想（MeTube に倣う）:**
 
@@ -115,8 +113,7 @@ htmx で 5 秒ごとにセクション全体を更新。ジョブが完了する
   - uploaded: 🔗（YouTube を開く）、🗑（一覧から削除）
   - failed: 🔄（リトライ）、🗑（一覧から削除）
 - failed の場合: タイトルの下にエラーメッセージを小さく表示（MeTube と同じ）
-- `lecture` はサムネイルプレビュー、動画、サムネイル、AI背景、背景生成プロンプト、
-  投稿情報JSONへのリンクと、title / description / tags の確認欄を表示する。
+- `lecture` はサムネイルプレビュー、動画、サムネイル、AI背景、背景生成プロンプト、投稿情報JSONへのリンクと、title / description / tags の確認欄を表示する。
 - 投稿情報に記録された台本AIの実使用モデルと、背景のprovider / modelも表示する。
 
 htmx で 5 秒ごとに更新。
@@ -134,11 +131,7 @@ htmx で 5 秒ごとに更新。
   → upload_videos() ... YouTube アップロード
 ```
 
-これは既存の `run_pipeline()` をそのまま呼ぶ。ユーザーから見ると、ジョブのステータスが
-「動画を生成中...」→「YouTube にアップロード中...」→ ✅ と遷移するだけ。
-NotebookLM の画像専用プロファイルが失効している場合は、全 NotebookLM 操作を終えた後に
-通常プロファイルへ自動退避する。使用プロファイルと動画へ渡した背景一覧は
-`image_profile_used` / `background_paths` として state に保存する。
+これは既存の `run_pipeline()` をそのまま呼ぶ。ユーザーから見ると、ジョブのステータスが「動画を生成中...」→「YouTube にアップロード中...」→ ✅ と遷移するだけ。NotebookLM の画像専用プロファイルが失効している場合は、全 NotebookLM 操作を終えた後に通常プロファイルへ自動退避する。使用プロファイルと動画へ渡した背景一覧は`image_profile_used` / `background_paths` として state に保存する。
 
 ### 並行実行の制御
 
@@ -177,18 +170,11 @@ async def pipeline_worker(settings: Settings):
 - `queued` ジョブ → バッチとして再投入（submit からやり直す）
 - `generating` / `video_ready` ジョブ → 空バッチを投入し、run_pipeline の collect / upload スイープに回収させる（queued の再投入がある場合はそのバッチのスイープで回収されるため追加投入しない）
 
-**既知の制限**: 音声生成がポーリングタイムアウト（`generation_timeout_seconds`）を
-超えた `generating` ジョブは UI 上「音声を生成中...」のまま残る。定期スイープは
-存在しないため、再回収のトリガーは「別 URL の Add（そのバッチの collect スイープ）」
-または「サーバー再起動（起動時リカバリ）」のいずれかになる。
+**既知の制限**: 音声生成がポーリングタイムアウト（`generation_timeout_seconds`）を超えた `generating` ジョブは UI 上「音声を生成中...」のまま残る。定期スイープは存在しないため、再回収のトリガーは「別 URL の Add（そのバッチの collect スイープ）」または「サーバー再起動（起動時リカバリ）」のいずれかになる。
 
 ### 認証エラーの扱い
 
-Web サーバーは非対話コンテキストのため、YouTube トークンが無効な場合に
-ブラウザ OAuth フローを開始しない（イベントループがブロックされ UI 全体が
-フリーズするため）。代わりに該当ジョブを failed にし、`uv run summary auth
-youtube` での再認証を促すエラーメッセージを表示する。動画ファイルは
-`video_path` に残るため、再認証後のリトライではアップロードのみ再試行される。
+Web サーバーは非対話コンテキストのため、YouTube トークンが無効な場合にブラウザ OAuth フローを開始しない（イベントループがブロックされ UI 全体がフリーズするため）。代わりに該当ジョブを failed にし、`uv run podcast auth youtube` での再認証を促すエラーメッセージを表示する。動画ファイルは`video_path` に残るため、再認証後のリトライではアップロードのみ再試行される。
 
 ## ステータスマッピング
 
@@ -283,8 +269,7 @@ Form Data:
 
 #### `GET /api/jobs/{slug}/artifacts/{kind}`
 
-- `kind`: `video` / `thumbnail` / `thumbnail-background` / `thumbnail-prompt` /
-  `upload-metadata`
+- `kind`: `video` / `thumbnail` / `thumbnail-background` / `thumbnail-prompt` / `upload-metadata`
 - state に記録された当該ジョブの成果物だけを返す。未完成・削除済みは 404。
 
 ## ファイル構成

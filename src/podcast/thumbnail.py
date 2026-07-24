@@ -14,7 +14,7 @@ import httpx
 from loguru import logger
 from PIL import Image, ImageDraw, ImageFont
 
-from summary.config import ThumbnailConfig
+from podcast.config import ThumbnailConfig
 
 _FONT_DIR = Path(__file__).resolve().parent.parent.parent / "fonts"
 

@@ -8,7 +8,7 @@ from loguru import logger
 
 
 @dataclass
-class NotebookLMConfig:
+class PodcastConfig:
     backend: str = "notebooklm-py"
     audio_language: str = "ja"
     audio_length: str = "short"
@@ -109,7 +109,7 @@ class LectureConfig:
 
 @dataclass
 class Settings:
-    notebooklm: NotebookLMConfig
+    podcast: PodcastConfig
     youtube: YouTubeConfig
     thumbnail: ThumbnailConfig
     credentials: CredentialsConfig
@@ -130,7 +130,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
     logger.debug("Loaded settings from {}", config_path)
 
     return Settings(
-        notebooklm=NotebookLMConfig(**raw.get("notebooklm", {})),
+        podcast=PodcastConfig(**raw.get("podcast", {})),
         youtube=YouTubeConfig(**raw.get("youtube", {})),
         thumbnail=ThumbnailConfig(**raw.get("thumbnail", {})),
         credentials=CredentialsConfig(**raw.get("credentials", {})),

@@ -6,22 +6,22 @@ from pathlib import Path
 import click
 from loguru import logger
 
-from summary.config import load_settings
-from summary.pipeline import (
+from podcast.config import load_settings
+from podcast.pipeline import (
     collect_audio,
     get_status_counts,
     run_pipeline,
     submit_urls,
     upload_videos,
 )
-from summary.report import print_report
-from summary.url_parser import parse_url_file
-from summary.youtube import authenticate
+from podcast.report import print_report
+from podcast.url_parser import parse_url_file
+from podcast.youtube import authenticate
 
 
 @click.group()
 def main() -> None:
-    """audio-summary-uploader: NotebookLM → YouTube automation pipeline."""
+    """audio-summary-uploader: Gemini Notebook (旧 NotebookLM) → YouTube automation pipeline."""
 
 
 @main.command()
@@ -46,7 +46,7 @@ def run(
     """URL リストを処理してYouTubeにアップロードする（3フェーズ一括実行）."""
     settings = load_settings(config_path)
 
-    valid_presets = set(settings.notebooklm.prompt_presets.keys())
+    valid_presets = set(settings.podcast.prompt_presets.keys())
     entries = parse_url_file(url_file, valid_prompt_presets=valid_presets)
 
     if not entries:
@@ -86,7 +86,7 @@ def submit(
     """Phase 1: ノートブック作成＋音声生成を開始する."""
     settings = load_settings(config_path)
 
-    valid_presets = set(settings.notebooklm.prompt_presets.keys())
+    valid_presets = set(settings.podcast.prompt_presets.keys())
     entries = parse_url_file(url_file, valid_prompt_presets=valid_presets)
 
     if not entries:
@@ -158,7 +158,7 @@ def upload(config_path: Path | None) -> None:
 )
 def run_single(url: str, dry_run: bool, config_path: Path | None) -> None:
     """単一の URL を処理する."""
-    from summary.url_parser import UrlEntry
+    from podcast.url_parser import UrlEntry
 
     settings = load_settings(config_path)
     entry = UrlEntry(url=url)

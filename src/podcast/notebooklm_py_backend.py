@@ -5,7 +5,7 @@ from pathlib import Path
 from loguru import logger
 from notebooklm import AudioLength, GenerationStatus, NotebookLMClient
 
-from summary.notebooklm import NotebookLMBackend
+from podcast.notebooklm import NotebookLMBackend
 
 _AUDIO_LENGTH_MAP: dict[str, AudioLength] = {
     "short": AudioLength.SHORT,
@@ -52,6 +52,25 @@ class NotebookLMPyBackend(NotebookLMBackend):
             )
             logger.info(
                 "File source added successfully: {} (status={})",
+                source.id,
+                source.status,
+            )
+
+    async def add_text_source(
+        self, notebook_id: str, title: str, content: str
+    ) -> None:
+        logger.info(
+            "Adding text source {!r} ({} chars) to notebook {}",
+            title,
+            len(content),
+            notebook_id,
+        )
+        async with await self._get_client() as client:
+            source = await client.sources.add_text(
+                notebook_id, title, content, wait=True, wait_timeout=120.0
+            )
+            logger.info(
+                "Text source added successfully: {} (status={})",
                 source.id,
                 source.status,
             )

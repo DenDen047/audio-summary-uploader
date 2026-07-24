@@ -14,11 +14,6 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from lecture.assemble import EyeCatch, assemble
 from lecture.characters import CharacterAssets, prepare_characters
-from lecture.fetch import (
-    SourceContent,
-    fetch_content,
-    materialize_source_figures,
-)
 from lecture.reveal import build_reveal_plan
 from lecture.script_gen import generate_script
 from lecture.slides import render_slides
@@ -28,7 +23,12 @@ from lecture.thumbnail_backdrop import (
     generate_thumbnail_backdrop,
 )
 from lecture.tts import managed_voicevox_engine, synthesize_all
-from summary.citation import sanitize_public_text
+from sources.fetch import (
+    SourceContent,
+    fetch_content,
+    materialize_source_figures,
+)
+from sources.sanitize import sanitize_public_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FONTS_DIR = REPO_ROOT / "fonts"

@@ -13,7 +13,7 @@ import httpx
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from summary.citation import is_spark_share_url, sanitize_public_text
+from sources.sanitize import is_spark_share_url, sanitize_public_text
 
 MAX_TEXT_CHARS = 40_000
 MAX_SOURCE_FIGURES = 12
@@ -40,6 +40,36 @@ class SourceContent:
     text: str
     kind: str  # "html" | "pdf" | "github" | "youtube"
     figures: tuple[SourceFigure, ...] = ()
+
+
+@dataclass(frozen=True)
+class RemoteSource:
+    """サーバ側取得（NotebookLM 等）が直接読めるソース。URL をそのまま渡す."""
+
+    url: str
+
+
+@dataclass(frozen=True)
+class ExtractedSource:
+    """サーバ側取得では本文が得られないソース。抽出済みテキストを渡す."""
+
+    url: str
+    title: str
+    text: str
+
+
+def resolve_source(url: str) -> RemoteSource | ExtractedSource:
+    """URL の投入形式を決める。出力型が URL 直渡しかテキスト投入かを表す.
+
+    Spark の /web-share/ ページはブラウザ向け応答に本文が無く、サーバ側
+    取得（NotebookLM）ではアプリの宣伝文しか見えないため、SSR 初期データ
+    からローカル抽出したテキストを渡す。それ以外はサーバ側のネイティブ
+    取り込み（YouTube 字幕・PDF 解析等）の方が優れているため URL を渡す。
+    """
+    if is_spark_share_url(url):
+        content = fetch_content(url)
+        return ExtractedSource(url=url, title=content.title, text=content.text)
+    return RemoteSource(url=url)
 
 
 def fetch_content(url: str) -> SourceContent:

@@ -1,9 +1,9 @@
-# urls.yaml — mode を省略すると従来の NotebookLM 方式
+# urls.yaml — mode を省略すると従来のポッドキャスト方式 (podcast)
 - url: https://arxiv.org/abs/2401.12345
   mode: lecture
 
 - url: https://example.com/article
-  mode: notebooklm
+  mode: podcast
   audio_length: short
   prompt: paper_summary
 

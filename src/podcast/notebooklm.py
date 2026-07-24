@@ -25,6 +25,17 @@ class NotebookLMBackend(ABC):
         ...
 
     @abstractmethod
+    async def add_text_source(
+        self, notebook_id: str, title: str, content: str
+    ) -> None:
+        """ノートブックに抽出済みテキストをソースとして追加する.
+
+        NotebookLM がサーバ側で取得できないソース（Spark 共有ページ等）は、
+        ローカルで抽出した本文をテキストソースとして渡す。
+        """
+        ...
+
+    @abstractmethod
     async def start_audio_generation(
         self,
         notebook_id: str,
