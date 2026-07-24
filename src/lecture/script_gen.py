@@ -269,7 +269,7 @@ def _run_autonomous_claude(
         "acceptEdits",
         "--strict-mcp-config",
         "--mcp-config",
-        "{}",
+        '{"mcpServers": {}}',
         "--output-format",
         "json",
         "--no-session-persistence",

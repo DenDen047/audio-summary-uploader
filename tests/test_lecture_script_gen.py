@@ -74,6 +74,7 @@ def test_autonomous_generation_enables_project_skill_and_fixed_tools(
     assert command[command.index("--setting-sources") + 1] == "project"
     assert "Read,Write,Edit,Grep,Bash" in command
     assert "validate_workdir.py" in command[command.index("--allowedTools") + 1]
+    assert command[command.index("--mcp-config") + 1] == '{"mcpServers": {}}'
     assert prompt.startswith("/lecture-generate-autonomously")
     assert metadata["models_used"] == ["claude-opus"]
 
