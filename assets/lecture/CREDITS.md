@@ -11,5 +11,4 @@
 
 License: CC BY 4.0. Credit: OtoLogic.
 
-The distributed MP3 files were converted to 24 kHz mono PCM WAV, raised by
-4 dB, trimmed after the natural decay, and padded with 0.7 seconds of silence.
+The distributed MP3 files were converted to 24 kHz mono PCM WAV, raised by 4 dB, trimmed after the natural decay, and padded with 0.7 seconds of silence.

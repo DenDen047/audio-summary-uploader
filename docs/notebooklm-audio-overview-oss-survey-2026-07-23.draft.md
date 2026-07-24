@@ -197,26 +197,4 @@ PodEvalは、台本内容、話し方、番組全体の聞き心地を別々に�
 
 ## 参照文献
 
-[1] Google. NotebookLM Help: Generate Audio Overview. 2026. https://support.google.com/notebooklm/answer/16212820
-[2] Google. NotebookLM Audio Overviews. 2024. https://blog.google/innovation-and-ai/products/notebooklm-audio-overviews/
-[3] lfnovo. Open Notebook. https://github.com/lfnovo/open-notebook
-[4] lfnovo. podcast-creator graph.py. https://github.com/lfnovo/podcast-creator/blob/main/src/podcast_creator/graph.py
-[5] lfnovo. podcast-creator outline.jinja. https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/outline.jinja
-[6] lfnovo. podcast-creator transcript.jinja. https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/transcript.jinja
-[7] MODSetter. SurfSense podcast specification and service. https://github.com/MODSetter/SurfSense/tree/main/surfsense_backend/app/podcasts
-[8] MODSetter. SurfSense plan_outline.py. https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/plan_outline.py
-[9] MODSetter. SurfSense draft_segment.py. https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/draft_segment.py
-[10] Evan Dempsey. Podcast-LLM generate.py and outline.py. https://github.com/evandempsey/podcast-llm/tree/main/podcast_llm
-[11] Evan Dempsey. Podcast-LLM writer.py. https://github.com/evandempsey/podcast-llm/blob/main/podcast_llm/writer.py
-[12] Lam Research Group, MIT. PDF2Audio app.py. https://github.com/lamm-mit/PDF2Audio/blob/main/app.py
-[13] Meta. NotebookLlama recipe. https://github.com/meta-llama/llama-cookbook/tree/main/recipes/quickstart/NotebookLlama
-[14] Tharindu N. souzatharsis/Podcastfy content generation and conversation config. https://github.com/souzatharsis/podcastfy/tree/main/podcastfy
-[15] Gabriel Chua. open-notebooklm prompts.py and utils.py. https://github.com/gabrielchua/open-notebooklm
-[16] run-llama. notebookllama audio.py. https://github.com/run-llama/notebookllama/blob/main/src/notebookllama/audio.py
-[17] CaviraOSS. PageLM. https://github.com/CaviraOSS/PageLM
-[18] Xiao, Y. et al. PodAgent: A Comprehensive Framework for Podcast Generation. Findings of ACL 2025. https://aclanthology.org/2025.findings-acl.1226/
-[19] Xiao, Y. et al. PodEval: A Multimodal Evaluation Framework for Podcast Audio Generation. 2025. https://arxiv.org/abs/2510.00485
-[20] audio-summary-uploader. Lecture specification, section 3.2. ../specs/LECTURE_SPEC.md
-[21] audio-summary-uploader. Current lecture script prompt and review prompt. ../src/lecture/prompts/lecture_script.md
-[22] audio-summary-uploader. Current script generation and validation. ../src/lecture/script_gen.py
-[23] audio-summary-uploader. Saved script samples, 2026-07-22 to 2026-07-23. ../tmp/lecture-debug/
+[1] Google. NotebookLM Help: Generate Audio Overview. 2026. https://support.google.com/notebooklm/answer/16212820 [2] Google. NotebookLM Audio Overviews. 2024. https://blog.google/innovation-and-ai/products/notebooklm-audio-overviews/ [3] lfnovo. Open Notebook. https://github.com/lfnovo/open-notebook [4] lfnovo. podcast-creator graph.py. https://github.com/lfnovo/podcast-creator/blob/main/src/podcast_creator/graph.py [5] lfnovo. podcast-creator outline.jinja. https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/outline.jinja [6] lfnovo. podcast-creator transcript.jinja. https://github.com/lfnovo/podcast-creator/blob/main/prompts/podcast/transcript.jinja [7] MODSetter. SurfSense podcast specification and service. https://github.com/MODSetter/SurfSense/tree/main/surfsense_backend/app/podcasts [8] MODSetter. SurfSense plan_outline.py. https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/plan_outline.py [9] MODSetter. SurfSense draft_segment.py. https://github.com/MODSetter/SurfSense/blob/main/surfsense_backend/app/podcasts/generation/prompts/draft_segment.py [10] Evan Dempsey. Podcast-LLM generate.py and outline.py. https://github.com/evandempsey/podcast-llm/tree/main/podcast_llm [11] Evan Dempsey. Podcast-LLM writer.py. https://github.com/evandempsey/podcast-llm/blob/main/podcast_llm/writer.py [12] Lam Research Group, MIT. PDF2Audio app.py. https://github.com/lamm-mit/PDF2Audio/blob/main/app.py [13] Meta. NotebookLlama recipe. https://github.com/meta-llama/llama-cookbook/tree/main/recipes/quickstart/NotebookLlama [14] Tharindu N. souzatharsis/Podcastfy content generation and conversation config. https://github.com/souzatharsis/podcastfy/tree/main/podcastfy [15] Gabriel Chua. open-notebooklm prompts.py and utils.py. https://github.com/gabrielchua/open-notebooklm [16] run-llama. notebookllama audio.py. https://github.com/run-llama/notebookllama/blob/main/src/notebookllama/audio.py [17] CaviraOSS. PageLM. https://github.com/CaviraOSS/PageLM [18] Xiao, Y. et al. PodAgent: A Comprehensive Framework for Podcast Generation. Findings of ACL 2025. https://aclanthology.org/2025.findings-acl.1226/ [19] Xiao, Y. et al. PodEval: A Multimodal Evaluation Framework for Podcast Audio Generation. 2025. https://arxiv.org/abs/2510.00485 [20] audio-summary-uploader. Lecture specification, section 3.2. ../specs/LECTURE_SPEC.md [21] audio-summary-uploader. Current lecture script prompt and review prompt. ../src/lecture/prompts/lecture_script.md [22] audio-summary-uploader. Current script generation and validation. ../src/lecture/script_gen.py [23] audio-summary-uploader. Saved script samples, 2026-07-22 to 2026-07-23. ../tmp/lecture-debug/

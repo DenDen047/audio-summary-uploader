@@ -1,8 +1,6 @@
 # 市場調査レポート（v2・訂正深掘り版）：日本語圏 AI解説 / 音声要約 YouTube
 
-**作成:** 2026-06-28（v1）→ **全面改訂 2026-06-28（v2）**
-**対象:** NotebookLM → YouTube パイプラインの公開・収益化に向けた市場調査
-**手法:** Web調査 + **YouTube /about の実取得（scrapling, 2026-06-28）で32チャンネルの登録者/開設日/動画数/総再生を実数確認** + 一次法令/規約。
+**作成:** 2026-06-28（v1）→ **全面改訂 2026-06-28（v2）** **対象:** NotebookLM → YouTube パイプラインの公開・収益化に向けた市場調査**手法:** Web調査 + **YouTube /about の実取得（scrapling, 2026-06-28）で32チャンネルの登録者/開設日/動画数/総再生を実数確認** + 一次法令/規約。
 
 > v1からの主な訂正（ユーザー指摘と一次検証による）:
 > 1. **「考えすぎる葦＝手動の高品質、AIではない」は誤り** → 3〜4人チーム（本人投稿が出典）＋**重度のAI活用**が実態。
@@ -236,5 +234,4 @@
 ---
 
 ### 主要出典（抜粋）
-YouTube公式: 収益化ポリシー(answer/1311392)、TeamYouTube公式回答(thread/356734251)、広告適合(6162278)、YPP/メンバーシップ(72851/7636690)、AI開示(14328491)、自動吹替(15569972)。日本: 最判昭55モンタージュ写真事件(courts.go.jp)、コムライン事件解説、文化庁 著作権Q&A/AIと著作権。チャンネル各 /about（2026-06-28実取得）。製作: Google Cloud TTS料金、Gemini TTS、にじボイス/AivisSpeech、Vrew/NoLang/Remotion、Whisper×FFmpeg、NotebookLM音声/動画仕様。統計: awesomecreatoracademy/intotheminds/photutorial。
-*詳細URLは各調査ログ参照。*
+YouTube公式: 収益化ポリシー(answer/1311392)、TeamYouTube公式回答(thread/356734251)、広告適合(6162278)、YPP/メンバーシップ(72851/7636690)、AI開示(14328491)、自動吹替(15569972)。日本: 最判昭55モンタージュ写真事件(courts.go.jp)、コムライン事件解説、文化庁 著作権Q&A/AIと著作権。チャンネル各 /about（2026-06-28実取得）。製作: Google Cloud TTS料金、Gemini TTS、にじボイス/AivisSpeech、Vrew/NoLang/Remotion、Whisper×FFmpeg、NotebookLM音声/動画仕様。統計: awesomecreatoracademy/intotheminds/photutorial。*詳細URLは各調査ログ参照。*
