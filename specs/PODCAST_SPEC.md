@@ -68,7 +68,7 @@ urls.yaml                 (入力: URL + per-URL 設定)
 │     ├─ YouTube Data API v3 (videos.insert)       │
 │     ├─ サムネイル設定 (thumbnails.set)            │
 │     ├─ カテゴリ→プレイリスト振り分け             │
-│     └─ 公開ステータス: 既定 unlisted              │
+│     └─ 公開ステータス: 既定 public                │
 │                                                 │
 │  7. 結果レポート                                  │
 │     └─ 処理結果 + YouTube URL を出力             │
@@ -752,7 +752,7 @@ podcast:
 
 # YouTube 設定
 youtube:
-  privacy_status: "unlisted"
+  privacy_status: "public"
   category_id: "27"              # Education
   playlist_id: null                # 既定（カテゴリ未設定時のフォールバック）
   playlists:                       # カテゴリ→playlist_id（③）

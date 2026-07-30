@@ -320,7 +320,7 @@ tmp/lecture/<job_id>/        # job_id = YYYYMMDD-HHMMSS-<slug>
 
 ## 7. 本運用への統合（実装済み）
 
-1. Web の `/api/add` は `mode` と `privacy_status` を state と `UrlEntry` に保存する。Web の既定値は `lecture` / `unlisted` で、公開範囲は `unlisted`（限定公開）と`public`（一般公開）から選択できる。YAML で mode を省略した場合は後方互換のため`podcast` とする（旧名 `notebooklm` もエイリアスとして受理する）。
+1. Web の `/api/add` は `mode` と `privacy_status` を state と `UrlEntry` に保存する。Web の既定値は `podcast` / `public` で、公開範囲は `public`（一般公開）と`unlisted`（限定公開）から選択できる。YAML で mode を省略した場合は後方互換のため`podcast` とする（旧名 `notebooklm` もエイリアスとして受理する）。
 2. submit は講義ジョブを `generating` にし、collect は `generate_lecture()` をワーカースレッドで実行する。Playwright / VOICEVOX / ffmpeg の競合を避けるため講義ジョブは単一ワーカー内で直列生成する。
 3. 完成時に動画・サムネイル・台本・投稿情報を state へ記録して `video_ready` にし、upload は入力元 URL と個人情報を除去済みの title / description / tags を YouTube へ渡す。
 4. サーバー再起動時の `generating` 講義ジョブは同じ URL から安全に再生成する。upload だけ失敗したジョブは既存成果物を保持し、投稿だけ再試行する。

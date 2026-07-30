@@ -37,7 +37,7 @@ htmx・Pico CSS は CDN から読み込み。
 │  │ 解説したいURL（1行に1つ）                    │  │動画を作成│ │  ← URL 入力
 │  └─────────────────────────────────────────────┘  └──────────┘ │
 │                                                                 │
-│  動画タイプ: [澪と透の解説動画 ▼]  公開範囲: [限定公開 ▼]       │  ← オプション
+│  動画タイプ: [ポッドキャスト音声要約 ▼]  公開範囲: [一般公開 ▼] │  ← オプション
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  Processing                                                     │
@@ -69,8 +69,9 @@ htmx・Pico CSS は CDN から読み込み。
 - 改行対応テキスト入力 + 「動画を作成」ボタン
 - 複数 URL は改行区切りで入力可能
 - Enter キーでも送信可能
-- 動画タイプ: `lecture`（澪と透、既定）/ `notebooklm`（従来方式）
-- 公開範囲: `unlisted`（限定公開、既定）/ `public`（一般公開）
+- 動画タイプ: `podcast`（ポッドキャスト音声要約、既定）/ `lecture`（澪と透の解説動画）
+- 公開範囲: `public`（一般公開、既定）/ `unlisted`（限定公開）
+  - ドロップダウンの初期選択は `settings.youtube.privacy_status` に従う（`config/settings.yaml` の既定値は `public`）
   - 選択値はジョブごとに state.json へ保存し、再起動や再試行を挟んでも維持する
   - 旧ジョブなど値がない場合は `settings.youtube.privacy_status` を使う
 - NotebookLM 方式の詳細設定: Prompt プリセット選択 + Audio Length 選択
@@ -237,8 +238,8 @@ state.json のステータスと UI 表示の対応:
 ```
 Form Data:
   urls: str              # 改行区切りの URL リスト（1行1URL）
-  mode: str              # "lecture" (default) | "notebooklm"
-  privacy_status: str    # "unlisted" (default) | "public"
+  mode: str              # "podcast" (default) | "lecture"
+  privacy_status: str    # "public" (default) | "unlisted"
   prompt: str            # プリセット名 (default: "default")
   audio_length: str      # "short" | "default"
 ```

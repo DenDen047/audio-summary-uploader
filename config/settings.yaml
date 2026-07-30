@@ -28,7 +28,7 @@ podcast:
 
 # YouTube 設定
 youtube:
-  privacy_status: "unlisted"
+  privacy_status: "public"
   category_id: "27"              # Education
   playlist_id: null  # 既定（default/未設定カテゴリのフォールバック）。null なら追加しない
   # ③ カテゴリ→プレイリストID。匿名チャンネルでプレイリスト作成後、コメントを外して
