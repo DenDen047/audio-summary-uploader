@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-26T02:47:07.590021Z"
+exclude-newer = "2026-07-25T03:54:01.167309Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -85,7 +85,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "loguru", specifier = ">=0.7" },
-    { name = "notebooklm-py", specifier = ">=0.1" },
+    { name = "notebooklm-py", git = "https://github.com/teng-lin/notebooklm-py?branch=main" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "pygments", specifier = ">=2.18" },
@@ -794,17 +794,13 @@ wheels = [
 
 [[package]]
 name = "notebooklm-py"
-version = "0.5.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.8.0rc1"
+source = { git = "https://github.com/teng-lin/notebooklm-py?branch=main#7d0aa42c1b858780250f9c6cfbea422aff3e8ce0" }
 dependencies = [
     { name = "click" },
     { name = "filelock" },
     { name = "httpx" },
     { name = "rich" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/8d/1ec99c3c411e235e7231767918dc48e41433952dd40bc27b1a2bd6d8e05a/notebooklm_py-0.5.0.tar.gz", hash = "sha256:e4bdd82f3cd5f66e50d5c32e5333d04c35c0075a8adf400daba9459b211eafca", size = 9326741, upload-time = "2026-05-24T03:54:44.251Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/74/639107f80c868aabf32bc92a94acd33eb0315dc41b0d6d7672c4cf2ee9be/notebooklm_py-0.5.0-py3-none-any.whl", hash = "sha256:f0e84c94ab61d390268533956121af7d869e8ba7355bdb38fd44c2a0285f00e6", size = 637506, upload-time = "2026-05-24T03:54:42.429Z" },
 ]
 
 [[package]]

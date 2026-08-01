@@ -26,6 +26,18 @@ uv run python <file>      # Run a Python file
 ruff check .
 ```
 
+### notebooklm-py の更新
+
+`notebooklm-py` は PyPI リリースではなく upstream の `main` ブランチを追う（`pyproject.toml` の `[tool.uv.sources]`）。Gemini Notebook（旧 NotebookLM）は Google 側の仕様変更が頻繁で、リリース間隔より修正の到着が速いため。実例として 2026-07 の `notebooklm.google.com` → `notebook.google.com` ドメイン移行では、ログイン完了判定の修正（[PR #2015](https://github.com/teng-lin/notebooklm-py/pull/2015)）が `main` にのみ入り、PyPI のどのリリースにも載らなかった。
+
+常に最新を取り込む。`uv.lock` にはその時点のコミットが記録されるので、再現性は保たれる。
+
+```bash
+uv lock --upgrade-package notebooklm-py && uv sync
+```
+
+`main` を追う以上、上流の変更で壊れることがある。認証やパイプラインが急に失敗し始めたら、まず `uv run notebooklm auth check --test` でサーバー側まで含めた認証状態を確認する（`notebooklm doctor` はローカルに cookie があるかしか見ないので、失効セッションでも pass になる）。それでも切り分かない場合は `uv.lock` を直前のコミットへ戻して再現するか確かめる。
+
 ## Code Style
 
 - **Fail Fast**: Crash immediately on errors for debugging — no silent failures.

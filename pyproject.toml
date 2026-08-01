@@ -47,6 +47,11 @@ select = ["E", "F", "I"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+# NotebookLM (Gemini Notebook) 側の仕様変更へ追随するため、PyPI ではなく upstream の
+# main を追う。詳細と更新手順は CLAUDE.md「notebooklm-py の更新」を参照。
+[tool.uv.sources]
+notebooklm-py = { git = "https://github.com/teng-lin/notebooklm-py", branch = "main" }
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
