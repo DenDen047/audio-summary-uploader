@@ -1,6 +1,12 @@
 # Stage 1: Build dependencies
 FROM python:3.11-slim AS builder
 
+# git は notebooklm-py の取得に必要（pyproject.toml の [tool.uv.sources] で
+# upstream main を追跡しているため、uv sync が git clone を行う）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
