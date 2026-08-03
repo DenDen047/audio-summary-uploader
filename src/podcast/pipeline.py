@@ -1102,6 +1102,7 @@ async def _collect_single(
     tmp_dir: Path,
     poll: bool,
     state_path: Path,
+    encode_semaphore: asyncio.Semaphore,
 ) -> ProcessResult:
     """1つのジョブに対して collect 処理を実行する."""
     url = job["url"]
@@ -1260,12 +1261,13 @@ async def _collect_single(
             topic=headline, style=style,
             storage_state_path=image_storage_state_path,
         )
-    video_path = await convert_to_video(
-        audio_path=audio_path,
-        thumbnail_path=thumbnail_path,
-        output_path=tmp_dir / "videos" / f"{slug}.mp4",
-        background_paths=background_paths,
-    )
+    async with encode_semaphore:
+        video_path = await convert_to_video(
+            audio_path=audio_path,
+            thumbnail_path=thumbnail_path,
+            output_path=tmp_dir / "videos" / f"{slug}.mp4",
+            background_paths=background_paths,
+        )
 
     # state 更新 (ディスクから再読込して競合を防ぐ)
     _update_job_state(state_path, url, {
@@ -1425,11 +1427,15 @@ async def _collect_audio_locked(
         settings.podcast.generation_timeout_seconds = timeout
 
     backend = _create_backend(settings)
+    # 動画エンコードだけ同時実行数を絞る。ジョブ全体を絞ると音声生成の待機まで
+    # 直列化して総時間が伸びるため、ffmpeg の並走だけを抑える
+    # （4本並走で ffmpeg が SIGKILL された）。
+    encode_semaphore = asyncio.Semaphore(settings.podcast.collect_concurrency)
 
     async def _safe_collect(job: dict) -> ProcessResult:
         try:
             return await _collect_single(
-                job, settings, backend, tmp_dir, poll, state_path
+                job, settings, backend, tmp_dir, poll, state_path, encode_semaphore
             )
         except Exception as exc:
             if _is_notebooklm_auth_error(exc):

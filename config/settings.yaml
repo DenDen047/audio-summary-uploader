@@ -5,6 +5,8 @@ podcast:
   audio_length: "short"     # グローバルデフォルト: "short" | "default"
   generation_timeout_seconds: 1200
   generation_poll_interval_seconds: 10
+  # 同時に走らせる ffmpeg エンコード数（増やすとメモリ不足で SIGKILL される）
+  collect_concurrency: 2
   # AI画像生成(サムネ/背景)専用の notebooklm プロファイル。本体(default)とセッションを
   # 分離して cookie の取り合いを防ぐ。初回: uv run notebooklm login --profile imagegen
   image_profile: "imagegen"

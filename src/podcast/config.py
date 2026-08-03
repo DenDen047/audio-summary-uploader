@@ -14,6 +14,9 @@ class PodcastConfig:
     audio_length: str = "short"
     generation_timeout_seconds: int = 1200
     generation_poll_interval_seconds: int = 10
+    # collect を同時に走らせるジョブ数。ffmpeg のエンコードと NotebookLM の chat が
+    # 同時に増えるほど不安定になる（4並列で ffmpeg が SIGKILL された）ため絞る。
+    collect_concurrency: int = 2
     prompt_presets: dict[str, str] = field(default_factory=dict)
     # AI画像生成(Nano Banana)用の notebooklm プロファイル名。本体と同じセッションを
     # 共有すると login/RPC の cookie 更新で画像側が無効化されるため、専用に分離する
@@ -24,6 +27,8 @@ class PodcastConfig:
         if self.backend not in valid_backends:
             msg = f"Invalid backend: {self.backend!r}. Must be one of {valid_backends}"
             raise ValueError(msg)
+        if self.collect_concurrency <= 0:
+            raise ValueError("podcast.collect_concurrency must be greater than zero")
         valid_lengths = {"short", "default"}
         if self.audio_length not in valid_lengths:
             msg = (

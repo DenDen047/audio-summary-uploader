@@ -186,6 +186,7 @@ class PodcastConfig:
     audio_length: str = "short"
     generation_timeout_seconds: int = 1200
     generation_poll_interval_seconds: int = 10
+    collect_concurrency: int = 2       # 同時に動かす ffmpeg エンコード数
     prompt_presets: dict[str, str] = field(default_factory=dict)
 
 @dataclass
@@ -627,6 +628,8 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 7. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
 8. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
+動画変換（ffmpeg）だけは `podcast.collect_concurrency` 件までに絞る。ジョブ全体を絞ると音声生成の待機まで直列化して総時間が伸びるため、エンコードの並走だけを抑える（4本並走で ffmpeg が SIGKILL された）。
+
 **Phase 3: upload_videos(settings, allow_interactive_auth)**
 1. state.json から `status="video_ready"` のジョブを取得
 2. YouTube認証（1回、`asyncio.to_thread` でラップ）→ 各ジョブを順次アップロード（`daily_upload_limit` 件で停止）
@@ -744,6 +747,7 @@ podcast:
   audio_length: "short"     # グローバルデフォルト: "short" | "default"
   generation_timeout_seconds: 1200   # Audio Overview 生成のタイムアウト (default長の音声は10分以上かかる場合がある)
   generation_poll_interval_seconds: 10
+  collect_concurrency: 2             # 同時に走らせる ffmpeg エンコード数（増やすとメモリ不足で SIGKILL される）
 
   prompt_presets:
     default: >
