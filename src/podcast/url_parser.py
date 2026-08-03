@@ -42,6 +42,11 @@ def _validate_audio_length(value: str | None) -> bool:
     return value is None or value in ("short", "default")
 
 
+def _validate_privacy_status(value: str | None) -> bool:
+    """privacy_status のバリデーション（未指定は settings の既定を使う）."""
+    return value is None or value in ("unlisted", "public", "private")
+
+
 def _normalize_mode(value: str) -> str:
     """旧モード名 "notebooklm" を現行の "podcast" へ読み替える（後方互換）。"""
     return "podcast" if value == "notebooklm" else value
@@ -106,6 +111,15 @@ def _parse_multi_entry(
         )
         return None
 
+    privacy_status = item.get("privacy_status")
+    if not _validate_privacy_status(privacy_status):
+        logger.warning(
+            "Skipping entry {} — invalid privacy_status: {!r}",
+            index + 1,
+            privacy_status,
+        )
+        return None
+
     seen_urls.update(urls)
     return UrlEntry(
         url=urls[0],
@@ -114,6 +128,7 @@ def _parse_multi_entry(
         audio_length=audio_length,
         prompt=prompt,
         title=(str(item["title"]).strip() if item.get("title") else None),
+        privacy_status=privacy_status,
     )
 
 
@@ -164,6 +179,13 @@ def parse_url_file(
             logger.warning("Skipping URL {} — unknown mode: {!r}", url, mode)
             continue
 
+        privacy_status = item.get("privacy_status")
+        if not _validate_privacy_status(privacy_status):
+            logger.warning(
+                "Skipping URL {} — invalid privacy_status: {!r}", url, privacy_status
+            )
+            continue
+
         # ローカルパスの場合: フォルダならPDFを展開、ファイルならそのまま
         if is_local_path(url):
             local_path = Path(url).expanduser().resolve()
@@ -182,6 +204,7 @@ def parse_url_file(
                         mode=mode,
                         audio_length=item.get("audio_length"),
                         prompt=item.get("prompt"),
+                        privacy_status=privacy_status,
                     ))
                     logger.debug("Added local PDF: {}", pdf_file.name)
                 continue
@@ -227,6 +250,7 @@ def parse_url_file(
                 mode=mode,
                 audio_length=audio_length,
                 prompt=prompt,
+                privacy_status=privacy_status,
             )
         )
 

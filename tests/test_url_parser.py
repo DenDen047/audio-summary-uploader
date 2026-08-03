@@ -162,3 +162,26 @@ def test_single_url_has_empty_extra_urls(tmp_path: Path) -> None:
     entries = parse_url_file(path)
     assert entries[0].extra_urls == []
     assert entries[0].sources == ["https://example.com/article"]
+
+
+def test_privacy_status_is_read_from_yaml(tmp_path: Path) -> None:
+    url_file = tmp_path / "urls.yaml"
+    url_file.write_text(
+        "- url: https://example.com/a\n"
+        "  privacy_status: unlisted\n"
+        "- url: https://example.com/b\n",
+        encoding="utf-8",
+    )
+
+    entries = parse_url_file(url_file)
+
+    assert [e.privacy_status for e in entries] == ["unlisted", None]
+
+
+def test_invalid_privacy_status_is_skipped(tmp_path: Path) -> None:
+    url_file = tmp_path / "urls.yaml"
+    url_file.write_text(
+        "- url: https://example.com/a\n  privacy_status: secret\n", encoding="utf-8"
+    )
+
+    assert parse_url_file(url_file) == []

@@ -231,9 +231,10 @@ class Settings:
 - url: https://newsletter.example.com/issue-42
   audio_length: default
 
-# ローカル PDF ファイル
+# ローカル PDF ファイル（公開範囲もエントリ単位で指定できる）
 - url: ~/Documents/papers/interesting-paper.pdf
   prompt: paper_summary
+  privacy_status: unlisted
 
 # フォルダ指定（中の全 PDF を処理）
 - url: ~/Documents/papers/
@@ -258,7 +259,7 @@ class UrlEntry:
     prompt: str | None = None         # プリセット名, None = "default"
     title: str | None = None          # 複数ソース時の任意タイトル
     extra_urls: list[str] = field(default_factory=list)  # 2番目以降のソース
-    privacy_status: str | None = None # Webで選んだ公開範囲。NoneはYouTube設定値
+    privacy_status: str | None = None # 公開範囲。NoneはYouTube設定値
 
     @property
     def sources(self) -> list[str]:   # [url, *extra_urls]
@@ -273,6 +274,7 @@ class UrlEntry:
 - `audio_length` の値バリデーション（`"short"` / `"default"` / `None` のみ許可）
 - `mode` の値バリデーション（`"lecture"` / `"podcast"` のみ許可）
 - `prompt` の値バリデーション（`settings.yaml` の `prompt_presets` に定義されたキーのみ許可）
+- `privacy_status` の値バリデーション（`"unlisted"` / `"public"` / `"private"` / `None` のみ許可。未指定は `settings.youtube.privacy_status`）
 - 重複 URL の除去
 - 処理済み URL のスキップ（状態ファイルとの照合）
 
