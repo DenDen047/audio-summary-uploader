@@ -47,6 +47,11 @@ def _extract_favicon_url(soup: BeautifulSoup, page_url: str) -> str | None:
 
 _MAX_PDF_IMAGE_PIXELS = 25_000_000  # 25MP 上限
 
+# PNG に書き出せる colorspace。これ以外（CMYK, Separation, DeviceN 等）は
+# RGB へ変換する。Separation は成分数が 1 でも DeviceGray ではないため、
+# 成分数では判定できない。
+_PNG_SAFE_COLORSPACES = frozenset({"DeviceGray", "DeviceRGB"})
+
 
 def _extract_pdf_first_image(file_path: Path) -> bytes | None:
     """PDF から最大の埋め込み画像を抽出する。見つからなければ None."""
@@ -72,6 +77,10 @@ def _extract_pdf_first_image(file_path: Path) -> bytes | None:
             xref = img_info[0]
             try:
                 pix = pymupdf.Pixmap(doc, xref)
+                if pix.colorspace is None:
+                    # ステンシルマスク（1bit の型抜き画像）はサムネイル素材にならない
+                    logger.debug("Skipping stencil mask image xref={}", xref)
+                    continue
                 img_size = pix.width * pix.height
                 if img_size > _MAX_PDF_IMAGE_PIXELS:
                     logger.debug(
@@ -92,7 +101,7 @@ def _extract_pdf_first_image(file_path: Path) -> bytes | None:
     result: bytes | None = None
     if best_xref is not None:
         pix = pymupdf.Pixmap(doc, best_xref)
-        if pix.n > 3:
+        if pix.colorspace.name not in _PNG_SAFE_COLORSPACES:
             pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
         result = pix.tobytes("png")
         logger.info("Extracted image from PDF ({} bytes)", len(result))
