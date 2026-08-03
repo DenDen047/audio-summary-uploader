@@ -124,12 +124,17 @@ class NotebookLMPyBackend(NotebookLMBackend):
             notebook_id,
             task_id,
         )
+        poll_interval = float(self._poll_interval)
         async with await self._get_client() as client:
+            # notebooklm-py の待機は指数バックオフ方式で、固定間隔の poll_interval は
+            # initial_interval / max_interval に置き換わっている。設定値は間隔の上限
+            # として扱い、初回間隔は上流既定の 2 秒（上限を超えない範囲）から始める。
             result = await client.artifacts.wait_for_completion(
                 notebook_id,
                 task_id=task_id,
                 timeout=float(self._timeout),
-                poll_interval=float(self._poll_interval),
+                initial_interval=min(2.0, poll_interval),
+                max_interval=poll_interval,
             )
         logger.info("Audio wait result: status={}", result.status)
         return result
