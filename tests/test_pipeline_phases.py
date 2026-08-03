@@ -1130,3 +1130,126 @@ async def test_compose_topic_thumbnail_simple_mode_skips_ai(
 
     mock_base.assert_not_called()
     assert mock_compose.call_args.args[0] == _MASCOT_BASE
+
+
+@pytest.mark.asyncio()
+async def test_collect_resumes_from_checkpoint(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """ノートブック削除後に落ちたジョブは、音声生成せず動画化から再開する."""
+    state_path = Path(settings.general.state_file)
+    audio_path = Path(settings.general.tmp_dir) / "audio" / "abc123.mp3"
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+    audio_path.write_bytes(b"fake audio")
+
+    state = {
+        "last_run": None,
+        "jobs": [
+            {
+                "url": "https://example.com/article1",
+                "slug": "abc123",
+                "mode": "podcast",
+                "audio_length": "default",
+                "prompt": "default",
+                "status": "generating",
+                "notebook_id": None,          # NotebookLM の作業は完了済み
+                "task_id": "task-1",
+                "metadata": {
+                    "title": "日本語タイトル",
+                    "description": "",
+                    "og_image_url": None,
+                    "site_name": "example.com",
+                    "language": "ja",
+                    "favicon_url": None,
+                },
+                "category": "news",
+                "thumb_copy": {
+                    "top": "AIニュース",
+                    "mid": "",
+                    "bottom": "つづきは動画で",
+                    "highlight": "",
+                },
+                "audio_path": str(audio_path),
+                "thumbnail_path": None,
+                "video_path": None,
+                "youtube_url": None,
+                "error": None,
+                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "collected_at": None,
+                "uploaded_at": None,
+            }
+        ],
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with (
+        patch("podcast.pipeline._create_backend", return_value=mock_backend),
+        patch(
+            "podcast.pipeline._generate_backgrounds",
+            new=AsyncMock(return_value=[]),
+        ),
+        patch(
+            "podcast.pipeline._compose_topic_thumbnail",
+            new=AsyncMock(return_value=Path("/tmp/thumb.png")),
+        ),
+        patch("podcast.pipeline.convert_to_video") as mock_video,
+    ):
+        mock_video.return_value = Path("/tmp/video.mp4")
+        results = await collect_audio(settings, poll=True)
+
+    assert len(results) == 1
+    assert results[0].status == "video_ready"
+    # 音声生成・DL・chat は一切呼ばれない
+    mock_backend.check_audio_status.assert_not_called()
+    mock_backend.wait_for_audio.assert_not_called()
+    mock_backend.download_audio.assert_not_called()
+    mock_backend.ask.assert_not_called()
+
+    job = _load_state(state_path)["jobs"][0]
+    assert job["status"] == "video_ready"
+    assert job["metadata"]["title"] == "日本語タイトル"
+
+
+@pytest.mark.asyncio()
+async def test_collect_cannot_resume_when_audio_file_is_gone(
+    settings: Settings, mock_backend: AsyncMock
+) -> None:
+    """チェックポイントの音声ファイルが消えていれば再開せず failed にする."""
+    state_path = Path(settings.general.state_file)
+    state = {
+        "last_run": None,
+        "jobs": [
+            {
+                "url": "https://example.com/article1",
+                "slug": "abc123",
+                "mode": "podcast",
+                "audio_length": "default",
+                "prompt": "default",
+                "status": "generating",
+                "notebook_id": None,
+                "task_id": None,
+                "metadata": {"title": "T", "description": "", "og_image_url": None,
+                             "site_name": None, "language": None,
+                             "favicon_url": None},
+                "category": "news",
+                "thumb_copy": {"top": "AI", "mid": "", "bottom": "B",
+                               "highlight": ""},
+                "audio_path": str(
+                    Path(settings.general.tmp_dir) / "audio" / "gone.mp3"
+                ),
+                "thumbnail_path": None,
+                "video_path": None,
+                "youtube_url": None,
+                "error": None,
+                "submitted_at": "2026-01-01T00:00:00+00:00",
+                "collected_at": None,
+                "uploaded_at": None,
+            }
+        ],
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    with patch("podcast.pipeline._create_backend", return_value=mock_backend):
+        results = await collect_audio(settings, poll=True)
+
+    assert results[0].status == "failed"

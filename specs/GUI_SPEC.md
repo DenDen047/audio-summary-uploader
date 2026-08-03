@@ -257,6 +257,8 @@ Form Data:
 
 - 該当ジョブ（`failed` のみ）をリセットしてキューに再投入。ジョブは**削除せず** `queued` に戻して state.json に残す（ワーカー処理開始までの間も UI に表示され、再起動でもリトライが失われない）
 - 動画変換まで完了済み（`video_path` と `thumbnail_path` のファイルが存在）なら `video_ready` に戻し、音声の再生成をスキップしてアップロードのみ再試行する（動画の重複アップロード防止）
+- 音声とサムネコピーだけ残っている（`notebook_id` が無く、`audio_path` のファイルと `thumb_copy` が存在）なら `generating` に戻し、collect の後半（AI画像生成・動画変換）から再開する。音声生成をやり直さない
+- いずれも `youtube_url` が残っているジョブには適用しない（アップロード済みで重複するため）
 - htmx: Completed セクションをリフレッシュ（`HX-Trigger: refreshAll`）
 
 #### `POST /api/retry-all-failed`

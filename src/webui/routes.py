@@ -275,10 +275,13 @@ def _reset_failed_job(job: dict) -> UrlEntry | None:
     処理を始めるまでの間も UI に表示され、サーバー再起動でもリトライが
     失われない。動画変換まで完了済みなら video_ready に戻し、音声の
     再生成をスキップしてアップロードのみ再試行する (動画の重複防止)。
+    音声とサムネコピーだけ残っている場合は generating に戻し、collect の
+    後半 (AI画像生成・動画化) から再開する。
     """
     job["error"] = None
     video_path = job.get("video_path")
     thumbnail_path = job.get("thumbnail_path")
+    audio_path = job.get("audio_path")
     # youtube_url が残っているジョブ (CLI --force 再実行の失敗等) は
     # アップロード済みのため、video_ready 再開すると同じ動画が重複する
     if (
@@ -289,6 +292,15 @@ def _reset_failed_job(job: dict) -> UrlEntry | None:
         and Path(thumbnail_path).exists()
     ):
         job["status"] = "video_ready"
+        return None
+    if (
+        job.get("youtube_url") is None
+        and job.get("notebook_id") is None
+        and job.get("thumb_copy")
+        and audio_path
+        and Path(audio_path).exists()
+    ):
+        job["status"] = "generating"
         return None
     job["status"] = "queued"
     return UrlEntry(
@@ -316,7 +328,7 @@ async def retry_job(slug: str, request: Request) -> HTMLResponse:
                 "Retrying job: {} (slug={}, resume={})",
                 job["url"],
                 slug,
-                "upload" if entry is None else "submit",
+                job["status"],
             )
             break
 

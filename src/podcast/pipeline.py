@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import tempfile
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -618,6 +618,7 @@ def _migrate_state(state: dict) -> dict:
             job.setdefault("upload_metadata_path", None)
             job.setdefault("image_profile_used", None)
             job.setdefault("background_paths", [])
+            job.setdefault("thumb_copy", None)
         return state
     old_processed = state.get("processed", [])
     jobs: list[dict[str, Any]] = []
@@ -765,6 +766,8 @@ def _find_or_create_job(
         "upload_metadata_path": None,
         "image_profile_used": None,
         "background_paths": [],
+        # collect 後半（AI画像生成・動画化）から再開するためのチェックポイント
+        "thumb_copy": None,
         "youtube_url": None,
         "thumbnail_pending": False,
         "error": None,
@@ -1095,6 +1098,25 @@ async def _fail_collect_job(
     )
 
 
+def _collect_checkpoint(job: dict) -> tuple[Path, ThumbCopy] | None:
+    """collect 後半から再開できるジョブなら (音声パス, サムネコピー) を返す.
+
+    ノートブックは削除済み（notebook_id=None）で、音声ファイルと chat 由来の
+    サムネコピーが残っているジョブが対象。音声ファイルが消えていれば再開できない。
+    """
+    if job.get("notebook_id") or not job.get("metadata"):
+        return None
+    raw_copy = job.get("thumb_copy")
+    audio_path_str = job.get("audio_path")
+    if not isinstance(raw_copy, dict) or not audio_path_str:
+        return None
+    audio_path = Path(audio_path_str)
+    if not audio_path.exists():
+        logger.warning("Checkpoint audio is missing, cannot resume: {}", audio_path)
+        return None
+    return audio_path, ThumbCopy(**raw_copy)
+
+
 async def _collect_single(
     job: dict,
     settings: Settings,
@@ -1112,6 +1134,27 @@ async def _collect_single(
     title = job["metadata"]["title"] if job.get("metadata") else None
 
     logger.info("Collecting: {} (slug={})", url, slug)
+
+    # NotebookLM の作業を終えた後（AI画像生成・動画化の途中）で落ちたジョブは、
+    # 保存済みのチェックポイントから後半だけやり直す。音声とサムネコピーは
+    # 手元にあるので、音声生成からやり直す必要はない。
+    checkpoint = _collect_checkpoint(job)
+    if checkpoint is not None:
+        logger.info("Resuming from checkpoint (audio already collected): {}", url)
+        audio_path, thumb_copy = checkpoint
+        return await _render_video_and_finish(
+            url=url,
+            slug=slug,
+            metadata=_dict_to_metadata(url, job["metadata"]),
+            citation_dict=job.get("citation"),
+            category=job.get("category") or classify_category(url),
+            thumb_copy=thumb_copy,
+            audio_path=audio_path,
+            settings=settings,
+            tmp_dir=tmp_dir,
+            state_path=state_path,
+            encode_semaphore=encode_semaphore,
+        )
 
     # submit が中断されたジョブは回収できない → 明示的に failed にする
     if not notebook_id or not task_id:
@@ -1227,8 +1270,6 @@ async def _collect_single(
     # それも無ければグラデーションに縮退する。
     # 見出しは公開される面なので、ここでサニタイズする。
     headline = sanitize_public_text(metadata.title)
-    style = style_for_category(category)
-    thumbnail_path = tmp_dir / "thumbnails" / f"{slug}_thumb.png"
     thumb_copy = await _generate_thumb_copy(backend, notebook_id, category, headline)
     # 論文略称があれば主役ワード（top）を略称で固定し、縮小時も判別しやすくする。
     if paper_shortname and len(paper_shortname) <= _THUMB_TOP_MAX_LEN:
@@ -1238,16 +1279,62 @@ async def _collect_single(
     # Gemini 側の cookie ローテーションが NotebookLM の後続 RPC を壊す余地をなくすため、
     # ノートブックも画像生成より先に削除する。
     await backend.delete_notebook(notebook_id)
+    # ここから先は NotebookLM を使わないので、chat で得た情報を保存しておく。
+    # 保存しないと、この先（AI画像生成・動画化）で落ちたときノートブックが無いため
+    # 再開できず、音声生成から丸ごとやり直しになる。
     _update_job_state(
         state_path,
         url,
-        {"notebook_id": None, "audio_path": str(audio_path)},
+        {
+            "notebook_id": None,
+            "audio_path": str(audio_path),
+            "metadata": _metadata_to_dict(metadata),
+            "citation": citation_dict,
+            "category": category,
+            "thumb_copy": asdict(thumb_copy),
+        },
     )
+
+    return await _render_video_and_finish(
+        url=url,
+        slug=slug,
+        metadata=metadata,
+        citation_dict=citation_dict,
+        category=category,
+        thumb_copy=thumb_copy,
+        audio_path=audio_path,
+        settings=settings,
+        tmp_dir=tmp_dir,
+        state_path=state_path,
+        encode_semaphore=encode_semaphore,
+    )
+
+
+async def _render_video_and_finish(
+    *,
+    url: str,
+    slug: str,
+    metadata: PageMetadata,
+    citation_dict: dict | None,
+    category: str,
+    thumb_copy: ThumbCopy,
+    audio_path: Path,
+    settings: Settings,
+    tmp_dir: Path,
+    state_path: Path,
+    encode_semaphore: asyncio.Semaphore,
+) -> ProcessResult:
+    """collect の後半（NotebookLM を使わない区間）: サムネ→背景→動画→state 更新.
+
+    チェックポイントからの再開でも同じ経路を通す。
+    """
+    headline = sanitize_public_text(metadata.title)
+    style = style_for_category(category)
     image_storage_state_path = await _resolve_image_storage_state(settings)
 
     thumbnail_path = await _compose_topic_thumbnail(
         slug, tmp_dir, settings, headline, style, thumb_copy,
-        thumbnail_path, metadata.site_name,
+        tmp_dir / "thumbnails" / f"{slug}_thumb.png", metadata.site_name,
         storage_state_path=image_storage_state_path,
         ai_enabled=image_storage_state_path is not None,
     )

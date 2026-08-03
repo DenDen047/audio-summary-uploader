@@ -621,12 +621,13 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 **Phase 2: collect_audio(settings, poll, timeout)**
 1. state.json から `status="generating"` のジョブを取得
 2. `mode="lecture"` は `lecture.generate_lecture()` をワーカースレッドで直列実行し、動画・サムネイル・台本・投稿JSONを出力して `video_ready` に合流させる（生成内容の仕様は `specs/LECTURE_SPEC.md` を正とする）
-3. `mode="podcast"` で `notebook_id` / `task_id` が無いジョブは明示的なエラーで `failed` に遷移
-4. NotebookLMジョブに対して並列で `check_audio_status()` を呼び出し
-5. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
-6. 完了したジョブ: 音声DL → chat 後処理 → ノートブック削除 → 利用可能な画像プロファイルを選択→ AIサムネイル・複数背景 → 動画変換 → `status="video_ready"`（`notebook_id` をクリア）。専用画像プロファイルが失効していれば `default` へ自動退避し、生成背景を動画変換へ渡す
-7. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
-8. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
+3. `mode="podcast"` でチェックポイント（`notebook_id` が無く、`audio_path` の音声ファイルと `thumb_copy` が残っている）を持つジョブは、後半（AIサムネイル・背景・動画変換）だけ再開する。音声とサムネコピーは手元にあるので音声生成からやり直さない
+4. `mode="podcast"` で `notebook_id` / `task_id` が無く、チェックポイントも無いジョブは明示的なエラーで `failed` に遷移
+5. NotebookLMジョブに対して並列で `check_audio_status()` を呼び出し
+6. terminal な `failed` ステータス: `failed` に遷移 + ノートブック削除（`--poll` の有無に関わらず）。`not_found` は一時的 lag の可能性があるため単発では terminal 扱いしない（§3.5 参照）
+7. 完了したジョブ: 音声DL → chat 後処理 → ノートブック削除＋チェックポイント保存 → 利用可能な画像プロファイルを選択→ AIサムネイル・複数背景 → 動画変換 → `status="video_ready"`（`notebook_id` をクリア）。専用画像プロファイルが失効していれば `default` へ自動退避し、生成背景を動画変換へ渡す
+8. 未完了ジョブ: `--poll` あり → `wait_for_audio` で待機（タイムアウト時は `generating` 維持で次回再試行）/ なし → ステータス報告のみ
+9. 例外で `failed` に遷移する際は、残存ノートブックを best-effort で削除する
 
 動画変換（ffmpeg）だけは `podcast.collect_concurrency` 件までに絞る。ジョブ全体を絞ると音声生成の待機まで直列化して総時間が伸びるため、エンコードの並走だけを抑える（4本並走で ffmpeg が SIGKILL された）。
 
@@ -675,6 +676,13 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
         "language": "en"
       },
       "audio_path": "./tmp/audio/a1b2c3d4e5f6.mp3",
+      "category": "news",
+      "thumb_copy": {
+        "top": "AIニュース",
+        "mid": "",
+        "bottom": "つづきは動画で",
+        "highlight": ""
+      },
       "thumbnail_path": "./tmp/thumbnails/a1b2c3d4e5f6_thumb.png",
       "image_profile_used": "default",
       "background_paths": [
@@ -705,6 +713,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 - 旧 `state.json`（`processed` キー）は初回ロード時に自動マイグレーション
 - Web UI で選んだ公開範囲はジョブ単位で保持し、再起動・再試行後も同じ値でアップロードする
 - 状態ファイルはアトミック書き込み（一時ファイル→rename）
+- `category` / `thumb_copy` は collect 後半（AI画像生成・動画変換）から再開するためのチェックポイント。ノートブック削除の直前に保存し、途中で落ちても音声生成をやり直さずに済ませる
 - パイプライン実行は `state.lock` の `flock` で1プロセスに直列化する（二重実行防止。上記 §3.9 参照）
 
 ### 3.11 結果レポート (`report.py`)
