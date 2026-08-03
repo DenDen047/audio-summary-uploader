@@ -301,6 +301,10 @@ uv run webui [--port 8080] [--config PATH]
 - 起動時にブラウザを自動で開く（`webbrowser.open()`）
 - Ctrl+C で停止。実行中のタスクがあっても中断して OK（次回起動時に `generating` ジョブは collect で回収可能）
 
+### ログ
+
+`logs/webui.log` に DEBUG 以上を出力する（10 MB でローテーション、5 世代保持）。端末の標準出力だけでは端末を閉じた時点で失敗の記録が失われ、後から原因を追えないため。notebooklm-py は stdlib logging を使うので、root logger を loguru へ転送してから記録する（これがないと `RPC ... rpc_code=5` のような診断に必要な行が残らない）。転送する stdlib 側のレベルは WARNING 以上に絞る（INFO だと httpx が全リクエストを吐いてログが埋まる）。
+
 ## 依存パッケージ追加
 
 ```toml
