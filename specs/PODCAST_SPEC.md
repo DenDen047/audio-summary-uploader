@@ -615,6 +615,8 @@ run_pipeline()    → 3フェーズを順に実行（従来互換）
 
 **state 書き込みの原則（全フェーズ共通）:**ジョブ更新は必ずディスク上の最新 state を読み直してから該当ジョブのみ更新して保存する（`_update_job_state` / `_upsert_job_state`）。メモリ上の古い stateスナップショット全体を書き戻すと、並行する Web 操作（削除・クリア・リトライ・追加）を巻き戻してしまうため。
 
+**プロセス間の排他（全フェーズ共通）:**各フェーズは `state.json` と同じ場所の `state.lock` を `flock` で排他ロックしてから実行する（`podcast.locking.pipeline_lock`）。ロックを取れない実行は待たずに `PipelineBusyError` で中止し、Web UI のワーカーはそのスイープを skip する（ジョブは相手が進めるので `failed` にしない）。同一プロセス内の入れ子（`run_pipeline` → 各フェーズ）は再入可能。CLI と Web UI が同じジョブを同時に collect すると、片方がノートブックを削除した時点でもう片方のアーティファクトが一覧から消え（`removed`）、chat も not found で拒否されて互いの成果を壊すため。
+
 **Phase 2: collect_audio(settings, poll, timeout)**
 1. state.json から `status="generating"` のジョブを取得
 2. `mode="lecture"` は `lecture.generate_lecture()` をワーカースレッドで直列実行し、動画・サムネイル・台本・投稿JSONを出力して `video_ready` に合流させる（生成内容の仕様は `specs/LECTURE_SPEC.md` を正とする）
@@ -700,6 +702,7 @@ CLAUDE.md の Fail Fast 原則に基づき、以下のように粒度を分け�
 - 旧 `state.json`（`processed` キー）は初回ロード時に自動マイグレーション
 - Web UI で選んだ公開範囲はジョブ単位で保持し、再起動・再試行後も同じ値でアップロードする
 - 状態ファイルはアトミック書き込み（一時ファイル→rename）
+- パイプライン実行は `state.lock` の `flock` で1プロセスに直列化する（二重実行防止。上記 §3.9 参照）
 
 ### 3.11 結果レポート (`report.py`)
 

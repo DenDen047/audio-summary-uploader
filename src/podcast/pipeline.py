@@ -44,6 +44,7 @@ from podcast.image_gen import (
     resolve_google_storage_state,
     storage_state_for_profile,
 )
+from podcast.locking import pipeline_lock
 from podcast.metadata import PageMetadata, fetch_metadata, metadata_for_local_file
 from podcast.notebooklm import NotebookLMBackend
 from podcast.notebooklm_py_backend import NotebookLMPyBackend
@@ -943,6 +944,19 @@ async def submit_urls(
     force: bool = False,
     dry_run: bool = False,
 ) -> list[ProcessResult]:
+    """Phase 1 を state.json の排他ロック下で実行する（二重実行防止）."""
+    with pipeline_lock(Path(settings.general.state_file)):
+        return await _submit_urls_locked(
+            entries, settings, force=force, dry_run=dry_run
+        )
+
+
+async def _submit_urls_locked(
+    entries: list[UrlEntry],
+    settings: Settings,
+    force: bool = False,
+    dry_run: bool = False,
+) -> list[ProcessResult]:
     """Phase 1: 生成方式ごとのジョブを開始可能な状態へ遷移させる。"""
     state_path = Path(settings.general.state_file)
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1352,6 +1366,16 @@ async def collect_audio(
     poll: bool = False,
     timeout: int | None = None,
 ) -> list[ProcessResult]:
+    """Phase 2 を state.json の排他ロック下で実行する（二重実行防止）."""
+    with pipeline_lock(Path(settings.general.state_file)):
+        return await _collect_audio_locked(settings, poll=poll, timeout=timeout)
+
+
+async def _collect_audio_locked(
+    settings: Settings,
+    poll: bool = False,
+    timeout: int | None = None,
+) -> list[ProcessResult]:
     """Phase 2: 生成方式に応じて投稿可能な動画一式を完成させる。"""
     tmp_dir = Path(settings.general.tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -1475,6 +1499,17 @@ async def _reapply_pending_thumbnails(
 
 
 async def upload_videos(
+    settings: Settings,
+    allow_interactive_auth: bool = True,
+) -> list[ProcessResult]:
+    """Phase 3 を state.json の排他ロック下で実行する（二重アップロード防止）."""
+    with pipeline_lock(Path(settings.general.state_file)):
+        return await _upload_videos_locked(
+            settings, allow_interactive_auth=allow_interactive_auth
+        )
+
+
+async def _upload_videos_locked(
     settings: Settings,
     allow_interactive_auth: bool = True,
 ) -> list[ProcessResult]:
@@ -1811,6 +1846,30 @@ async def process_single_url(
 
 
 async def run_pipeline(
+    entries: list[UrlEntry],
+    settings: Settings,
+    dry_run: bool = False,
+    force: bool = False,
+    retry_failed: bool = False,
+    allow_interactive_auth: bool = True,
+) -> list[ProcessResult]:
+    """3フェーズ全体を state.json の排他ロック下で実行する（二重実行防止）.
+
+    ロックは同一プロセス内では再入可能なので、この中から呼ぶ submit / collect /
+    upload は素通しで動く。
+    """
+    with pipeline_lock(Path(settings.general.state_file)):
+        return await _run_pipeline_locked(
+            entries,
+            settings,
+            dry_run=dry_run,
+            force=force,
+            retry_failed=retry_failed,
+            allow_interactive_auth=allow_interactive_auth,
+        )
+
+
+async def _run_pipeline_locked(
     entries: list[UrlEntry],
     settings: Settings,
     dry_run: bool = False,

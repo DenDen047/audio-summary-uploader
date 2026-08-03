@@ -143,6 +143,7 @@ htmx で 5 秒ごとに更新。
 - ヘッダーバッジの processing / queued 件数は state.json のジョブステータスから数える（インメモリのカウンタは持たない）。例: `● 2 processing, 3 queued`
 - 空バッチ（`entries=[]`）の投入は collect / upload スイープの起動として機能する（`run_pipeline` は entries に関わらず state.json 上の全 `generating` / `video_ready` ジョブを処理するため）
 - バッチ全体が例外で失敗した場合、`queued` のまま残ったジョブは failed に遷移させてエラーを可視化する（submit まで進んだジョブは復旧可能性があるため触らない）
+- **プロセスを跨ぐ排他は `state.lock` の `flock` が担う**（`podcast.locking.pipeline_lock`）。CLI が collect 中に Web UI のスイープが走ると、片方がノートブックを削除した時点でもう片方のアーティファクトが消え（`removed`）、互いの成果を壊す。ロックが取れないスイープは `PipelineBusyError` を warning で記録して skip し、ジョブは failed にしない（相手が処理を進めるため）
 
 ```python
 import asyncio
@@ -157,6 +158,9 @@ async def pipeline_worker(settings: Settings):
             await run_pipeline(
                 entries, settings, force=False, allow_interactive_auth=False
             )
+        except PipelineBusyError as exc:
+            # CLI 等が同じジョブを処理中。相手が進めるので failed にしない
+            logger.warning("Pipeline busy, skipped this sweep: {}", exc)
         except Exception as exc:
             logger.exception("Pipeline error: {}", exc)
             # queued のまま残ったジョブを failed にする

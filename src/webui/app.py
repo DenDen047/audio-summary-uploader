@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from loguru import logger
 
 from podcast.config import Settings
+from podcast.locking import PipelineBusyError
 from podcast.pipeline import _load_state, _save_state, run_pipeline
 from podcast.url_parser import UrlEntry
 
@@ -112,6 +113,9 @@ async def pipeline_worker(settings: Settings) -> None:
                     r.phase,
                     r.error,
                 )
+        except PipelineBusyError as exc:
+            # CLI 等が同じジョブを処理中。ジョブは相手が進めるので failed にしない。
+            logger.warning("Pipeline busy, skipped this sweep: {}", exc)
         except Exception as exc:
             logger.exception("Pipeline error: {}", exc)
             # queued のまま放置すると UI で永遠に「準備中...」になるため failed にする
