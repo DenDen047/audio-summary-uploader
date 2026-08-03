@@ -49,7 +49,12 @@ from podcast.metadata import PageMetadata, fetch_metadata, metadata_for_local_fi
 from podcast.notebooklm import NotebookLMBackend
 from podcast.notebooklm_py_backend import NotebookLMPyBackend
 from podcast.report import ProcessResult
-from podcast.thumbnail import ThumbCopy, compose_thumbnail, generate_thumbnail
+from podcast.thumbnail import (
+    ThumbCopy,
+    compose_thumbnail,
+    generate_thumbnail,
+    truncate_at_phrase,
+)
 from podcast.url_parser import UrlEntry, is_local_path
 from podcast.video import convert_to_video, probe_duration
 from podcast.youtube import (
@@ -388,7 +393,7 @@ async def _generate_thumb_copy(
     """
     fallback = ThumbCopy(
         top=_CATEGORY_BANNER.get(category or "", _DEFAULT_BANNER),
-        bottom=headline[:_THUMB_BOTTOM_MAX_LEN],
+        bottom=truncate_at_phrase(headline, _THUMB_BOTTOM_MAX_LEN),
     )
     try:
         answer = await backend.ask(notebook_id, _THUMB_COPY_QUESTION)

@@ -109,6 +109,32 @@ def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[
     return lines
 
 
+def _join_units(units: list[str], max_len: int, separator: str) -> str:
+    """max_len を超えない範囲で units を先頭から連結する."""
+    joined = ""
+    for unit in units:
+        candidate = f"{joined}{separator}{unit}" if joined else unit
+        if len(candidate) > max_len:
+            break
+        joined = candidate
+    return joined
+
+
+def truncate_at_phrase(text: str, max_len: int) -> str:
+    """max_len 文字以内へ、語中で切らずに丸める.
+
+    素朴な `text[:max_len]` は「AIが勝手に3組織をハ」「Opus 5 on V」のように
+    語中で切れて意味が壊れる。日本語は budoux の文節境界、英語は単語境界で切る。
+    どちらでも1語も入らない場合だけ、最後の手段として文字数で切る。
+    """
+    if len(text) <= max_len:
+        return text
+    fitted = _join_units(_BUDOUX_PARSER.parse(text), max_len, "")
+    if not fitted and " " in text:
+        fitted = _join_units(text.split(), max_len, " ")
+    return fitted or text[:max_len]
+
+
 def _wrap_text_phrases(
     text: str, font: ImageFont.FreeTypeFont, max_width: int
 ) -> list[str]:

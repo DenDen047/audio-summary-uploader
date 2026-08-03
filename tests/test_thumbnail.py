@@ -6,7 +6,12 @@ from pathlib import Path
 from PIL import Image
 
 from podcast.config import ThumbnailConfig
-from podcast.thumbnail import ThumbCopy, _wrap_text_phrases, compose_thumbnail
+from podcast.thumbnail import (
+    ThumbCopy,
+    _wrap_text_phrases,
+    compose_thumbnail,
+    truncate_at_phrase,
+)
 
 
 def _make_base(path: Path, size: tuple[int, int] = (1280, 720)) -> Path:
@@ -73,3 +78,17 @@ class TestWrapTextPhrases:
         lines = _wrap_text_phrases(text, font, 300)
         assert "".join(lines) == text
         assert len(lines) > 1
+
+
+def test_truncate_at_phrase_keeps_words_intact() -> None:
+    # 日本語は budoux の文節境界で切る（「ハ」だけ残さない）
+    assert truncate_at_phrase("AIが勝手に3組織をハッキング", 11) == "AIが勝手に3組織を"
+    # 英語は単語境界で切る（"Opus 5 on V" にしない）
+    assert truncate_at_phrase("Opus 5 on Vending-Bench", 11) == "Opus 5 on"
+    # 収まるものはそのまま
+    assert truncate_at_phrase("AIニュース", 11) == "AIニュース"
+
+
+def test_truncate_at_phrase_falls_back_to_hard_cut() -> None:
+    """1語も収まらない場合だけ文字数で切る."""
+    assert truncate_at_phrase("あいうえおかきくけこさしすせそ", 5) == "あいうえお"
